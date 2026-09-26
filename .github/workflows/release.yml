@@ -53,12 +53,22 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: Quill ${{ github.ref_name }}
           releaseBody: |
-            ## [Download Quill for Windows](https://github.com/valenxi0/Quill/releases/download/${{ github.ref_name }}/Quill-Setup.exe)
+            ## [Download Quill-Setup.exe for Windows](https://github.com/valenxi0/Quill/releases/download/${{ github.ref_name }}/Quill-Setup.exe)
 
             Run **Quill-Setup.exe** and follow the short setup. Already have Quill? Run it over your current copy: your settings and downloaded engines are kept.
 
             You only need `Quill-Setup.exe`. The other files are for Quill's updater and the source code.
-          releaseDraft: false
+
+            Windows 10/11, 64-bit. Sign in to GitHub with access to this repository to download.
+
+            ### Included
+            - Local dictation with Parakeet + S1-mini, Cohere, and Whisper engines.
+            - Guided setup, configurable shortcuts, and a recording indicator.
+            - Vocabulary, snippets, optional history, and dictation stats.
+            - Bundled Visual C++ runtime libraries.
+
+            See the [setup guide](https://github.com/valenxi0/Quill/blob/${{ github.ref_name }}/docs/SETUP-GUIDE.md) for installation and troubleshooting. This installer is not Windows code-signed; Smart App Control may block it.
+          releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
 
@@ -72,3 +82,5 @@ jobs:
           $setup = Get-ChildItem "$env:CARGO_TARGET_DIR/release/bundle/nsis/*-setup.exe" | Select-Object -First 1
           Copy-Item $setup.FullName "$env:RUNNER_TEMP/Quill-Setup.exe"
           gh release upload "${{ github.ref_name }}" "$env:RUNNER_TEMP/Quill-Setup.exe" --clobber
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          gh release edit "${{ github.ref_name }}" --draft=false --latest
