@@ -1,0 +1,165 @@
+//! The paste target, captured at recording start (section 4.2, step 1).
+
+use windows::core::{PCWSTR, PWSTR};
+use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND};
+use windows::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
+use windows::Win32::Storage::FileSystem::{GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW};
+use windows::Win32::Storage::Packaging::Appx::GetApplicationUserModelId;
+use windows::Win32::System::Threading::{
+    GetCurrentProcess, OpenProcess, OpenProcessToken, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+    PROCESS_QUERY_LIMITED_INFORMATION,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetClassNameW, GetForegroundWindow, GetWindowThreadProcessId, IsWindow,
+};
+
+use super::uia;
+
+#[derive(Debug, Clone, Default)]
+pub struct Target {
+    pub hwnd: isize,
+    pub exe: String,
+    pub app_name: String,
+    pub aumid: Option<String>,
+    pub focused_name: String,
+    pub is_password: bool,
+    pub element_id: Option<u64>,
+    /// False for the desktop, the taskbar, or no window at all.
+    pub editable: bool,
+    /// The target runs elevated and Quill doesn't (UIPI blocks paste).
+    pub elevated: bool,
+}
+
+impl Target {
+    pub fn hwnd(&self) -> HWND {
+        HWND(self.hwnd as *mut _)
+    }
+
+    pub fn is_alive(&self) -> bool {
+        self.hwnd != 0 && unsafe { IsWindow(Some(self.hwnd())).as_bool() }
+    }
+}
+
+fn class_name(hwnd: HWND) -> String {
+    let mut buf = [0u16; 128];
+    let n = unsafe { GetClassNameW(hwnd, &mut buf) };
+    String::from_utf16_lossy(&buf[..n.max(0) as usize])
+}
+
+struct Process(HANDLE);
+
+impl Drop for Process {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = CloseHandle(self.0);
+        }
+    }
+}
+
+fn exe_path(process: &Process) -> Option<String> {
+    let mut buf = [0u16; 1024];
+    let mut len = buf.len() as u32;
+    unsafe { QueryFullProcessImageNameW(process.0, PROCESS_NAME_WIN32, PWSTR(buf.as_mut_ptr()), &mut len).ok()? };
+    Some(String::from_utf16_lossy(&buf[..len as usize]))
+}
+
+fn aumid(process: &Process) -> Option<String> {
+    let mut buf = [0u16; 512];
+    let mut len = buf.len() as u32;
+    let rc = unsafe { GetApplicationUserModelId(process.0, &mut len, Some(PWSTR(buf.as_mut_ptr()))) };
+    (rc.0 == 0).then(|| String::from_utf16_lossy(&buf[..len.saturating_sub(1) as usize]))
+}
+
+fn token_elevated(process: HANDLE) -> Option<bool> {
+    unsafe {
+        let mut token = HANDLE::default();
+        OpenProcessToken(process, TOKEN_QUERY, &mut token).ok()?;
+        let mut elevation = TOKEN_ELEVATION::default();
+        let mut len = 0u32;
+        let ok = GetTokenInformation(
+            token,
+            TokenElevation,
+            Some(&mut elevation as *mut _ as *mut _),
+            std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+            &mut len,
+        );
+        let _ = CloseHandle(token);
+        ok.ok()?;
+        Some(elevation.TokenIsElevated != 0)
+    }
+}
+
+pub fn self_elevated() -> bool {
+    token_elevated(unsafe { GetCurrentProcess() }).unwrap_or(false)
+}
+
+/// The file description from the exe's version resource ("Notepad").
+pub fn file_description(path: &str) -> Option<String> {
+    let wide: Vec<u16> = path.encode_utf16().chain([0]).collect();
+    unsafe {
+        let size = GetFileVersionInfoSizeW(PCWSTR(wide.as_ptr()), None);
+        if size == 0 {
+            return None;
+        }
+        let mut data = vec![0u8; size as usize];
+        GetFileVersionInfoW(PCWSTR(wide.as_ptr()), None, size, data.as_mut_ptr() as *mut _).ok()?;
+        // First translation, then the FileDescription string.
+        let mut ptr = std::ptr::null_mut();
+        let mut len = 0u32;
+        let q: Vec<u16> = "\\VarFileInfo\\Translation\0".encode_utf16().collect();
+        if !VerQueryValueW(data.as_ptr() as *const _, PCWSTR(q.as_ptr()), &mut ptr, &mut len).as_bool() || len < 4 {
+            return None;
+        }
+        let lang = *(ptr as *const u16);
+        let cp = *(ptr as *const u16).add(1);
+        let key = format!("\\StringFileInfo\\{lang:04x}{cp:04x}\\FileDescription\0");
+        let q: Vec<u16> = key.encode_utf16().collect();
+        if !VerQueryValueW(data.as_ptr() as *const _, PCWSTR(q.as_ptr()), &mut ptr, &mut len).as_bool() || len == 0 {
+            return None;
+        }
+        let slice = std::slice::from_raw_parts(ptr as *const u16, len as usize);
+        let s = String::from_utf16_lossy(slice).trim_end_matches('\0').trim().to_string();
+        (!s.is_empty()).then_some(s)
+    }
+}
+
+fn display_name(exe_path: &str, exe: &str) -> String {
+    file_description(exe_path)
+        .unwrap_or_else(|| exe.trim_end_matches(".exe").trim_end_matches(".EXE").to_string())
+}
+
+/// Capture the foreground window and its focused element.
+pub fn capture() -> Target {
+    let hwnd = unsafe { GetForegroundWindow() };
+    if hwnd.0.is_null() {
+        return Target::default();
+    }
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+    let class = class_name(hwnd);
+    let shell = matches!(class.as_str(), "Progman" | "WorkerW" | "Shell_TrayWnd" | "Shell_SecondaryTrayWnd");
+
+    let mut t = Target { hwnd: hwnd.0 as isize, editable: !shell, ..Default::default() };
+    match unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) } {
+        Ok(h) => {
+            let process = Process(h);
+            if let Some(path) = exe_path(&process) {
+                t.exe = path.rsplit('\\').next().unwrap_or(&path).to_string();
+                t.app_name = display_name(&path, &t.exe);
+            }
+            t.aumid = aumid(&process);
+            // A token we can't query belongs to a more privileged process.
+            t.elevated = !self_elevated() && token_elevated(process.0).unwrap_or(true);
+        }
+        Err(_) => t.elevated = !self_elevated(),
+    }
+    if let Some(focus) = uia::run(400, |u| u.focused()) {
+        // Only trust the focused element if it belongs to the foreground app.
+        if focus.pid == pid || focus.pid == 0 {
+            t.focused_name = focus.name;
+            t.is_password = focus.is_password;
+            t.element_id = focus.element_id;
+        }
+    }
+    t
+}

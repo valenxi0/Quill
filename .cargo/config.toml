@@ -1,0 +1,8 @@
+# Native engine builds (whisper.cpp, llama.cpp).
+[env]
+# MSBuild's file tracker fails on the long nested CMake paths; Ninja doesn't.
+CMAKE_GENERATOR = "Ninja"
+LIBCLANG_PATH = "C:/Program Files/LLVM/bin"
+VULKAN_SDK = { value = "C:/VulkanSDK/1.4.357.0", force = false }
+# Portable binaries: no host-specific instructions (AVX-512 would crash elsewhere).
+GGML_NATIVE = "OFF"

@@ -1,0 +1,23 @@
+[package]
+name = "quill-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Platform-independent dictation logic for Quill: text pipeline, state machine, stores."
+
+[features]
+default = ["itn"]
+itn = ["dep:text-processing-rs"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+whatlang = "0.16"
+# v0.3.0 is the version Nano uses (through FluidAudio); it is only published as a git tag.
+text-processing-rs = { git = "https://github.com/FluidInference/text-processing-rs", tag = "v0.3.0", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
