@@ -655,7 +655,7 @@ function UpdatesCard({ ctx }: { ctx: Ctx }) {
     api
       .checkForUpdates()
       .then((u) => setResult(u ? null : "You have the latest version."))
-      .catch((e) => setResult(`Couldn't check for updates: ${String(e)}`))
+      .catch((e) => setResult(String(e)))
       .finally(() => setChecking(false));
   };
   return (
@@ -673,9 +673,14 @@ function UpdatesCard({ ctx }: { ctx: Ctx }) {
               {updating ? "Updating…" : "Update now"}
             </Button>
           ) : (
-            <Button disabled={checking} onClick={check}>
-              {checking ? "Checking…" : "Check for updates"}
-            </Button>
+            <>
+              <Button kind="plain" onClick={() => api.openReleases()}>
+                Releases page
+              </Button>
+              <Button disabled={checking} onClick={check}>
+                {checking ? "Checking…" : "Check for updates"}
+              </Button>
+            </>
           )
         }
       />

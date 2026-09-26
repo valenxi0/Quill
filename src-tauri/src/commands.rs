@@ -129,6 +129,11 @@ fn open_uri(uri: &str) {
 }
 
 #[tauri::command]
+pub fn open_releases() {
+    open_uri(crate::updates::RELEASES_URL);
+}
+
+#[tauri::command]
 pub fn copy_text(text: String) -> bool {
     crate::platform::paste::set_clipboard_text(&text)
 }

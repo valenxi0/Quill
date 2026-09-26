@@ -4,7 +4,11 @@ Quill lets you type with your voice in any app on Windows 10 or 11. Hold a short
 
 ## 1. Download
 
-Go to the [latest release](https://github.com/valenxi0/Quill/releases/latest) and download **`Quill_x.y.z_x64-setup.exe`** under *Assets*.
+Sign in to GitHub, then click:
+
+**[Download Quill-Setup.exe](https://github.com/valenxi0/Quill/releases/latest/download/Quill-Setup.exe)**
+
+It always gets the newest version. The link only works while you're signed in to the GitHub account that was invited to the repo. If it shows "404", sign in first, and accept the collaborator invite from your email if you haven't yet.
 
 ## 2. Install
 
@@ -41,6 +45,12 @@ Quill opens a short setup:
 Press **Esc** while it's listening to cancel.
 
 Quill starts with Windows and waits in the **tray**: the icons near the clock, bottom right. You may need to click the **^** arrow to see it. Click Quill's icon to open Settings, where you can change the shortcut or engine, add words it should spell your way, and see your stats.
+
+## Updates
+
+When a new version comes out, download **Quill-Setup.exe** again from the same link and run it. It installs over your copy and keeps your settings and downloaded engines.
+
+To hear about new versions, open [the repo](https://github.com/valenxi0/Quill) and click **Watch → Custom → Releases**. GitHub will email you each time one is published. In Quill, **Settings → Setup → Updates → Releases page** opens the same place.
 
 ## Troubleshooting
 

@@ -52,7 +52,23 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: Quill ${{ github.ref_name }}
-          releaseBody: See the changes below. Installed copies of Quill offer this update automatically.
+          releaseBody: |
+            ## [Download Quill for Windows](https://github.com/valenxi0/Quill/releases/download/${{ github.ref_name }}/Quill-Setup.exe)
+
+            Run **Quill-Setup.exe** and follow the short setup. Already have Quill? Run it over your current copy: your settings and downloaded engines are kept.
+
+            You only need `Quill-Setup.exe`. The other files are for Quill's updater and the source code.
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
+
+      # A stable, easy-to-spot name, so releases/latest/download/Quill-Setup.exe
+      # always gets the newest installer.
+      - name: Add Quill-Setup.exe
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $setup = Get-ChildItem "$env:CARGO_TARGET_DIR/release/bundle/nsis/*-setup.exe" | Select-Object -First 1
+          Copy-Item $setup.FullName "$env:RUNNER_TEMP/Quill-Setup.exe"
+          gh release upload "${{ github.ref_name }}" "$env:RUNNER_TEMP/Quill-Setup.exe" --clobber

@@ -181,6 +181,7 @@ pub fn run() {
             commands::pending_suggestion,
             commands::check_for_updates,
             commands::install_update,
+            commands::open_releases,
         ])
         .on_window_event(|window, event| {
             // Leaving Settings while capturing a shortcut ends the capture, so

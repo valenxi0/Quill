@@ -207,6 +207,7 @@ export const api = {
   animationsEnabled: () => invoke<boolean>("animations_enabled"),
   checkForUpdates: () => invoke<UpdateInfo | null>("check_for_updates"),
   installUpdate: () => invoke<void>("install_update"),
+  openReleases: () => invoke<void>("open_releases"),
   pendingSuggestion: () => invoke<CorrectionPair | null>("pending_suggestion"),
 };
 

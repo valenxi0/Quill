@@ -48,10 +48,25 @@ impl Updates {
     }
 }
 
+pub const RELEASES_URL: &str = "https://github.com/valenxi0/Quill/releases";
+
+/// Shown when the feed can't be read: the repo is private, so the check
+/// only works for copies that can reach GitHub Releases without signing in.
+const UNREACHABLE: &str =
+    "Quill can't check for updates automatically. New versions are posted on GitHub Releases; watch the repo to hear about them.";
+
 /// Ask GitHub for a newer release. Returns the new version, if any.
 pub async fn check(app: &AppHandle) -> Result<Option<UpdateInfo>, String> {
     let q = app.state::<Arc<Quill>>().inner().clone();
-    let update = app.updater().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())?;
+    let update = app
+        .updater()
+        .map_err(|e| e.to_string())?
+        .check()
+        .await
+        .map_err(|e| {
+            log::info!("update check failed: {e}");
+            UNREACHABLE.to_string()
+        })?;
     *q.updates.available.lock() = update;
     *q.updates.error.lock() = None;
     notify(app);

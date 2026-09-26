@@ -4,13 +4,9 @@ Local push-to-talk dictation for Windows 10/11 (x64). Hold a shortcut (Ctrl+Alt+
 
 ## Install
 
-Paste this into **PowerShell** (the default Windows terminal). It downloads the latest installer from GitHub Releases and runs it. Quill installs for your user only, so no admin prompt.
+**[Download Quill-Setup.exe](https://github.com/valenxi0/Quill/releases/latest/download/Quill-Setup.exe)**, the newest version, always, and run it. You need to be signed in to GitHub with access to this repo. Quill installs for your user only, so there's no admin prompt. [`docs/SETUP-GUIDE.md`](docs/SETUP-GUIDE.md) walks through it step by step.
 
-```powershell
-$a = (irm https://api.github.com/repos/valenxi0/Quill/releases/latest).assets | ? name -like '*-setup.exe' | select -First 1; iwr $a.browser_download_url -OutFile "$env:TEMP\$($a.name)"; & "$env:TEMP\$($a.name)"
-```
-
-Or download `Quill_x.y.z_x64-setup.exe` by hand from the [Releases page](https://github.com/valenxi0/Quill/releases/latest). The one-liner and the in-app updater both need the release to be downloadable without signing in (see [Releasing and updates](#releasing-and-updates)).
+This repo is private, so Quill can't check for updates by itself. To hear about new versions, click **Watch → Custom → Releases** on this repo. To update, download and run the new `Quill-Setup.exe` over your copy; settings and engines are kept. Settings → Setup → Updates also has a **Releases page** button.
 
 When Quill first opens, a short setup walks through:
 1. how Quill works;
@@ -28,8 +24,7 @@ Nothing downloads before you choose. A friendlier step-by-step guide for users i
 3. **It transcribes.** The selected engine turns audio into text on your PC (Parakeet, Cohere, or Whisper; see below). A speech gate and hallucination filter drop silence and phantom phrases.
 4. **It cleans up.** The text pipeline applies your vocabulary and snippets, formats numbers ("twenty five dollars" → "$25"), turns spoken symbols into characters when you dictate into a terminal ("dollar sign" → "$"), and, with the default engine, runs S1-mini to remove filler words and fix punctuation. A guard rejects any cleanup that strays too far from what you said.
 5. **It pastes.** The result goes on the clipboard and Quill sends Ctrl+V to the field you were in when you started, waiting until your shortcut keys are released so it never becomes Ctrl+Alt+V.
-6. **It keeps itself current.** Quill checks GitHub daily and offers new versions ("Quill 0.2.0 is available · Update"). Updates are signed, and your settings and models are kept.
-7. **It learns.** If you fix the same word after a paste more than once, Quill notices and suggests adding it to your vocabulary. History (optional, and cleared when you turn it off) and stats such as words dictated, streaks, and time saved appear in the Insights tab.
+6. **It learns.** If you fix the same word after a paste more than once, Quill notices and suggests adding it to your vocabulary. History (optional, and cleared when you turn it off) and stats such as words dictated, streaks, and time saved appear in the Insights tab.
 
 Everything runs locally. Audio is never written to disk and nothing is uploaded; the only network traffic is the model downloads you start yourself.
 
