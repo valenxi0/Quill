@@ -81,7 +81,28 @@ impl Hotkey {
         if self.vk == VK_H && self.modifiers == modifiers::WIN {
             return Some("Win+H is Windows' own dictation. Choose another shortcut.".into());
         }
+        if self.is_system_chord() {
+            return Some(format!("{} belongs to Windows. Choose another shortcut.", self.display()));
+        }
         None
+    }
+
+    /// Chords Windows itself uses; taking them would break the desktop.
+    fn is_system_chord(&self) -> bool {
+        const TAB: u32 = 0x09;
+        const F4: u32 = 0x73;
+        const L: u32 = 0x4C;
+        const D: u32 = 0x44;
+        const E: u32 = 0x45;
+        const R: u32 = 0x52;
+        const DELETE: u32 = 0x2E;
+        let (vk, m) = (self.vk, self.modifiers);
+        let alt = modifiers::ALT;
+        let win = modifiers::WIN;
+        (vk == TAB && m & (alt | win) != 0)
+            || (vk == F4 && m == alt)
+            || (vk == DELETE && m == modifiers::CTRL | alt)
+            || (m == win && matches!(vk, L | D | E | R))
     }
 
     /// "Ctrl+Alt+M".
@@ -185,6 +206,8 @@ pub struct Settings {
     pub launch_at_login: bool,
     /// UI state: whether the history card is expanded.
     pub history_expanded: bool,
+    /// The first-run setup (shortcut, mode, engine) is finished.
+    pub onboarded: bool,
 }
 
 impl Default for Settings {
@@ -194,6 +217,7 @@ impl Default for Settings {
             voice_dictation: VoiceDictation::default(),
             launch_at_login: true,
             history_expanded: false,
+            onboarded: false,
         }
     }
 }
@@ -207,6 +231,7 @@ mod tests {
         let json = serde_json::to_value(Settings::default()).unwrap();
         assert_eq!(json["enabled"], true);
         assert_eq!(json["launchAtLogin"], true);
+        assert_eq!(json["onboarded"], false);
         let vd = &json["voiceDictation"];
         assert_eq!(vd["engine"], "parakeetS1");
         assert_eq!(vd["activationMode"], "pushToTalk");
@@ -232,5 +257,9 @@ mod tests {
         assert!(Hotkey { vk: 0x4D, modifiers: 0 }.problem().is_some());
         assert!(Hotkey { vk: 0x48, modifiers: modifiers::WIN }.problem().is_some());
         assert!(Hotkey { vk: 0x11, modifiers: modifiers::ALT }.problem().is_some());
+        assert!(Hotkey { vk: 0x09, modifiers: modifiers::ALT }.problem().is_some(), "Alt+Tab");
+        assert!(Hotkey { vk: 0x73, modifiers: modifiers::ALT }.problem().is_some(), "Alt+F4");
+        assert!(Hotkey { vk: 0x4C, modifiers: modifiers::WIN }.problem().is_some(), "Win+L");
+        assert!(Hotkey { vk: 0x4C, modifiers: modifiers::CTRL | modifiers::WIN }.problem().is_none());
     }
 }

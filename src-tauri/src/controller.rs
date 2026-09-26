@@ -102,6 +102,7 @@ pub struct Controller {
     /// Bumped by each outcome, so a stale hold timer can't reset a newer one.
     outcome_seq: AtomicU64,
     watch_generation: AtomicU64,
+    starting: std::sync::atomic::AtomicBool,
     pub last_transcript: Mutex<Option<String>>,
     pub last_metrics: Mutex<Option<Metrics>>,
     pub warm_error: Mutex<Option<String>>,
@@ -130,6 +131,7 @@ impl Controller {
             session: Mutex::new(None),
             outcome_seq: AtomicU64::new(0),
             watch_generation: AtomicU64::new(0),
+            starting: std::sync::atomic::AtomicBool::new(false),
             last_transcript: Mutex::new(None),
             last_metrics: Mutex::new(None),
             warm_error: Mutex::new(None),
@@ -152,50 +154,86 @@ impl Controller {
         self.generation.load(SeqCst) == generation
     }
 
-    fn set_view(&self, view: DictationView) {
-        let busy = view.phase.is_busy();
-        *self.phase.lock() = view.clone();
+    /// Change the view under the phase lock. `f` returns false to leave it
+    /// alone. The generation only changes under this lock too, so a check
+    /// inside `f` can't race a cancel. Returns whether the view changed.
+    fn transition(&self, f: impl FnOnce(&mut DictationView) -> bool) -> bool {
+        let view = {
+            let mut v = self.phase.lock();
+            let mut next = v.clone();
+            if !f(&mut next) || next == *v {
+                return false;
+            }
+            *v = next.clone();
+            next
+        };
         if let Some(h) = &self.hook {
-            h.set_escape_active(busy);
+            h.set_escape_active(view.phase.is_busy());
         }
         self.shell.dictation_changed(&view);
+        true
     }
 
-    fn set_phase(&self, generation: u64, phase: Phase) {
-        if !self.is_current(generation) {
-            return;
-        }
-        let mut v = self.view();
-        if v.phase == phase {
-            return;
-        }
-        v.phase = phase;
-        self.set_view(v);
-    }
-
-    /// Show an outcome, then return to idle after its hold time.
-    fn outcome(self: &Arc<Self>, view: DictationView) {
-        let seq = self.outcome_seq.fetch_add(1, SeqCst) + 1;
-        let hold = view.phase.hold().unwrap_or(Duration::from_secs(1));
-        self.set_view(view);
-        let me = self.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(hold);
-            if me.outcome_seq.load(SeqCst) == seq && !me.phase().is_busy() {
-                me.set_view(DictationView::default());
+    /// Move a live session from one busy phase to the next.
+    fn advance(&self, generation: u64, from: Phase, to: Phase) {
+        self.transition(|v| {
+            if !self.is_current(generation) || v.phase != from {
+                return false;
             }
+            v.phase = to;
+            true
         });
     }
 
-    fn fail(self: &Arc<Self>, error: DictationError) {
-        let phase = if error == DictationError::Cancelled { Phase::Cancelled } else { Phase::Failed };
-        self.outcome(DictationView {
-            phase,
+    /// Show an outcome (only for `generation`, if given), then return to idle
+    /// after its hold time. Returns whether it was shown.
+    fn outcome(self: &Arc<Self>, generation: Option<u64>, view: DictationView) -> bool {
+        let hold = view.phase.hold().unwrap_or(Duration::from_secs(1));
+        let mut seq = 0;
+        let shown = self.transition(|v| {
+            if generation.is_some_and(|g| !self.is_current(g)) {
+                return false;
+            }
+            seq = self.outcome_seq.fetch_add(1, SeqCst) + 1;
+            *v = view;
+            true
+        });
+        if shown {
+            let me = self.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(hold);
+                me.transition(|v| {
+                    if me.outcome_seq.load(SeqCst) != seq || v.phase.is_busy() {
+                        return false;
+                    }
+                    *v = DictationView::default();
+                    true
+                });
+            });
+        }
+        shown
+    }
+
+    fn error_view(&self, error: &DictationError) -> DictationView {
+        DictationView {
+            phase: if *error == DictationError::Cancelled { Phase::Cancelled } else { Phase::Failed },
             outcome: None,
             error_title: Some(error.title()),
             error_detail: Some(error.detail()),
             context: self.view().context,
-        });
+        }
+    }
+
+    /// A failure outside any session (readiness, microphone).
+    fn fail(self: &Arc<Self>, error: DictationError) {
+        self.outcome(None, self.error_view(&error));
+        self.schedule_idle_unload();
+    }
+
+    /// A failure of one session; ignored if the session is stale.
+    fn fail_session(self: &Arc<Self>, generation: u64, error: DictationError) {
+        self.outcome(Some(generation), self.error_view(&error));
+        self.schedule_idle_unload();
     }
 
     pub fn on_hotkey(self: &Arc<Self>, event: HotkeyEvent) {
@@ -247,6 +285,15 @@ impl Controller {
     }
 
     pub fn start(self: &Arc<Self>) {
+        // One start at a time (the hotkey and a launcher may race).
+        if self.phase().is_busy() || self.starting.swap(true, SeqCst) {
+            return;
+        }
+        self.start_inner();
+        self.starting.store(false, SeqCst);
+    }
+
+    fn start_inner(self: &Arc<Self>) {
         if self.phase().is_busy() {
             return;
         }
@@ -254,13 +301,25 @@ impl Controller {
             self.fail(e);
             return;
         }
-        let generation = self.generation.fetch_add(1, SeqCst) + 1;
         // A new dictation stops the current correction watch.
         self.watch_generation.fetch_add(1, SeqCst);
         let settings = self.stores.settings.get();
         let vd = &settings.voice_dictation;
 
-        let target = target::capture();
+        // Capture the target while the microphone opens, so a slow UI
+        // Automation lookup doesn't clip the first word.
+        let capture = std::thread::spawn(target::capture);
+        let recording = match Recording::start() {
+            Ok(r) => r,
+            Err(e) => {
+                let _ = capture.join();
+                return self.fail(match e {
+                    AudioError::Denied => DictationError::MicrophoneDenied,
+                    AudioError::NoDevice | AudioError::Failed => DictationError::MicrophoneUnavailable,
+                });
+            }
+        };
+        let target = capture.join().unwrap_or_default();
         let context = classify(&target.exe, &target.focused_name, target.aumid.as_deref(), vd.adapts_to_app);
         let info = vd.engine.info();
         let recipe = Recipe {
@@ -271,12 +330,18 @@ impl Controller {
             vocabulary: vd.vocabulary.clone(),
         };
 
-        let recording = match Recording::start() {
-            Ok(r) => r,
-            Err(AudioError::Denied) => return self.fail(DictationError::MicrophoneDenied),
-            Err(AudioError::NoDevice) => return self.fail(DictationError::MicrophoneUnavailable),
-            Err(AudioError::Failed) => return self.fail(DictationError::MicrophoneUnavailable),
-        };
+        let mut generation = 0;
+        let started = self.transition(|v| {
+            if v.phase.is_busy() {
+                return false;
+            }
+            generation = self.generation.fetch_add(1, SeqCst) + 1;
+            *v = DictationView { phase: Phase::Recording, context, ..Default::default() };
+            true
+        });
+        if !started {
+            return;
+        }
 
         let config = SessionConfig {
             generation,
@@ -294,7 +359,6 @@ impl Controller {
             segmenter: EarlySegmenter::default(),
             worker,
         });
-        self.set_view(DictationView { phase: Phase::Recording, context, ..Default::default() });
 
         // Warm the engine so the load overlaps the speech. A failure is kept
         // for Settings and never flashed while the user is talking.
@@ -305,6 +369,7 @@ impl Controller {
                 *me.warm_error.lock() = Some(e);
             }
             me.shell.state_changed();
+            me.schedule_idle_unload();
         });
         self.spawn_monitor(generation);
     }
@@ -354,11 +419,10 @@ impl Controller {
         let samples = rec.stop();
         let audio_seconds = samples.len() as f64 / SAMPLE_RATE as f64;
         if !has_speech(&samples, SAMPLE_RATE as u32) {
-            self.generation.fetch_add(1, SeqCst);
-            self.fail(DictationError::NoSpeech);
+            self.fail_session(s.generation, DictationError::NoSpeech);
             return;
         }
-        self.set_phase(s.generation, Phase::Transcribing);
+        self.advance(s.generation, Phase::Recording, Phase::Transcribing);
         let early = s.segmenter.committed() > 0;
         let tail = s.segmenter.tail(&samples);
         let tail_has_speech = tail.len() >= SAMPLE_RATE / 4 && peak(tail) >= MIN_SPEECH_PEAK;
@@ -369,15 +433,38 @@ impl Controller {
     }
 
     pub fn cancel(self: &Arc<Self>) {
-        if !self.phase().is_busy() {
+        // Invalidate every in-flight step under the phase lock, so no stale
+        // step can move the phase afterwards.
+        let view = self.error_view(&DictationError::Cancelled);
+        let mut seq = 0;
+        let cancelled = self.transition(|v| {
+            if !v.phase.is_busy() {
+                return false;
+            }
+            self.generation.fetch_add(1, SeqCst);
+            seq = self.outcome_seq.fetch_add(1, SeqCst) + 1;
+            *v = view;
+            true
+        });
+        if !cancelled {
             return;
         }
-        // Invalidate every in-flight step, then drop the audio.
-        self.generation.fetch_add(1, SeqCst);
+        // Drop the audio.
         if let Some(s) = self.session.lock().take() {
             drop(s.recording);
         }
-        self.fail(DictationError::Cancelled);
+        let me = self.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Phase::Cancelled.hold().unwrap_or_default());
+            me.transition(|v| {
+                if me.outcome_seq.load(SeqCst) != seq || v.phase.is_busy() {
+                    return false;
+                }
+                *v = DictationView::default();
+                true
+            });
+        });
+        self.schedule_idle_unload();
     }
 
     /// One worker per session processes segments one at a time, in order.
@@ -407,9 +494,7 @@ impl Controller {
                         Job::Finish { stopped, audio_seconds, rms_dbfs } => {
                             metrics.audio_seconds = audio_seconds;
                             if let Some(e) = failure.take() {
-                                if me.is_current(cfg.generation) {
-                                    me.fail(e);
-                                }
+                                me.fail_session(cfg.generation, e);
                                 return;
                             }
                             me.deliver(&cfg, results, metrics, stopped, rms_dbfs);
@@ -490,29 +575,38 @@ impl Controller {
         let text = join(&results.iter().map(|r| r.text.clone()).collect::<Vec<_>>());
         let text = match finish(&raw, &text, cfg.recipe.context, rms) {
             Ok(t) => t,
-            Err(e) => return self.fail(e),
+            Err(e) => return self.fail_session(cfg.generation, e),
         };
 
         // The clipboard is authoritative: write it first.
-        *self.last_transcript.lock() = Some(text.clone());
-        if !paste::set_clipboard_text(&text) {
-            self.fail(DictationError::ClipboardFailed);
-            return;
-        }
-        metrics.stop_to_clipboard_ms = stopped.elapsed().as_millis() as u64;
         if !self.is_current(cfg.generation) {
             return;
         }
-        let pasted = paste::paste(&cfg.target, &self.shell.own_windows());
+        *self.last_transcript.lock() = Some(text.clone());
+        if !paste::set_clipboard_text(&text) {
+            self.fail_session(cfg.generation, DictationError::ClipboardFailed);
+            return;
+        }
+        metrics.stop_to_clipboard_ms = stopped.elapsed().as_millis() as u64;
+        // Checked again right before the keystroke: Esc can land while the
+        // paste waits for the shortcut's modifiers to come up.
+        let pasted = paste::paste(&cfg.target, &self.shell.own_windows(), || self.is_current(cfg.generation));
         let release_to_paste = stopped.elapsed();
 
-        self.outcome(DictationView {
-            phase: Phase::Completed,
-            outcome: Some(if pasted { "Paste sent" } else { "Copied only" }.into()),
-            error_title: None,
-            error_detail: None,
-            context: cfg.recipe.context,
-        });
+        let shown = self.outcome(
+            Some(cfg.generation),
+            DictationView {
+                phase: Phase::Completed,
+                outcome: Some(if pasted { "Paste sent" } else { "Copied only" }.into()),
+                error_title: None,
+                error_detail: None,
+                context: cfg.recipe.context,
+            },
+        );
+        if !shown {
+            // Cancelled during delivery: nothing is recorded or learned.
+            return;
+        }
         self.record(cfg, &results, &raw, &text, &metrics, release_to_paste, pasted);
         *self.last_metrics.lock() = Some(metrics);
         self.shell.state_changed();
@@ -664,7 +758,7 @@ impl Cleaner for HostCleaner<'_> {
         if !self.controller.is_current(self.generation) {
             return Err("cancelled".into());
         }
-        self.controller.set_phase(self.generation, Phase::Cleaning);
+        self.controller.advance(self.generation, Phase::Transcribing, Phase::Cleaning);
         let start = Instant::now();
         let result = self.controller.engines.with_cleaner(|c| c.clean(text, level));
         let elapsed = start.elapsed();

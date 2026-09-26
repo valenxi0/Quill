@@ -28,7 +28,8 @@ pub fn has_input_device() -> bool {
 struct Shared {
     samples: Mutex<Vec<f32>>,
     resampler: Mutex<Option<Resampler>>,
-    /// Latest input level, 0..1, as f32 bits.
+    /// Loudest input level (0..1, as f32 bits) since the last read. For
+    /// non-negative floats the bit patterns order like the values.
     level: AtomicU32,
     full: AtomicBool,
 }
@@ -51,7 +52,7 @@ fn level_of(block: &[f32]) -> f32 {
 }
 
 fn on_block(shared: &Shared, mono: Vec<f32>) {
-    shared.level.store(level_of(&mono).to_bits(), SeqCst);
+    shared.level.fetch_max(level_of(&mono).to_bits(), SeqCst);
     let out = match shared.resampler.lock().as_mut() {
         Some(r) => r.process(&mono),
         None => return,
@@ -152,8 +153,10 @@ impl Recording {
         }
     }
 
+    /// The loudest level since the previous call, so short syllables between
+    /// the ~12 Hz reads still show.
     pub fn level(&self) -> f32 {
-        f32::from_bits(self.shared.level.load(SeqCst))
+        f32::from_bits(self.shared.level.swap(0, SeqCst))
     }
 
     pub fn is_full(&self) -> bool {

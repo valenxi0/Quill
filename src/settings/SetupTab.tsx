@@ -72,8 +72,8 @@ export function SetupTab({ ctx }: { ctx: Ctx }) {
           <Switch label="Start at login" checked={ctx.state.settings.launchAtLogin} onChange={(v) => ctx.save({ ...ctx.state.settings, launchAtLogin: v })} />
         } />
       </Card>
+      <UpdatesCard ctx={ctx} />
       <LicensesCard />
-      <p className="px-1 pt-1 text-[11px] text-text-3">Quill {ctx.state.version}</p>
     </div>
   );
 }
@@ -121,7 +121,7 @@ export function StatusCard({ ctx }: { ctx: Ctx }) {
 
 function ActivationCard({ ctx }: { ctx: Ctx }) {
   const vd = ctx.state.settings.voiceDictation;
-  const { capturingHotkey, hotkeyDisplay, hotkeyIsDefault, captureError } = ctx.state;
+  const { capturingHotkey, captureError } = ctx.state;
   return (
     <Card>
       <CardHeader
@@ -144,27 +144,33 @@ function ActivationCard({ ctx }: { ctx: Ctx }) {
       <CardHeader
         title="Shortcut"
         detail={capturingHotkey ? "Press the new shortcut. Esc cancels." : "Works in every app. Needs at least one modifier key."}
-        right={
-          <>
-            {!hotkeyIsDefault && !capturingHotkey && (
-              <Button kind="plain" onClick={() => api.resetHotkey()}>
-                Reset
-              </Button>
-            )}
-            <button
-              onClick={() => (capturingHotkey ? api.cancelHotkeyCapture() : api.beginHotkeyCapture())}
-              className={cx(
-                "h-[28px] min-w-[120px] rounded-[6px] border px-3 font-mono text-[12.5px]",
-                capturingHotkey ? "border-accent bg-accent-soft text-accent" : "border-card-border bg-fill hover:bg-fill-strong",
-              )}
-            >
-              {capturingHotkey ? "Recording…" : hotkeyDisplay}
-            </button>
-          </>
-        }
+        right={<ShortcutButton ctx={ctx} />}
       />
       {captureError && <Warning>{captureError}</Warning>}
     </Card>
+  );
+}
+
+/// The shortcut capture button, with Reset when it isn't the default.
+export function ShortcutButton({ ctx }: { ctx: Ctx }) {
+  const { capturingHotkey, hotkeyDisplay, hotkeyIsDefault } = ctx.state;
+  return (
+    <>
+      {!hotkeyIsDefault && !capturingHotkey && (
+        <Button kind="plain" onClick={() => api.resetHotkey()}>
+          Reset
+        </Button>
+      )}
+      <button
+        onClick={() => (capturingHotkey ? api.cancelHotkeyCapture() : api.beginHotkeyCapture())}
+        className={cx(
+          "h-[28px] min-w-[120px] rounded-[6px] border px-3 font-mono text-[12.5px]",
+          capturingHotkey ? "border-accent bg-accent-soft text-accent" : "border-card-border bg-fill hover:bg-fill-strong",
+        )}
+      >
+        {capturingHotkey ? "Recording…" : hotkeyDisplay}
+      </button>
+    </>
   );
 }
 
@@ -635,6 +641,44 @@ function LicensesCard() {
           ))}
         </div>
       )}
+    </Card>
+  );
+}
+
+function UpdatesCard({ ctx }: { ctx: Ctx }) {
+  const { version, update, updating } = ctx.state;
+  const [checking, setChecking] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const check = () => {
+    setChecking(true);
+    setResult(null);
+    api
+      .checkForUpdates()
+      .then((u) => setResult(u ? null : "You have the latest version."))
+      .catch((e) => setResult(`Couldn't check for updates: ${String(e)}`))
+      .finally(() => setChecking(false));
+  };
+  return (
+    <Card>
+      <CardHeader
+        title="Updates"
+        detail={
+          update
+            ? `Quill ${update.version} is available. You have ${version}.`
+            : result ?? `You have Quill ${version}. Quill checks for updates daily.`
+        }
+        right={
+          update ? (
+            <Button kind="primary" disabled={updating} onClick={() => api.installUpdate().catch(() => {})}>
+              {updating ? "Updating…" : "Update now"}
+            </Button>
+          ) : (
+            <Button disabled={checking} onClick={check}>
+              {checking ? "Checking…" : "Check for updates"}
+            </Button>
+          )
+        }
+      />
     </Card>
   );
 }

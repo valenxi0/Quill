@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api, on, type Settings, type UiState, type VoiceDictation } from "../lib/api";
-import { Card, cx, Icon, Switch } from "./ui";
+import { Button, Card, cx, Icon, Switch } from "./ui";
 import { StatusCard, SetupTab } from "./SetupTab";
 import { VoiceTab } from "./VoiceTab";
 import { InsightsTab } from "./InsightsTab";
+import { Onboarding } from "./Onboarding";
 
 export type Tab = "insights" | "voice" | "setup";
 
@@ -60,6 +61,7 @@ export default function App() {
   const saveVd = (patch: Partial<VoiceDictation>) =>
     save({ ...state.settings, voiceDictation: { ...state.settings.voiceDictation, ...patch } });
   const ctx: Ctx = { state, save, saveVd };
+  if (!state.settings.onboarded) return <Onboarding ctx={ctx} />;
   const enabled = state.settings.enabled;
   const pinStatus =
     enabled && tab !== "setup" && (state.status.kind !== "ready" || state.status.hotkeyProblem !== null);
@@ -77,6 +79,7 @@ export default function App() {
         <Switch large label="Quill" checked={enabled} onChange={(v) => save({ ...state.settings, enabled: v })} />
       </header>
 
+      {state.update && <UpdateBanner state={state} />}
       {!enabled ? (
         <div className="px-6 pt-2">
           <Card>
@@ -133,5 +136,25 @@ function TabBar({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void }) {
         style={{ left: bar.left, width: bar.width }}
       />
     </nav>
+  );
+}
+
+function UpdateBanner({ state }: { state: UiState }) {
+  const u = state.update!;
+  return (
+    <div className="mx-6 mb-3 flex items-center gap-3 rounded-[12px] bg-accent-soft px-4 py-2.5">
+      <span className="text-accent">
+        <Icon.Waveform />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] font-semibold">Quill {u.version} is available</p>
+        <p className="truncate text-[12px] text-text-2">
+          {state.updateError ?? u.notes ?? `You have ${u.current}. Updating keeps your settings and models.`}
+        </p>
+      </div>
+      <Button kind="primary" disabled={state.updating} onClick={() => api.installUpdate().catch(() => {})}>
+        {state.updating ? "Updating…" : "Update now"}
+      </Button>
+    </div>
   );
 }

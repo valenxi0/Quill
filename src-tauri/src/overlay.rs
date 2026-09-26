@@ -7,8 +7,8 @@ use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTOPRIMARY};
 use windows::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, ShowWindow, GWL_EXSTYLE, HWND_TOPMOST,
-    SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOMOVE, SW_HIDE, SW_SHOWNOACTIVATE, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_EX_TOPMOST, WS_EX_TRANSPARENT,
+    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_SHOWNOACTIVATE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    WS_EX_TOPMOST,
 };
 
 pub const LABEL: &str = "overlay";
@@ -32,13 +32,23 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         .focusable(false)
         .visible(false)
         .build()?;
-    let hwnd = HWND(window.hwnd()?.0);
+    apply_styles(HWND(window.hwnd()?.0));
+    // Click-through (layered + transparent), managed by the window layer.
+    window.set_ignore_cursor_events(true)?;
+    Ok(())
+}
+
+/// No-activate, tool window, topmost. Re-applied on every show in case the
+/// window layer reset them.
+fn apply_styles(hwnd: HWND) {
     unsafe {
         let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-        let wanted = (WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_LAYERED).0 as isize;
-        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | wanted);
+        let next = ex | (WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST).0 as isize;
+        if next != ex {
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, next);
+            let _ = SetWindowPos(hwnd, None, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        }
     }
-    Ok(())
 }
 
 fn hwnd(app: &AppHandle) -> Option<HWND> {
@@ -53,6 +63,7 @@ pub fn own_hwnd(app: &AppHandle) -> Option<isize> {
 /// Show without activating, at the bottom centre of the foreground monitor.
 pub fn show(app: &AppHandle) {
     let Some(h) = hwnd(app) else { return };
+    apply_styles(h);
     let Some(window) = app.get_webview_window(LABEL) else { return };
     let scale = window.scale_factor().unwrap_or(1.0);
     unsafe {
@@ -82,11 +93,10 @@ pub fn hide(app: &AppHandle) {
 /// Click-through everywhere, except while a correction suggestion offers its
 /// Add / Not now buttons.
 pub fn set_interactive(app: &AppHandle, interactive: bool) {
-    let Some(h) = hwnd(app) else { return };
-    unsafe {
-        let ex = GetWindowLongPtrW(h, GWL_EXSTYLE);
-        let t = WS_EX_TRANSPARENT.0 as isize;
-        let next = if interactive { ex & !t } else { ex | t };
-        SetWindowLongPtrW(h, GWL_EXSTYLE, next);
+    if let Some(w) = app.get_webview_window(LABEL) {
+        let _ = w.set_ignore_cursor_events(!interactive);
+        if let Ok(h) = w.hwnd() {
+            apply_styles(HWND(h.0));
+        }
     }
 }

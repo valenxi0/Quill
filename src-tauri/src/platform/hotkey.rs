@@ -36,6 +36,9 @@ struct Shared {
     mods: AtomicU32,
     /// The chord is currently held down.
     down: AtomicBool,
+    /// The main key went down as part of the chord and hasn't come up yet.
+    /// Its repeats and key-up are swallowed even if a modifier came up first.
+    latched: AtomicBool,
     /// Global hook paused (hotkey capture in Settings, or Quill off).
     suspended: AtomicBool,
     /// Settings is capturing a new shortcut.
@@ -59,6 +62,7 @@ impl HotkeyHook {
             vk: AtomicU32::new(hotkey.vk),
             mods: AtomicU32::new(hotkey.modifiers),
             down: AtomicBool::new(false),
+            latched: AtomicBool::new(false),
             suspended: AtomicBool::new(false),
             capturing: AtomicBool::new(false),
             escape_active: AtomicBool::new(false),
@@ -94,6 +98,7 @@ impl HotkeyHook {
         s.vk.store(hotkey.vk, SeqCst);
         s.mods.store(hotkey.modifiers, SeqCst);
         s.down.store(false, SeqCst);
+        s.latched.store(false, SeqCst);
     }
 
     pub fn set_suspended(&self, suspended: bool) {
@@ -211,20 +216,23 @@ fn handle(s: &Shared, vk: u32, msg: u32) -> bool {
     let want_vk = s.vk.load(SeqCst);
     let want_mods = s.mods.load(SeqCst);
     if vk == want_vk {
-        if is_down {
-            if s.down.load(SeqCst) {
-                return true; // auto-repeat
-            }
-            if current_modifiers() == want_mods {
-                s.down.store(true, SeqCst);
-                if want_mods & (modifiers::ALT | modifiers::WIN) != 0 {
-                    tap_mask_key();
+        if s.latched.load(SeqCst) {
+            // Auto-repeat, or the key-up that ends the latch.
+            if is_up {
+                s.latched.store(false, SeqCst);
+                if s.down.swap(false, SeqCst) {
+                    let _ = s.tx.send(HookEvent::Released);
                 }
-                let _ = s.tx.send(HookEvent::Pressed);
-                return true;
             }
-        } else if is_up && s.down.swap(false, SeqCst) {
-            let _ = s.tx.send(HookEvent::Released);
+            return true;
+        }
+        if is_down && current_modifiers() == want_mods {
+            s.latched.store(true, SeqCst);
+            s.down.store(true, SeqCst);
+            if want_mods & (modifiers::ALT | modifiers::WIN) != 0 {
+                tap_mask_key();
+            }
+            let _ = s.tx.send(HookEvent::Pressed);
             return true;
         }
         return false;

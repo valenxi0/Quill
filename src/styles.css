@@ -174,3 +174,30 @@ button {
     transform: none;
   }
 }
+
+/* Recording pill: the square turns 0 → 180 → 360°, easing through each half. */
+@keyframes square-turn {
+  0% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(180deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* The bars and timer slide open beside the square. */
+@keyframes reveal {
+  from {
+    max-width: 0;
+    margin-left: -8px;
+    opacity: 0;
+  }
+  to {
+    max-width: 200px;
+    margin-left: 0;
+    opacity: 1;
+  }
+}

@@ -117,7 +117,9 @@ fn bring_to_front(hwnd: HWND) -> bool {
 
 /// Send Ctrl+V to the captured target, or the current foreground window if
 /// the target is gone. Returns whether a paste was sent.
-pub fn paste(target: &Target, own_windows: &[isize]) -> bool {
+/// `still_current` is checked right before the keystroke, so a dictation
+/// cancelled while we waited never pastes.
+pub fn paste(target: &Target, own_windows: &[isize], still_current: impl Fn() -> bool) -> bool {
     if target.elevated {
         return false;
     }
@@ -137,6 +139,9 @@ pub fn paste(target: &Target, own_windows: &[isize]) -> bool {
         return false;
     }
     wait_for_modifiers_up(Duration::from_millis(600));
+    if !still_current() {
+        return false;
+    }
     // Anything still held is released first.
     let mut inputs: Vec<INPUT> = MODIFIERS.iter().filter(|m| is_down(**m)).map(|m| key(*m, true)).collect();
     inputs.extend([key(VK_CONTROL, false), key(VK_V, false), key(VK_V, true), key(VK_CONTROL, true)]);

@@ -34,6 +34,7 @@ pub struct Quill {
     pub capturing: AtomicBool,
     pub capture_error: Mutex<Option<String>>,
     pub preferred_languages: Vec<String>,
+    pub updates: crate::updates::Updates,
 }
 
 pub const SETTINGS_LABEL: &str = "settings";
@@ -119,6 +120,9 @@ pub struct UiState {
     pub dictation: DictationView,
     pub has_last_transcript: bool,
     pub version: &'static str,
+    pub update: Option<crate::updates::UpdateInfo>,
+    pub updating: bool,
+    pub update_error: Option<String>,
 }
 
 impl Quill {
@@ -228,6 +232,9 @@ impl Quill {
             dictation: self.controller.view(),
             has_last_transcript: self.controller.last_transcript.lock().is_some(),
             version: env!("CARGO_PKG_VERSION"),
+            update: self.updates.info(),
+            updating: self.updates.installing(),
+            update_error: self.updates.error.lock().clone(),
             settings,
         }
     }

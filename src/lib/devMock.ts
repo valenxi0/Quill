@@ -8,6 +8,7 @@ const settings: Settings = {
   enabled: true,
   launchAtLogin: true,
   historyExpanded: true,
+  onboarded: new URLSearchParams(location.search).has("onboarded"),
   voiceDictation: {
     engine: "parakeetS1",
     activationMode: "pushToTalk",
@@ -56,6 +57,9 @@ const state: UiState = {
   dictation: { phase: "idle", outcome: null, errorTitle: null, errorDetail: null, context: "general" },
   hasLastTranscript: true,
   version: "0.1.0",
+  update: { version: "0.2.0", current: "0.1.0", notes: "Faster Parakeet on long dictations." },
+  updating: false,
+  updateError: null,
 };
 
 const today = new Date();

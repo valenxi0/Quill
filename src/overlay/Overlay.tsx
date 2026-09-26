@@ -1,14 +1,12 @@
 // The status pill. Redraws only on level updates; nothing animates while idle.
-import { useEffect, useRef, useState } from "react";
-import { api, on, type CorrectionPair, type DictationView } from "../lib/api";
-
-const BARS = 30;
-const STEP = 6; // px per bar (4 wide + 2 gap)
+import { useEffect, useState } from "react";
+import { api, on, type CorrectionPair, type DictationView, type UpdateInfo } from "../lib/api";
 
 export default function Overlay() {
   const [view, setView] = useState<DictationView | null>(null);
   const [suggestion, setSuggestion] = useState<CorrectionPair | null>(null);
   const [reduced, setReduced] = useState(false);
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
 
   useEffect(() => {
     const subs = [
@@ -22,6 +20,8 @@ export default function Overlay() {
         api.animationsEnabled().then((a) => setReduced(!a));
       }),
       on("suggestion-dismissed", () => setSuggestion(null)),
+      on<UpdateInfo>("update-available", setUpdate),
+      on("update-dismissed", () => setUpdate(null)),
     ];
     return () => subs.forEach((p) => p.then((f) => f()));
   }, []);
@@ -31,16 +31,17 @@ export default function Overlay() {
   }, [reduced]);
 
   const phase = view?.phase ?? "idle";
+  if (update && phase === "idle") return <UpdatePrompt info={update} onDone={() => setUpdate(null)} />;
   if (suggestion && phase === "idle") return <Suggestion pair={suggestion} onDone={() => setSuggestion(null)} />;
   if (!view || phase === "idle") return null;
 
   return (
     <div className="flex h-screen items-end justify-center pb-2">
       <Pill cancelled={phase === "cancelled"}>
-        {phase === "recording" && <Listening reduced={reduced} terminal={view.context === "terminal"} />}
+        {phase === "recording" && <Listening terminal={view.context === "terminal"} />}
         {(phase === "transcribing" || phase === "cleaning") && (
           <>
-            <Dots />
+            <Spinner />
             <span>{phase === "transcribing" ? "Transcribing" : "Cleaning up"}</span>
           </>
         )}
@@ -72,10 +73,10 @@ export default function Overlay() {
 function Pill({ children, cancelled }: { children: React.ReactNode; cancelled?: boolean }) {
   return (
     <div
-      className="flex h-[44px] items-center gap-2.5 rounded-full px-4 text-[13px] font-medium text-white"
+      className="flex h-[40px] items-center gap-2 rounded-full px-3 text-[12.5px] font-medium text-white"
       style={{
-        background: "rgba(22, 22, 24, 0.94)",
-        border: "1px solid rgba(255,255,255,0.1)",
+        background: "rgba(10, 10, 10, 0.92)",
+        border: "1px solid rgba(255,255,255,0.12)",
         boxShadow: "0 6px 24px rgba(0,0,0,0.35)",
         animation: cancelled ? "flash 1.2s ease-out" : "pop-in 0.14s ease-out",
       }}
@@ -85,46 +86,58 @@ function Pill({ children, cancelled }: { children: React.ReactNode; cancelled?: 
   );
 }
 
-function Listening({ reduced, terminal }: { reduced: boolean; terminal: boolean }) {
-  const [levels, setLevels] = useState<number[]>(() => Array(BARS).fill(0));
-  const strip = useRef<HTMLDivElement>(null);
+/** A small white square turning a full circle every 2 s, easing through each half. */
+function Spinner() {
+  return (
+    <span className="flex h-6 w-6 shrink-0 items-center justify-center">
+      <span className="h-4 w-4 rounded-[3px] bg-white" style={{ animation: "square-turn 2s ease-in-out infinite" }} />
+    </span>
+  );
+}
+
+const BARS = 12;
+
+function mmss(seconds: number) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function Listening({ terminal }: { terminal: boolean }) {
+  // The last 12 voice readings, newest on the right: a rolling waveform.
+  const [bars, setBars] = useState<number[]>(() => Array(BARS).fill(0));
+  const [seconds, setSeconds] = useState(0);
 
   useEffect(() => {
+    // Track the room's background noise so silence reads as flat. The floor
+    // follows quiet moments quickly and creeps up slowly during speech.
+    let floor = 1;
     const un = on<number>("level", (level) => {
-      setLevels((prev) => [...prev.slice(1), level]);
-      // Slide the strip one bar over the ~83 ms until the next update.
-      const el = strip.current;
-      if (el && !reduced) {
-        el.style.transition = "none";
-        el.style.transform = `translateX(${STEP}px)`;
-        requestAnimationFrame(() => {
-          el.style.transition = "transform 83ms linear";
-          el.style.transform = "translateX(0)";
-        });
-      }
+      floor = level < floor ? level : Math.min(level, floor + 0.004);
+      const voice = Math.min(1, Math.max(0, (level - floor - 0.06) / 0.45));
+      setBars((prev) => [...prev.slice(1), voice]);
     });
+    const timer = setInterval(() => setSeconds((t) => t + 1), 1000);
     return () => {
       un.then((f) => f());
+      clearInterval(timer);
     };
-  }, [reduced]);
+  }, []);
 
   return (
     <>
-      <MicGlyph />
-      <div className="relative h-[24px] overflow-hidden" style={{ width: BARS * STEP - 2 }}>
-        <div ref={strip} className="absolute inset-0 flex items-center gap-[2px]">
-          {levels.map((l, i) => {
-            const h = 3 + Math.round(l * 21);
-            const age = (BARS - 1 - i) / BARS;
-            return (
-              <span
-                key={i}
-                className="w-[4px] shrink-0 rounded-full bg-white"
-                style={{ height: h, opacity: Math.max(0.15, 1 - age * 0.85) }}
-              />
-            );
-          })}
+      <Spinner />
+      <div className="flex items-center gap-2 overflow-hidden" style={{ animation: "reveal 0.4s ease-in-out" }}>
+        <div className="flex h-6 items-center gap-[2px]">
+          {bars.map((v, i) => (
+            <span
+              key={i}
+              className="w-[2px] rounded-full bg-white"
+              style={{ height: 2 + v * 18, transition: "height 90ms ease-out" }}
+            />
+          ))}
         </div>
+        <span className="w-10 text-center text-[12px] font-normal tabular-nums text-white/55">{mmss(seconds)}</span>
       </div>
       {terminal && <span className="rounded-full bg-white/15 px-1.5 text-[10.5px] text-white/80">Terminal</span>}
     </>
@@ -142,6 +155,43 @@ function Dots() {
         />
       ))}
     </span>
+  );
+}
+
+function UpdatePrompt({ info, onDone }: { info: UpdateInfo; onDone: () => void }) {
+  const [installing, setInstalling] = useState(false);
+  const later = () => {
+    onDone();
+    api.hideOverlay();
+  };
+  return (
+    <div className="flex h-screen items-end justify-center pb-2">
+      <Pill>
+        <span>
+          Quill <b>{info.version}</b> is available
+        </span>
+        {installing ? (
+          <span className="flex items-center gap-2 text-white/70">
+            <Dots /> Updating
+          </span>
+        ) : (
+          <>
+            <button className="rounded-full px-2 py-0.5 text-white/70 hover:bg-white/10" onClick={later}>
+              Later
+            </button>
+            <button
+              className="rounded-full bg-[#0a84ff] px-2.5 py-0.5 hover:brightness-110"
+              onClick={() => {
+                setInstalling(true);
+                api.installUpdate().catch(later);
+              }}
+            >
+              Update
+            </button>
+          </>
+        )}
+      </Pill>
+    </div>
   );
 }
 

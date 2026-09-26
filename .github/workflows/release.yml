@@ -1,0 +1,58 @@
+name: Release
+
+# Push a tag like v0.2.0 (matching the version in Cargo.toml) to publish a
+# release. Installed copies of Quill find it through latest.json and offer
+# the update.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      # Short path: rc.exe fails in a nested CMake build under long paths.
+      CARGO_TARGET_DIR: C:\t
+      # Signs the update so installed copies accept it (see README → Releasing).
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> C:\t"
+
+      - name: Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          install_runtime: false
+          cache: true
+          stripdown: true
+
+      - name: Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v5
+
+      - run: npm ci
+
+      - name: Build, sign, and publish
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Quill ${{ github.ref_name }}
+          releaseBody: See the changes below. Installed copies of Quill offer this update automatically.
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true

@@ -49,6 +49,7 @@ export interface Settings {
   voiceDictation: VoiceDictation;
   launchAtLogin: boolean;
   historyExpanded: boolean;
+  onboarded: boolean;
 }
 
 export type ModelState =
@@ -118,6 +119,12 @@ export interface DictationView {
   context: AppContext;
 }
 
+export interface UpdateInfo {
+  version: string;
+  current: string;
+  notes: string | null;
+}
+
 export interface UiState {
   settings: Settings;
   status: Status;
@@ -137,6 +144,9 @@ export interface UiState {
   dictation: DictationView;
   hasLastTranscript: boolean;
   version: string;
+  update: UpdateInfo | null;
+  updating: boolean;
+  updateError: string | null;
 }
 
 export interface HistoryEntry {
@@ -195,6 +205,8 @@ export const api = {
   forgetCorrections: () => invoke<void>("forget_corrections"),
   hideOverlay: () => invoke<void>("hide_overlay"),
   animationsEnabled: () => invoke<boolean>("animations_enabled"),
+  checkForUpdates: () => invoke<UpdateInfo | null>("check_for_updates"),
+  installUpdate: () => invoke<void>("install_update"),
   pendingSuggestion: () => invoke<CorrectionPair | null>("pending_suggestion"),
 };
 

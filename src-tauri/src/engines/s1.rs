@@ -148,7 +148,8 @@ impl TextCleaner for S1Mini {
         let mut out = String::new();
         let mut pos = l.prefix_len + user.len();
         let mut batch = LlamaBatch::new(1, 1);
-        let mut logits_index = (user.len() - 1) as i32;
+        // Logits of the prompt's last token, in the last decoded batch.
+        let mut logits_index = ((user.len() - 1) % N_BATCH as usize) as i32;
         for _ in 0..budget {
             let token = sampler.sample(&l.ctx, logits_index);
             sampler.accept(token);

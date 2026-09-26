@@ -53,10 +53,19 @@ fn build_menu(app: &AppHandle, quill: &Quill) -> tauri::Result<Menu<Wry>> {
     let engines = Submenu::with_items(app, format!("Engine: {}", current.info().title), true, &refs)?;
     let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    Menu::with_items(
-        app,
-        &[&toggle, &copy, &PredefinedMenuItem::separator(app)?, &engines, &PredefinedMenuItem::separator(app)?, &settings, &quit],
-    )
+    let sep = || PredefinedMenuItem::separator(app);
+    match quill.updates.info() {
+        Some(info) => {
+            let label = if quill.updates.installing() {
+                format!("Updating to {}…", info.version)
+            } else {
+                format!("Update to Quill {}", info.version)
+            };
+            let update = MenuItem::with_id(app, "update", label, !quill.updates.installing(), None::<&str>)?;
+            Menu::with_items(app, &[&update, &sep()?, &toggle, &copy, &sep()?, &engines, &sep()?, &settings, &quit])
+        }
+        None => Menu::with_items(app, &[&toggle, &copy, &sep()?, &engines, &sep()?, &settings, &quit]),
+    }
 }
 
 pub fn create(app: &AppHandle, quill: &Quill) -> tauri::Result<()> {
@@ -77,6 +86,12 @@ pub fn create(app: &AppHandle, quill: &Quill) -> tauri::Result<()> {
                     }
                 }
                 "settings" => crate::app::open_settings(app),
+                "update" => {
+                    let app = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let _ = crate::updates::install(&app).await;
+                    });
+                }
                 "quit" => app.exit(0),
                 other => {
                     if let Some(engine) = other.strip_prefix("engine:") {

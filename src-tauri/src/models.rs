@@ -25,6 +25,9 @@ pub struct ModelManager {
     on_change: Box<dyn Fn() + Send + Sync>,
     /// Called once when an asset finishes installing.
     on_installed: Mutex<Option<Box<dyn Fn(AssetId) + Send + Sync>>>,
+    /// Called before an installed folder is replaced, so engines using it
+    /// can let go of their (memory-mapped) files.
+    before_replace: Mutex<Option<Box<dyn Fn(AssetId) + Send + Sync>>>,
 }
 
 impl ModelManager {
@@ -35,6 +38,7 @@ impl ModelManager {
             cancels: Mutex::new(HashMap::new()),
             on_change: Box::new(on_change),
             on_installed: Mutex::new(None),
+            before_replace: Mutex::new(None),
         });
         m.refresh();
         m
@@ -42,6 +46,10 @@ impl ModelManager {
 
     pub fn set_on_installed(&self, f: impl Fn(AssetId) + Send + Sync + 'static) {
         *self.on_installed.lock() = Some(Box::new(f));
+    }
+
+    pub fn set_before_replace(&self, f: impl Fn(AssetId) + Send + Sync + 'static) {
+        *self.before_replace.lock() = Some(Box::new(f));
     }
 
     pub fn dir(&self, id: AssetId) -> PathBuf {
@@ -116,9 +124,15 @@ impl ModelManager {
     /// Download and install one asset. Returns when done, failed, or cancelled.
     pub async fn download(self: Arc<Self>, id: AssetId) {
         let a = asset(id);
-        if !a.available || self.state(id).is_busy() {
-            return;
+        // Check and claim in one step, so a double click can't start two.
+        {
+            let mut states = self.states.lock();
+            if !a.available || states.get(&id).is_some_and(|s| s.is_busy()) {
+                return;
+            }
+            states.insert(id, ModelState::Downloading { fraction: 0.0, bytes: 0, total: a.total_bytes() });
         }
+        (self.on_change)();
         let cancel = Arc::new(AtomicBool::new(false));
         self.cancels.lock().insert(id, cancel.clone());
         let result = self.clone().install(a, &cancel).await;
@@ -167,9 +181,20 @@ impl ModelManager {
         tokio::fs::write(partial.join(RECEIPT_FILE), receipt).await.map_err(io)?;
         let dir = self.dir(a.id);
         if dir.exists() {
-            tokio::fs::remove_dir_all(&dir).await.map_err(io)?;
+            // Swap by renaming, so the model is never half-deleted.
+            if let Some(f) = self.before_replace.lock().as_ref() {
+                f(a.id);
+            }
+            let old = self.root.join(format!(".{}.old", a.id.key()));
+            if old.exists() {
+                let _ = tokio::fs::remove_dir_all(&old).await;
+            }
+            tokio::fs::rename(&dir, &old).await.map_err(io)?;
+            tokio::fs::rename(&partial, &dir).await.map_err(io)?;
+            let _ = tokio::fs::remove_dir_all(&old).await;
+        } else {
+            tokio::fs::rename(&partial, &dir).await.map_err(io)?;
         }
-        tokio::fs::rename(&partial, &dir).await.map_err(io)?;
         Ok(())
     }
 
@@ -199,12 +224,29 @@ impl ModelManager {
         let mut received = 0u64;
         let mut last_emit = Instant::now();
         let mut stream = response.bytes_stream();
-        while let Some(chunk) = stream.next().await {
+        let mut idle = std::time::Duration::ZERO;
+        loop {
+            // Wake up regularly so Cancel works even on a stalled connection.
+            let next = tokio::time::timeout(TICK, stream.next()).await;
             if cancel.load(SeqCst) {
                 drop(out);
                 let _ = tokio::fs::remove_file(&part).await;
                 return Err(Failure::Cancelled);
             }
+            let chunk = match next {
+                Err(_) => {
+                    idle += TICK;
+                    if idle >= STALL_TIMEOUT {
+                        drop(out);
+                        let _ = tokio::fs::remove_file(&part).await;
+                        return Err(Failure::Message(format!("Download of {} stalled. Retry.", file.path)));
+                    }
+                    continue;
+                }
+                Ok(None) => break,
+                Ok(Some(chunk)) => chunk,
+            };
+            idle = std::time::Duration::ZERO;
             let chunk = chunk.map_err(|e| Failure::Message(format!("Download of {} was interrupted: {e}", file.path)))?;
             hasher.update(&chunk);
             out.write_all(&chunk).await.map_err(io)?;
@@ -229,6 +271,9 @@ impl ModelManager {
         Ok(())
     }
 }
+
+const TICK: std::time::Duration = std::time::Duration::from_millis(250);
+const STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 enum Failure {
     Cancelled,

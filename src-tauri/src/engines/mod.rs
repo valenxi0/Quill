@@ -29,6 +29,8 @@ pub struct TranscribeRequest {
 pub struct Transcript {
     pub text: String,
     pub language: Option<String>,
+    /// Terms a vocabulary booster swapped in (none until a booster ships).
+    #[allow(dead_code)]
     pub boosted_terms: Vec<String>,
 }
 

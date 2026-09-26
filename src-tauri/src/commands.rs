@@ -238,3 +238,13 @@ pub fn pending_suggestion(q: Q) -> Option<CorrectionPair> {
     let vocab = q.stores.settings.read(|s| s.voice_dictation.vocabulary.clone());
     q.stores.corrections.read(|c| c.suggestions(&vocab)).into_iter().next()
 }
+
+#[tauri::command]
+pub async fn check_for_updates(app: AppHandle) -> Result<Option<crate::updates::UpdateInfo>, String> {
+    crate::updates::check(&app).await
+}
+
+#[tauri::command]
+pub async fn install_update(app: AppHandle) -> Result<(), String> {
+    crate::updates::install(&app).await
+}

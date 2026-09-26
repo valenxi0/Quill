@@ -2,7 +2,6 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Quill",
   "mainBinaryName": "Quill",
-  "version": "0.1.0",
   "identifier": "com.valenxi0.quill",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -38,7 +37,8 @@
         "displayLanguageSelector": false,
         "installerHooks": "windows/hooks.nsh"
       }
-    }
+    },
+    "createUpdaterArtifacts": true
   },
   "plugins": {
     "deep-link": {
@@ -46,6 +46,15 @@
         "schemes": [
           "quill"
         ]
+      }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFEQ0UwMTA3NDBBN0NEQTkKUldTcHphZEFCd0hPcldrY1A5UnBPT3pNZk4zZitYWkE4QnZIQXkxK1F3K2puWnhReGtFWnc3c2gK",
+      "endpoints": [
+        "https://github.com/valenxi0/Quill/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
       }
     }
   }

@@ -15,7 +15,7 @@ All five engines run on Windows, and the full dictation loop works: shortcut →
 | 5. Vocabulary UI, booster, correction watcher, Your voice tab | Done, except the booster (see Deviations) |
 | 6. Insights, history, launchers (`quill://`, CLI) | Done |
 | 7. Cohere | Done: an official sherpa-onnx export exists |
-| 8. Benchmark, licenses view, installer, README | Benchmark and licenses done; the installer is configured but see "What's left" |
+| 8. Benchmark, licenses view, installer, README | Done. `npm run tauri build` produces `Quill_0.1.0_x64-setup.exe` (21 MB, per-user NSIS, unsigned) |
 
 Code map:
 
@@ -72,6 +72,22 @@ Eval set: `scripts/make-eval-set.ps1` produces 12 clips from Windows speech synt
 9. **Resampling** uses a small windowed-sinc resampler in `quill-core` instead of `rubato`. rubato 5 changed its API, and 16 kHz downsampling is easy to test directly (passband level, length, and stopband tests).
 10. **Hotkey chord and Alt/Win:** on chord-down, the hook taps an unassigned key (0xE8) so that releasing Alt or Win on its own doesn't open a menu bar or the Start menu. Ctrl+V is delayed up to 600 ms until the shortcut's modifiers are up, and any still held are released, so the paste is never Ctrl+Alt+V.
 
+## Review fixes
+
+An independent review of the runtime code found 11 issues, all now fixed:
+
+- A mid-recording early segment moved the phase to Cleaning, so release was ignored. Phase changes are now atomic, and only valid transitions are allowed (Recording → Transcribing → Cleaning).
+- A cancel during delivery could still paste and record. The generation is checked right before the keystroke and again before anything is recorded.
+- The main key leaked through when a modifier came up first. It is now latched until its own key-up.
+- A race between start and cancel, and duplicate starts, are now closed.
+- Model updates evict the engines that use the asset, then swap folders by rename.
+- Duplicate downloads are prevented, and a stalled download can be cancelled (it times out after 60 s).
+- Idle unload now also runs after cancelled or failed sessions.
+- The target is captured in parallel with opening the microphone, so the first word isn't clipped.
+- Hotkey capture ends when Settings loses focus, and system chords (Alt+Tab, Alt+F4, Win+L…) are refused.
+- The overlay uses the window layer's own click-through, and its no-activate styles are re-asserted on each show.
+- S1's logits index is now correct for prompts longer than one batch.
+
 ## Build notes (things that bit)
 
 - `.cargo/config.toml` sets the build environment:
@@ -84,9 +100,23 @@ Eval set: `scripts/make-eval-set.ps1` produces 12 clips from Windows speech synt
   - Binaries with debug info have passed reliably (`CARGO_PROFILE_RELEASE_DEBUG=true`), but SAC still occasionally blocks a build script or proc-macro DLL (`os error 4551` in the Code Integrity log).
   - The durable fixes are a code-signing certificate, which distribution needs anyway, or building the installer in CI. Turning SAC off can't be undone without reinstalling Windows, so that's the owner's call.
 
+## Setup wizard and updates (added after the spec)
+
+- **First-run wizard** (`src/settings/Onboarding.tsx`): Welcome → shortcut and Push to talk / Toggle → engine choice. The chosen engine must be downloaded, or be downloading, before Continue unlocks. Then Done, with a "Try it now" section.
+  - It shows until `onboarded` is set in `settings.json`, even when Quill is launched at login.
+  - Nothing downloads before the user picks an engine.
+- **In-app updates** (`src-tauri/src/updates.rs`, Tauri updater plugin):
+  - Quill checks `https://github.com/valenxi0/Quill/releases/latest/download/latest.json` 20 s after launch, then daily. Release builds only.
+  - A new version is offered once in the overlay, then in the tray menu and a Settings banner.
+  - Installing downloads the new installer, verifies its signature, runs it quietly, and relaunches Quill. It never runs during a dictation.
+- **Update signing key:** the key pair is in `%USERPROFILE%\.tauri\quill-updater.key(.pub)`. The public key is in `tauri.conf.json`; the private key belongs in the `TAURI_SIGNING_PRIVATE_KEY` GitHub secret.
+- **Releases:** `.github/workflows/release.yml` runs on `v*` tags. `ci.yml` runs the core tests and the frontend build on every push. Neither has run on GitHub yet.
+- **Version:** the root `Cargo.toml` is the single source; `tauri.conf.json` has no version of its own.
+- **Setup guide for users:** `docs/SETUP-GUIDE.md`.
+
 ## What's left
 
-- **Installer build and signing:** see the next section for this build's status. NSIS is set to a per-user install (no admin). Signing isn't set up because there's no certificate.
+- **Code signing:** there's no certificate yet. The NSIS installer builds and installs per user, but it's unsigned, so SmartScreen and Smart App Control will warn or block on other PCs.
 - **Real-microphone evaluation:** the WER above is from synthetic speech.
 - **Per-engine memory:** measure the working set of each engine in its own process, instead of the cumulative peak.
 - **Parakeet booster:** either export a `bpe.vocab` for sherpa-onnx hotwords, or port the CTC keyword-spot + rescore approach once a CTC 110M ONNX export with files exists.

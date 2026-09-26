@@ -14,6 +14,7 @@ mod platform;
 mod shell;
 mod stores;
 mod tray;
+mod updates;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -46,6 +47,7 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--autostart"])))
         .setup(move |tauri_app| {
             let handle = tauri_app.handle().clone();
@@ -92,6 +94,7 @@ pub fn run() {
                 capturing: AtomicBool::new(false),
                 capture_error: Mutex::new(None),
                 preferred_languages,
+                updates: updates::Updates::default(),
             });
             tauri_app.manage(quill.clone());
 
@@ -103,6 +106,19 @@ pub fn run() {
                 let info = engine.info();
                 if info.required.contains(&asset) || info.optional.contains(&asset) {
                     warm.warm_selected();
+                }
+            });
+
+            // Engines let go of an asset's files before an update replaces them.
+            let evict = quill.engines.clone();
+            models.set_before_replace(move |asset| {
+                for e in quill_core::engines::ENGINES.iter() {
+                    if e.required.contains(&asset) || e.optional.contains(&asset) {
+                        evict.evict(e.id);
+                    }
+                }
+                if asset == quill_core::engines::AssetId::S1Mini {
+                    evict.evict_cleaner();
                 }
             });
 
@@ -119,10 +135,15 @@ pub fn run() {
                 app::set_autostart(&handle, settings.launch_at_login);
             }
             spawn_history_purge(quill.clone(), handle.clone());
+            // Debug builds never self-update.
+            if !cfg!(debug_assertions) {
+                updates::spawn_checker(handle.clone());
+            }
 
             match launch::command_from_args(&args) {
                 Some(cmd) => controller.command(cmd),
-                None if !launch::is_autostart(&args) => app::open_settings(&handle),
+                // Until setup is finished, Settings opens even at login.
+                None if !launch::is_autostart(&args) || !settings.onboarded => app::open_settings(&handle),
                 None => {}
             }
             Ok(())
@@ -158,13 +179,19 @@ pub fn run() {
             commands::animations_enabled,
             commands::last_metrics,
             commands::pending_suggestion,
+            commands::check_for_updates,
+            commands::install_update,
         ])
         .on_window_event(|window, event| {
-            // Closing Settings while capturing a shortcut restores the hook.
+            // Leaving Settings while capturing a shortcut ends the capture, so
+            // keys typed in other apps are never swallowed.
             if window.label() == app::SETTINGS_LABEL {
-                if let tauri::WindowEvent::Destroyed = event {
+                if matches!(event, tauri::WindowEvent::Destroyed | tauri::WindowEvent::Focused(false)) {
                     if let Some(q) = window.app_handle().try_state::<Arc<Quill>>() {
-                        app::end_capture(&q);
+                        if q.capturing.load(std::sync::atomic::Ordering::SeqCst) {
+                            app::end_capture(&q);
+                            app::notify(window.app_handle());
+                        }
                     }
                 }
             }
