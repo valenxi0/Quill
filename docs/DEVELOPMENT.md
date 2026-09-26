@@ -1,0 +1,94 @@
+# Development
+
+## Layout
+
+- `crates/quill-core`: platform-free logic: the text pipeline (vocabulary, snippets, cleanup guard, chunker, command formatter, number formatter), state machine, pause finder, correction diff, history, stats, settings, engine and model tables, and the 16 kHz resampler. All unit tests live here.
+- `src-tauri`: the Windows app: keyboard hook, audio capture, UI Automation, clipboard and paste, overlay, tray, downloads, engines, the dictation controller, and updates (`updates.rs`). `src/bin/quill-bench.rs` is the benchmark.
+- `src`: the Settings window (setup wizard, Insights, Your voice, Setup) and the overlay pill (React, TypeScript, Tailwind). Running `npm run dev` in a plain browser previews both against a fake backend (`src/lib/devMock.ts`).
+- `.github/workflows`: `ci.yml` runs tests on every push; `release.yml` builds and publishes a release when you push a version tag.
+- `SETUP-GUIDE.md`: the install guide for users.
+- `vendor/whisper-rs-sys`: whisper-rs-sys 0.15.0, patched to build whisper.cpp against llama.cpp's ggml, so the program holds one copy of ggml.
+
+## Building
+
+Prerequisites (all via `winget`):
+
+```powershell
+winget install Rustlang.Rustup Microsoft.VisualStudio.2022.BuildTools LLVM.LLVM KhronosGroup.VulkanSDK Ninja-build.Ninja
+# Build Tools needs the "Desktop development with C++" workload.
+npm install
+```
+
+`.cargo/config.toml` sets `CMAKE_GENERATOR=Ninja` (MSBuild fails on the long nested CMake paths), `LIBCLANG_PATH`, `VULKAN_SDK`, and `GGML_NATIVE=OFF` so binaries run on any x64 CPU. Open a new terminal after installing Ninja so it's on `PATH`. If a native build ever fails half-way, run `cargo clean -p llama-cpp-sys-2 -p whisper-rs-sys`: CMake caches a bad configure.
+
+```powershell
+npm run tauri dev          # run
+cargo test --workspace     # unit tests
+npm run tauri build        # NSIS installer, per-user (no admin)
+cargo run --release --features bench --bin quill-bench   # benchmark (see below)
+```
+
+Release builds need two extra settings on Windows:
+
+- **Short target dir.** Inside a long checkout path, `rc.exe` fails in a nested CMake try-compile for the Vulkan shader generator. Set `$env:CARGO_TARGET_DIR = "E:\quill-target"`, or any short path.
+- **Smart App Control.** If SAC is on, it can block freshly built unsigned build scripts (`os error 4551`). Symbol-stripped binaries are always blocked, so the profile doesn't strip. Keeping debug info passes more reliably: `$env:CARGO_PROFILE_RELEASE_DEBUG = "true"; $env:CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_DEBUG = "true"`.
+
+Cargo features: `whisper`, `sherpa`, `llama`, `vulkan` (all on by default). CPU is always the fallback when the GPU backend can't start.
+
+## Releasing and updates
+
+Release builds try to check GitHub shortly after launch and once a day. The private repository requires authentication, so users currently update manually from GitHub Releases. If the update feed is publicly accessible, Quill offers a new version:
+- once, in the overlay: "Quill 0.2.0 is available · Later · Update";
+- and from then on in the tray menu and at the top of Settings.
+
+**Update** downloads the new installer, checks its signature, installs it quietly, and relaunches Quill. Settings, dictionary, and models are kept. Debug builds never check.
+
+### One-time setup
+
+1. Add the update signing key to GitHub. The key pair is in `%USERPROFILE%\.tauri\`:
+   - `quill-updater.key` is private. Never commit it, and back it up: if it's lost, installed copies can't be updated any more.
+   - `quill-updater.key.pub` is already in `src-tauri/tauri.conf.json`.
+
+   In the repo on GitHub, go to **Settings → Secrets and variables → Actions → New repository secret** and add `TAURI_SIGNING_PRIVATE_KEY` with the contents of `quill-updater.key`. The key has no password, so leave `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` unset.
+2. Optional, but needed for PCs with Smart App Control: code signing (see below).
+
+### Each release
+
+1. Bump `version` in the root `Cargo.toml` (`[workspace.package]`). It's the only place the version lives.
+2. Commit, then tag and push:
+   ```powershell
+   git commit -am "Quill 0.2.0"
+   git tag v0.2.0
+   git push origin main v0.2.0
+   ```
+3. The **Release** workflow (`.github/workflows/release.yml`) builds the installer on GitHub, signs the update, and publishes a GitHub Release. The release has `Quill_0.2.0_x64-setup.exe` plus updater artifacts and `latest.json`. The workflow also uploads the stable `Quill-Setup.exe` download.
+
+Updates only reach copies that already have the updater (0.1.0 builds from after it was added). Anyone on an older build installs the next version by hand once.
+
+### Code signing (Smart App Control)
+
+Windows 11's Smart App Control blocks unsigned installers outright. The update signature above only proves an update came from you; it doesn't satisfy Windows. For that, sign with a certificate Windows trusts. One option is Microsoft's Azure **Trusted Signing**.
+
+Once you have an account, add a `signCommand` under `bundle.windows` in `src-tauri/tauri.conf.json` that calls the Trusted Signing tool, and add its credentials as repository secrets. The release workflow then signs `Quill.exe`, the installer, and the updater artifacts. The bundled DLLs need signing too: sign them in `scripts/stage-dlls.mjs` before they're packed.
+
+## Launchers
+
+`quill://start`, `quill://stop`, `quill://toggle`, `quill://cancel`, or the same as flags: `Quill.exe --toggle`. They work with Stream Deck, AutoHotkey, PowerToys, and similar tools.
+
+## Benchmark
+
+`scripts/make-eval-set.ps1` writes 12 synthetic clips (Windows speech synthesis) with transcripts to `%LOCALAPPDATA%\Quill\Eval`. Add your own `name.wav` + `name.txt` pairs for realistic numbers. `quill-bench [engineId…]` runs every installed engine through the same recognize → pipeline → clipboard path and writes `%TEMP%\quill\bench.json`. Recorded results are in [BENCHMARKS.md](BENCHMARKS.md).
+
+## Licenses
+
+Quill ships the runtimes; you download the weights. Always written as "S1-mini" by "Superwhisper".
+
+| Component | License |
+| --- | --- |
+| whisper.cpp, llama.cpp | MIT |
+| ONNX Runtime, sherpa-onnx | MIT, Apache 2.0 |
+| text-processing-rs | Apache 2.0 |
+| Parakeet TDT 0.6B v3 (NVIDIA) | CC BY 4.0 |
+| S1-mini by Superwhisper (from Qwen3-0.6B) | Apache 2.0 with a naming term |
+| Whisper tiny.en, base.en, large-v3-turbo | MIT |
+| Cohere Transcribe 03-2026 | Apache 2.0 |

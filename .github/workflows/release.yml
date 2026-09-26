@@ -16,7 +16,7 @@ jobs:
     env:
       # Short path: rc.exe fails in a nested CMake build under long paths.
       CARGO_TARGET_DIR: C:\t
-      # Signs the update so installed copies accept it (see README → Releasing).
+      # Signs the update so installed copies accept it (see docs/DEVELOPMENT.md).
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
