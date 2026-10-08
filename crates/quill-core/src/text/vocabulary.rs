@@ -163,6 +163,7 @@ pub fn apply(text: &str, entries: &[VocabEntry], kind: Option<EntryKind>) -> App
 pub enum Piece {
     /// Speech the cleaner may see.
     Speech(String),
+    Break(usize),
     /// A snippet expansion, spliced back verbatim.
     Snippet { text: String, id: Uuid },
 }
@@ -170,36 +171,54 @@ pub enum Piece {
 /// Split a transcript at snippet trigger phrases so the cleaner only ever
 /// sees speech. Each expansion keeps the trigger's surrounding punctuation.
 pub fn protect_snippets(text: &str, entries: &[VocabEntry]) -> Vec<Piece> {
-    let active: Vec<&VocabEntry> = entries
-        .iter()
-        .filter(|e| e.is_active() && e.kind == EntryKind::Snippet)
-        .collect();
-    if active.is_empty() {
-        return vec![Piece::Speech(text.to_string())];
-    }
+    protect_layout(text, entries, false)
+}
+
+pub fn protect_layout(text: &str, entries: &[VocabEntry], layout_cues: bool) -> Vec<Piece> {
+    use super::layout::{capitalize, cue_at};
+    let active: Vec<&VocabEntry> = entries.iter().filter(|e| e.is_active() && e.kind == EntryKind::Snippet).collect();
     let tokens = tokenize(text);
     let matches = find_matches(&tokens, &active);
-    if matches.is_empty() {
-        return vec![Piece::Speech(text.to_string())];
-    }
     let mut pieces = Vec::new();
+    let mut start = 0;
     let mut i = 0;
-    for m in matches {
-        if m.start > i {
-            pieces.push(Piece::Speech(detokenize(&tokens[i..m.start]).trim().to_string()));
+    let mut capitalize_next = false;
+    let flush = |start: usize, end: usize, capitalize_next: &mut bool, pieces: &mut Vec<Piece>| {
+        let text = detokenize(&tokens[start..end]).trim().to_string();
+        if !text.is_empty() {
+            let text = if *capitalize_next { capitalize(&text) } else { text };
+            *capitalize_next = false;
+            pieces.push(Piece::Speech(text));
         }
-        let entry = active[m.entry];
-        let first = &tokens[m.start];
-        let last = &tokens[m.end - 1];
-        pieces.push(Piece::Snippet {
-            text: format!("{}{}{}", first.lead, entry.replacement, last.trail),
-            id: entry.id,
-        });
-        i = m.end;
+    };
+    while i < tokens.len() {
+        if let Some(m) = matches.iter().find(|m| m.start == i) {
+            flush(start, i, &mut capitalize_next, &mut pieces);
+            let entry = active[m.entry];
+            pieces.push(Piece::Snippet {
+                text: format!("{}{}{}", tokens[i].lead, entry.replacement, tokens[m.end - 1].trail),
+                id: entry.id,
+            });
+            capitalize_next = false;
+            i = m.end;
+            start = i;
+        } else if let Some((end, breaks)) = layout_cues.then(|| cue_at(&tokens, i)).flatten()
+            .filter(|(end, _)| !matches.iter().any(|m| m.start > i && m.start < *end)) {
+            flush(start, i, &mut capitalize_next, &mut pieces);
+            if breaks == 2 {
+                if let Some(Piece::Speech(text)) = pieces.last_mut() {
+                    if text.ends_with([',', ';', ':']) { text.pop(); text.push('.'); }
+                }
+            }
+            pieces.push(Piece::Break(breaks));
+            capitalize_next = true;
+            i = end;
+            start = i;
+        } else {
+            i += 1;
+        }
     }
-    if i < tokens.len() {
-        pieces.push(Piece::Speech(detokenize(&tokens[i..]).trim().to_string()));
-    }
+    flush(start, tokens.len(), &mut capitalize_next, &mut pieces);
     pieces
 }
 

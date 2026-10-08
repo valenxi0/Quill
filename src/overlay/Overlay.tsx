@@ -1,6 +1,6 @@
 // The status pill. Redraws only on level updates; nothing animates while idle.
 import { useEffect, useState } from "react";
-import { api, on, type CorrectionPair, type DictationView, type UpdateInfo } from "../lib/api";
+import { api, on, type AppContext, type CorrectionPair, type DictationView, type UpdateInfo } from "../lib/api";
 
 export default function Overlay() {
   const [view, setView] = useState<DictationView | null>(null);
@@ -38,7 +38,7 @@ export default function Overlay() {
   return (
     <div className="flex h-screen items-end justify-center pb-2">
       <Pill cancelled={phase === "cancelled"}>
-        {phase === "recording" && <Listening terminal={view.context === "terminal"} />}
+        {phase === "recording" && <Listening context={view.context} />}
         {(phase === "transcribing" || phase === "cleaning") && (
           <>
             <Spinner />
@@ -103,7 +103,7 @@ function mmss(seconds: number) {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-function Listening({ terminal }: { terminal: boolean }) {
+function Listening({ context }: { context: AppContext }) {
   // The last 12 voice readings, newest on the right: a rolling waveform.
   const [bars, setBars] = useState<number[]>(() => Array(BARS).fill(0));
   const [seconds, setSeconds] = useState(0);
@@ -139,7 +139,7 @@ function Listening({ terminal }: { terminal: boolean }) {
         </div>
         <span className="w-10 text-center text-[12px] font-normal tabular-nums text-white/55">{mmss(seconds)}</span>
       </div>
-      {terminal && <span className="rounded-full bg-white/15 px-1.5 text-[10.5px] text-white/80">Terminal</span>}
+      {(context === "terminal" || context === "email") && <span className="rounded-full bg-white/15 px-1.5 text-[10.5px] text-white/80">{context === "email" ? "Email" : "Terminal"}</span>}
     </>
   );
 }

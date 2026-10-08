@@ -1,0 +1,260 @@
+{
+  "failed": 0,
+  "fixtures": [
+    {
+      "delivered": "So I think we should ship it on Thursday, and let the team know before the standup.",
+      "directive": "[Styling: semi-formal] [Structure: prose] [Context: general]",
+      "elapsedMs": 262.46979999999996,
+      "guardFired": false,
+      "guardReason": null,
+      "id": "fillers-semi-formal-prose-general",
+      "misses": [],
+      "output": "So I think we should ship it on Thursday, and let the team know before the standup.",
+      "transcript": "Um, so I think we should, uh, ship it on Tuesday, no, Thursday, and, um, let the team know before the standup."
+    },
+    {
+      "delivered": "So I think we should ship it on Thursday, and let the team know before the standup.",
+      "directive": "[Styling: formal] [Structure: prose] [Context: general]",
+      "elapsedMs": 62.9971,
+      "guardFired": false,
+      "guardReason": null,
+      "id": "fillers-formal-prose-general",
+      "misses": [],
+      "output": "So I think we should ship it on Thursday, and let the team know before the standup.",
+      "transcript": "Um, so I think we should, uh, ship it on Tuesday, no, Thursday, and, um, let the team know before the standup."
+    },
+    {
+      "delivered": "um so i think we should ship it on thursday and let the team know before the standup",
+      "directive": "[Styling: casual] [Structure: prose] [Context: general]",
+      "elapsedMs": 59.6715,
+      "guardFired": false,
+      "guardReason": null,
+      "id": "fillers-casual-prose-general",
+      "misses": [],
+      "output": "um so i think we should ship it on thursday and let the team know before the standup",
+      "transcript": "Um, so I think we should, uh, ship it on Tuesday, no, Thursday, and, um, let the team know before the standup."
+    },
+    {
+      "delivered": "The invoice came to $23,450 and it's due on March 3rd, 2026.",
+      "directive": "[Styling: semi-formal] [Structure: prose] [Context: general]",
+      "elapsedMs": 75.5167,
+      "guardFired": false,
+      "guardReason": null,
+      "id": "numbers-semi-formal-prose-general",
+      "misses": [],
+      "output": "The invoice came to $23,450 and it's due on March 3rd, 2026.",
+      "transcript": "The invoice came to twenty three thousand four hundred and fifty dollars and it's due on March third twenty twenty six."
+    },
+    {
+      "delivered": "The invoice came to $23,450 and it's due on March 3rd, 2026.",
+      "directive": "[Styling: semi-formal] [Structure: lists] [Context: general]",
+      "elapsedMs": 74.0306,
+      "guardFired": false,
+      "guardReason": null,
+      "id": "numbers-semi-formal-lists-general",
+      "misses": [],
+      "output": "The invoice came to $23,450 and it's due on March 3rd, 2026.",
+      "transcript": "The invoice came to twenty three thousand four hundred and fifty dollars and it's due on March third twenty twenty six."
+    },
+    {
+      "delivered": "the invoice came to $23,450 and its due on march 3rd 2026",
+      "directive": "[Styling: casual] [Structure: prose] [Context: general]",
+      "elapsedMs": 66.297,
+      "guardFired": false,
+      "guardReason": null,
+      "id": "numbers-casual-prose-general",
+      "misses": [],
+      "output": "the invoice came to $23,450 and its due on march 3rd 2026",
+      "transcript": "The invoice came to twenty three thousand four hundred and fifty dollars and it's due on March third twenty twenty six."
+    },
+    {
+      "delivered": "I talked to the landlord yesterday, and he said the repair is not going to happen until next month, which is kind of frustrating, but I don't think we should push back yet.",
+      "directive": "[Styling: semi-formal] [Structure: prose] [Context: general]",
+      "elapsedMs": 3688.501,
+      "guardFired": false,
+      "guardReason": null,
+      "id": "prose-semi-formal-prose-general",
+      "misses": [],
+      "output": "I talked to the landlord yesterday, and he said the repair is not going to happen until next month, which is kind of frustrating, but I don't think we should push back yet.",
+      "transcript": "I talked to the landlord yesterday and he said the repair is not going to happen until next month, which is, you know, kind of frustrating, but I don't think we should push back yet."
+    },
+    {
+      "delivered": "I talked to the landlord yesterday, and he said the repair is not going to happen until next month, which is kind of frustrating, but I do not think we should push back yet.",
+      "directive": "[Styling: formal] [Structure: prose] [Context: general]",
+      "elapsedMs": 113.165,
+      "guardFired": false,
+      "guardReason": null,
+      "id": "prose-formal-prose-general",
+      "misses": [],
+      "output": "I talked to the landlord yesterday, and he said the repair is not going to happen until next month, which is kind of frustrating, but I do not think we should push back yet.",
+      "transcript": "I talked to the landlord yesterday and he said the repair is not going to happen until next month, which is, you know, kind of frustrating, but I don't think we should push back yet."
+    },
+    {
+      "delivered": "i talked to the landlord yesterday and he said the repair is not going to happen until next month which is kind of frustrating but i dont think we should push back yet",
+      "directive": "[Styling: casual] [Structure: prose] [Context: general]",
+      "elapsedMs": 95.96440000000001,
+      "guardFired": false,
+      "guardReason": null,
+      "id": "prose-casual-prose-general",
+      "misses": [],
+      "output": "i talked to the landlord yesterday and he said the repair is not going to happen until next month which is kind of frustrating but i dont think we should push back yet",
+      "transcript": "I talked to the landlord yesterday and he said the repair is not going to happen until next month, which is, you know, kind of frustrating, but I don't think we should push back yet."
+    },
+    {
+      "delivered": "I talked to the landlord yesterday, and he said the repair is not going to happen until next month, which is kind of frustrating, but I don't think we should push back yet.",
+      "directive": "[Styling: semi-formal] [Structure: lists] [Context: general]",
+      "elapsedMs": 107.15990000000001,
+      "guardFired": false,
+      "guardReason": null,
+      "id": "prose-semi-formal-lists-general",
+      "misses": [],
+      "output": "I talked to the landlord yesterday, and he said the repair is not going to happen until next month, which is kind of frustrating, but I don't think we should push back yet.",
+      "transcript": "I talked to the landlord yesterday and he said the repair is not going to happen until next month, which is, you know, kind of frustrating, but I don't think we should push back yet."
+    },
+    {
+      "delivered": "I talked to the landlord yesterday, and he said the repair is not going to happen until next month, which is kind of frustrating, but I don't think we should push back yet.",
+      "directive": "[Styling: semi-formal] [Structure: prose] [Context: email]",
+      "elapsedMs": 106.752,
+      "guardFired": false,
+      "guardReason": null,
+      "id": "prose-semi-formal-prose-email",
+      "misses": [],
+      "output": "I talked to the landlord yesterday, and he said the repair is not going to happen until next month, which is kind of frustrating, but I don't think we should push back yet.",
+      "transcript": "I talked to the landlord yesterday and he said the repair is not going to happen until next month, which is, you know, kind of frustrating, but I don't think we should push back yet."
+    },
+    {
+      "delivered": "Okay, so before the release we need to do three things:\n\n1. Update the changelog.\n2. Run the full test suite.\n3. Tag the build and notify the team.",
+      "directive": "[Styling: semi-formal] [Structure: lists] [Context: general]",
+      "elapsedMs": 106.485,
+      "guardFired": false,
+      "guardReason": null,
+      "id": "counted-semi-formal-lists-general",
+      "misses": [],
+      "output": "Okay, so before the release we need to do three things:\n\n1. Update the changelog.\n2. Run the full test suite.\n3. Tag the build and notify the team.",
+      "transcript": "Okay so before the release we need to do three things. First, update the changelog. Second, um, run the full test suite. And third, tag the build and notify the team."
+    },
+    {
+      "delivered": "Okay, so before the release we need to do three things. First, update the changelog. Second, run the full test suite. And third, tag the build and notify the team.",
+      "directive": "[Styling: semi-formal] [Structure: prose] [Context: general]",
+      "elapsedMs": 110.5502,
+      "guardFired": false,
+      "guardReason": null,
+      "id": "counted-semi-formal-prose-general",
+      "misses": [],
+      "output": "Okay, so before the release we need to do three things. First, update the changelog. Second, run the full test suite. And third, tag the build and notify the team.",
+      "transcript": "Okay so before the release we need to do three things. First, update the changelog. Second, um, run the full test suite. And third, tag the build and notify the team."
+    },
+    {
+      "delivered": "For the trip we need to bring:\n- Sunscreen\n- A first aid kit\n- Two tents\n- Enough water for three days",
+      "directive": "[Styling: semi-formal] [Structure: lists] [Context: general]",
+      "elapsedMs": 77.17739999999999,
+      "guardFired": false,
+      "guardReason": null,
+      "id": "groceries-semi-formal-lists-general",
+      "misses": [],
+      "output": "For the trip we need to bring:\n- Sunscreen\n- A first aid kit\n- Two tents\n- Enough water for three days",
+      "transcript": "For the trip we need to bring sunscreen, a first aid kit, uh, two tents, and enough water for three days."
+    },
+    {
+      "delivered": "Hi Priya,\n\nThanks for sending the report over. I had a look, and I think the numbers in section 2 are off by about 10%. Can you double check them before Friday?\n\nThanks,\nJorge",
+      "directive": "[Styling: semi-formal] [Structure: prose] [Context: email]",
+      "elapsedMs": 123.9613,
+      "guardFired": false,
+      "guardReason": null,
+      "id": "email-semi-formal-prose-email",
+      "misses": [],
+      "output": "Hi Priya,\n\nThanks for sending the report over. I had a look, and I think the numbers in section 2 are off by about 10%. Can you double check them before Friday?\n\nThanks,\nJorge",
+      "transcript": "Hi Priya, um, thanks for sending the report over. I had a look and I think the numbers in section two are off by about ten percent. Can you double check them before Friday? Thanks, Jorge."
+    },
+    {
+      "delivered": "Hi Priya,\n\nThanks for sending the report over. I had a look and I think the numbers in section 2 are off by about 10%. Can you double check them before Friday?\n\nThanks,\nJorge",
+      "directive": "[Styling: formal] [Structure: prose] [Context: email]",
+      "elapsedMs": 121.3323,
+      "guardFired": false,
+      "guardReason": null,
+      "id": "email-formal-prose-email",
+      "misses": [],
+      "output": "Hi Priya,\n\nThanks for sending the report over. I had a look and I think the numbers in section 2 are off by about 10%. Can you double check them before Friday?\n\nThanks,\nJorge",
+      "transcript": "Hi Priya, um, thanks for sending the report over. I had a look and I think the numbers in section two are off by about ten percent. Can you double check them before Friday? Thanks, Jorge."
+    },
+    {
+      "delivered": "Hi Priya, thanks for sending the report over. I had a look and I think the numbers in section 2 are off by about 10%. Can you double check them before Friday? Thanks, Jorge.",
+      "directive": "[Styling: semi-formal] [Structure: prose] [Context: general]",
+      "elapsedMs": 122.4673,
+      "guardFired": false,
+      "guardReason": null,
+      "id": "email-semi-formal-prose-general",
+      "misses": [],
+      "output": "Hi Priya, thanks for sending the report over. I had a look and I think the numbers in section 2 are off by about 10%. Can you double check them before Friday? Thanks, Jorge.",
+      "transcript": "Hi Priya, um, thanks for sending the report over. I had a look and I think the numbers in section two are off by about ten percent. Can you double check them before Friday? Thanks, Jorge."
+    },
+    {
+      "delivered": "Hi Team,\n\nOkay, so before the release we need to do three things:\n\n1. Update the changelog.\n2. Run the full test suite.\n3. Tag the build and notify the team.\n\nThanks,\nJorge",
+      "directive": "[Styling: semi-formal] [Structure: lists] [Context: email]",
+      "elapsedMs": 125.10640000000001,
+      "guardFired": false,
+      "guardReason": null,
+      "id": "combined-semi-formal-lists-email",
+      "misses": [],
+      "output": "Hi Team,\n\nOkay, so before the release we need to do three things:\n\n1. Update the changelog.\n2. Run the full test suite.\n3. Tag the build and notify the team.\n\nThanks,\nJorge",
+      "transcript": "Hi team, Okay so before the release we need to do three things. First, update the changelog. Second, um, run the full test suite. And third, tag the build and notify the team. Thanks, Jorge."
+    },
+    {
+      "delivered": "Call me back at 5550198 before the 14th. I'm free at 4:30pm.",
+      "directive": "[Styling: semi-formal] [Structure: prose] [Context: general]",
+      "elapsedMs": 82.6636,
+      "guardFired": false,
+      "guardReason": null,
+      "id": "figures-semi-formal-prose-general",
+      "misses": [],
+      "output": "Call me back at 5550198 before the 14th. I'm free at 4:30pm.",
+      "transcript": "Call me back at five five five, zero one nine eight, before the fourteenth. I'm free at four thirty PM."
+    },
+    {
+      "delivered": "It costs about $100 a month, so two and a half times what we paid in 1999 for 12 seats.",
+      "directive": "[Styling: semi-formal] [Structure: prose] [Context: general]",
+      "elapsedMs": 83.6387,
+      "guardFired": false,
+      "guardReason": null,
+      "id": "amounts-semi-formal-prose-general",
+      "misses": [],
+      "output": "It costs about $100 a month, so two and a half times what we paid in 1999 for 12 seats.",
+      "transcript": "It costs about a hundred dollars a month, so, uh, two and a half times what we paid in nineteen ninety nine for twelve seats."
+    },
+    {
+      "delivered": "We migrated the Kubernetes cluster to Postgres 16, rewrote the SwiftUI view in Xcode, and asked Priya Ramaswamy to review it. Email me at jorge.valen@example.com.",
+      "directive": "[Styling: semi-formal] [Structure: prose] [Context: general]",
+      "elapsedMs": 121.6041,
+      "guardFired": false,
+      "guardReason": null,
+      "id": "technical-semi-formal-prose-general",
+      "misses": [],
+      "output": "We migrated the Kubernetes cluster to Postgres 16, rewrote the SwiftUI view in Xcode, and asked Priya Ramaswamy to review it. Email me at jorge.valen@example.com.",
+      "transcript": "We migrated the Kubernetes cluster to Postgres sixteen, rewrote the SwiftUI view in Xcode, and asked Priya Ramaswamy to review it. Email me at jorge dot valen at example dot com."
+    },
+    {
+      "delivered": "Here is the status update for the Quill release that Priya Ramaswamy and Jorge Valen reviewed yesterday. We now have three engines running reliably on the Windows test machines, and the team will watch performance over the next 24 hours. Morgan finished the Kubernetes deployment checks and confirmed that the Postgres migration preserves all customer records. The SwiftUI work remains with the Mac team while we finish the installer and keyboard shortcut verification. Everyone should record their findings in the shared release document before the afternoon review. We still need feedback from Berlin on microphone permissions and from Seattle on the onboarding copy. Once those reports arrive, Priya will compare the results against our acceptance checklist and schedule the final walkthrough. Please keep the existing release branch available so Jorge can reproduce any failures without rebuilding the entire environment. I will send another update tomorrow after the overnight tests finish.",
+      "directive": "[Styling: semi-formal] [Structure: prose] [Context: general]",
+      "elapsedMs": 2654.2095,
+      "guardFired": false,
+      "guardReason": null,
+      "id": "long-semi-formal-prose-general",
+      "misses": [],
+      "output": "Here is the status update for the Quill release that Priya Ramaswamy and Jorge Valen reviewed yesterday. We now have three engines running reliably on the Windows test machines, and the team will watch performance over the next 24 hours. Morgan finished the Kubernetes deployment checks and confirmed that the Postgres migration preserves all customer records. The SwiftUI work remains with the Mac team while we finish the installer and keyboard shortcut verification. Everyone should record their findings in the shared release document before the afternoon review. We still need feedback from Berlin on microphone permissions and from Seattle on the onboarding copy. Once those reports arrive, Priya will compare the results against our acceptance checklist and schedule the final walkthrough. Please keep the existing release branch available so Jorge can reproduce any failures without rebuilding the entire environment. I will send another update tomorrow after the overnight tests finish.",
+      "transcript": "Here is the status update for the Quill release that Priya Ramaswamy and Jorge Valen reviewed yesterday. We now have three engines running reliably on the Windows test machines, and the team will watch performance over the next twenty four hours. Morgan finished the Kubernetes deployment checks and confirmed that the Postgres migration preserves all customer records. The SwiftUI work remains with the Mac team while we finish the installer and keyboard shortcut verification. Everyone should record their findings in the shared release document before the afternoon review. We still need feedback from Berlin on microphone permissions and from Seattle on the onboarding copy. Once those reports arrive, Priya will compare the results against our acceptance checklist and schedule the final walkthrough. Please keep the existing release branch available so Jorge can reproduce any failures without rebuilding the entire environment. I will send another update tomorrow after the overnight tests finish."
+    },
+    {
+      "delivered": "Here is the status update for the Quill release that Priya Ramaswamy and Jorge Valen reviewed yesterday. We now have three engines running reliably on the Windows test machines, and the team will watch performance over the next 24 hours. Morgan finished the Kubernetes deployment checks and confirmed that the Postgres migration preserves all customer records. The SwiftUI work remains with the Mac team while we finish the installer and keyboard shortcut verification. Everyone should record their findings in the shared release document before the afternoon review. We still need feedback from Berlin on microphone permissions and from Seattle on the onboarding copy. Once those reports arrive, Priya will compare the results against our acceptance checklist and schedule the final walkthrough. Please keep the existing release branch available so Jorge can reproduce any failures without rebuilding the entire environment. I will send another update tomorrow after the overnight tests finish.",
+      "directive": "[Styling: semi-formal] [Structure: lists] [Context: general]",
+      "elapsedMs": 441.55559999999997,
+      "guardFired": false,
+      "guardReason": null,
+      "id": "long-semi-formal-lists-general",
+      "misses": [],
+      "output": "Here is the status update for the Quill release that Priya Ramaswamy and Jorge Valen reviewed yesterday. We now have three engines running reliably on the Windows test machines, and the team will watch performance over the next 24 hours. Morgan finished the Kubernetes deployment checks and confirmed that the Postgres migration preserves all customer records. The SwiftUI work remains with the Mac team while we finish the installer and keyboard shortcut verification. Everyone should record their findings in the shared release document before the afternoon review. We still need feedback from Berlin on microphone permissions and from Seattle on the onboarding copy. Once those reports arrive, Priya will compare the results against our acceptance checklist and schedule the final walkthrough. Please keep the existing release branch available so Jorge can reproduce any failures without rebuilding the entire environment. I will send another update tomorrow after the overnight tests finish.",
+      "transcript": "Here is the status update for the Quill release that Priya Ramaswamy and Jorge Valen reviewed yesterday. We now have three engines running reliably on the Windows test machines, and the team will watch performance over the next twenty four hours. Morgan finished the Kubernetes deployment checks and confirmed that the Postgres migration preserves all customer records. The SwiftUI work remains with the Mac team while we finish the installer and keyboard shortcut verification. Everyone should record their findings in the shared release document before the afternoon review. We still need feedback from Berlin on microphone permissions and from Seattle on the onboarding copy. Once those reports arrive, Priya will compare the results against our acceptance checklist and schedule the final walkthrough. Please keep the existing release branch available so Jorge can reproduce any failures without rebuilding the entire environment. I will send another update tomorrow after the overnight tests finish."
+    }
+  ],
+  "model": "C:\\Users\\xiibu\\AppData\\Local\\Quill\\Models\\s1Mini/s1-mini-q4_k_m.gguf",
+  "total": 23
+}

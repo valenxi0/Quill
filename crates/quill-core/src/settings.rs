@@ -29,17 +29,7 @@ pub enum CleanupLevel {
     Light,
     #[default]
     Full,
-}
-
-impl CleanupLevel {
-    /// The S1-mini styling value; only the trained values are valid.
-    pub fn styling(self) -> Option<&'static str> {
-        match self {
-            Self::Verbatim => None,
-            Self::Light => Some("casual"),
-            Self::Full => Some("semi-formal"),
-        }
-    }
+    Compose,
 }
 
 pub mod modifiers {
@@ -171,6 +161,8 @@ pub struct VoiceDictation {
     pub activation_mode: ActivationMode,
     pub hotkey: Hotkey,
     pub cleanup_level: CleanupLevel,
+    pub formal_register: bool,
+    pub layout_cues: bool,
     pub language: String,
     pub writes_numbers: bool,
     pub adapts_to_app: bool,
@@ -187,6 +179,8 @@ impl Default for VoiceDictation {
             activation_mode: ActivationMode::PushToTalk,
             hotkey: Hotkey::default(),
             cleanup_level: CleanupLevel::Full,
+            formal_register: false,
+            layout_cues: true,
             language: "auto".into(),
             writes_numbers: true,
             adapts_to_app: true,

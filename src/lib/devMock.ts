@@ -14,6 +14,8 @@ const settings: Settings = {
     activationMode: "pushToTalk",
     hotkey: { vk: 0x4d, modifiers: 3 },
     cleanupLevel: "full",
+    formalRegister: false,
+    layoutCues: true,
     language: "auto",
     writesNumbers: true,
     adaptsToApp: true,

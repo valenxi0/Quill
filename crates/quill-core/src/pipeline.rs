@@ -5,24 +5,25 @@ use uuid::Uuid;
 use crate::context::AppContext;
 use crate::errors::DictationError;
 use crate::langid::is_english;
-use crate::settings::CleanupLevel;
+use crate::text::directive::Directive;
 use crate::text::chunker::{chunk, WORD_BUDGET};
 use crate::text::command::format_command;
-use crate::text::finish::{chat_style, is_hallucination, join};
-use crate::text::guard::guard;
+use crate::text::finish::{chat_style, is_hallucination, join, join_segment};
+use crate::text::guard::guard_with_itn;
 use crate::text::numbers::{format_numbers, Itn};
-use crate::text::vocabulary::{apply, protect_snippets, EntryKind, Piece, VocabEntry};
+use crate::text::vocabulary::{apply, protect_layout, EntryKind, Piece, VocabEntry};
 
 /// Rewrites a chunk of English speech (S1-mini).
 pub trait Cleaner {
-    fn clean(&mut self, text: &str, level: CleanupLevel) -> Result<String, String>;
+    fn clean(&mut self, text: &str, directive: Directive) -> Result<String, String>;
 }
 
 /// How one dictation is processed, fixed at recording start.
 #[derive(Debug, Clone)]
 pub struct Recipe {
-    /// The cleanup level after context overrides.
-    pub level: CleanupLevel,
+    /// The directive after context overrides; None skips cleanup.
+    pub directive: Option<Directive>,
+    pub layout_cues: bool,
     pub context: AppContext,
     pub writes_numbers: bool,
     /// Whether the engine has a cleanup stage at all.
@@ -56,15 +57,22 @@ pub fn process_segment(
     let english = is_english(raw, reported_language);
     let terminal = recipe.context == AppContext::Terminal;
     let cleaner_applies =
-        recipe.has_cleanup && recipe.level != CleanupLevel::Verbatim && english && cleaner.is_some();
+        recipe.has_cleanup && recipe.directive.is_some() && english && cleaner.is_some();
     let mut out = SegmentResult { raw: raw.to_string(), english, ..Default::default() };
     let mut pieces = Vec::new();
+    let mut capitalize_next = false;
 
-    for piece in protect_snippets(raw, &recipe.vocabulary) {
+    for piece in protect_layout(raw, &recipe.vocabulary, recipe.layout_cues && !terminal) {
         let speech = match piece {
             Piece::Snippet { text, id } => {
                 out.hits.push(id);
                 pieces.push(text);
+                capitalize_next = false;
+                continue;
+            }
+            Piece::Break(n) => {
+                pieces.push("\n".repeat(n));
+                capitalize_next = true;
                 continue;
             }
             Piece::Speech(s) => s,
@@ -73,9 +81,9 @@ pub fn process_segment(
             let cleaner = cleaner.as_deref_mut().expect("checked above");
             let mut cleaned = Vec::new();
             for c in chunk(&speech, WORD_BUDGET) {
-                match cleaner.clean(&c, recipe.level) {
+                match cleaner.clean(&c, recipe.directive.expect("checked above")) {
                     Ok(result) => {
-                        let (kept, restored) = guard(&c, &result);
+                        let (kept, restored) = guard_with_itn(&c, &result, itn);
                         out.restored += usize::from(restored);
                         cleaned.push(kept.to_string());
                     }
@@ -98,12 +106,16 @@ pub fn process_segment(
                 text = format_numbers(&text, terminal, itn);
             }
         }
+        if capitalize_next && !text.is_empty() {
+            text = crate::text::layout::capitalize(&text);
+            capitalize_next = false;
+        }
         // Vocabulary last, so nothing re-cases a term.
         let applied = apply(&text, &recipe.vocabulary, Some(EntryKind::Vocabulary));
         out.hits.extend(applied.hits);
         pieces.push(applied.text);
     }
-    out.text = join(&pieces);
+    out.text = join_segment(&pieces);
     out
 }
 
@@ -118,16 +130,17 @@ pub fn finish(raw: &str, text: &str, context: AppContext, rms_dbfs: f32) -> Resu
 #[cfg(all(test, feature = "itn"))]
 mod tests {
     use super::*;
+    use crate::settings::CleanupLevel;
     use crate::text::numbers::NemoItn;
 
     /// Removes "um" and capitalizes; fails on "boom"; drops "not" on "drop".
     struct Fake {
-        calls: Vec<(String, CleanupLevel)>,
+        calls: Vec<(String, Directive)>,
     }
 
     impl Cleaner for Fake {
-        fn clean(&mut self, text: &str, level: CleanupLevel) -> Result<String, String> {
-            self.calls.push((text.to_string(), level));
+        fn clean(&mut self, text: &str, directive: Directive) -> Result<String, String> {
+            self.calls.push((text.to_string(), directive));
             if text.contains("boom") {
                 return Err("failed".into());
             }
@@ -141,7 +154,7 @@ mod tests {
     }
 
     fn recipe(level: CleanupLevel, context: AppContext) -> Recipe {
-        Recipe { level, context, writes_numbers: true, has_cleanup: true, vocabulary: vec![] }
+        Recipe { directive: Directive::for_recording(level, context, false), layout_cues: true, context, writes_numbers: true, has_cleanup: true, vocabulary: vec![] }
     }
 
     #[test]
@@ -152,7 +165,7 @@ mod tests {
         r.vocabulary = vec![snippet.clone(), vocab.clone()];
         let mut fake = Fake { calls: vec![] };
         let out = process_segment("um try mac island today. my sign off", None, &r, Some(&mut fake), Some(&NemoItn));
-        assert_eq!(fake.calls, vec![("um try mac island today.".to_string(), CleanupLevel::Full)]);
+        assert_eq!(fake.calls, vec![("um try mac island today.".to_string(), Directive::default())]);
         assert_eq!(out.text, "Try Nano today. Best,\num Jorge");
         assert_eq!(out.hits, vec![vocab.id, snippet.id]);
         assert!(out.cleaned);

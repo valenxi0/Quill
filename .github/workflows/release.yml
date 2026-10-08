@@ -45,6 +45,29 @@ jobs:
 
       - run: npm ci
 
+      - name: Release notes
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"$').Matches[0].Groups[1].Value
+          if ($env:RELEASE_TAG -ne "v$version") { throw "Tag does not match workspace version $version" }
+          $pattern = '(?ms)^## \[' + [regex]::Escape($version) + '\][^\r\n]*\r?\n(.*?)(?=^## |\z)'
+          $entry = [regex]::Match((Get-Content docs/CHANGELOG.md -Raw -Encoding utf8), $pattern)
+          if (!$entry.Success) { throw "Missing changelog for $version" }
+          $changes = $entry.Groups[1].Value.Trim()
+          @"
+          ## [Download Quill-Setup.exe for Windows](https://github.com/valenxi0/Quill/releases/download/${env:RELEASE_TAG}/Quill-Setup.exe)
+
+          Run **Quill-Setup.exe** to install or update. Your settings and downloaded engines are kept.
+
+          Windows 10/11, 64-bit. Sign in to GitHub with access to this repository to download. The other assets support Quill's updater.
+
+          $changes
+
+          See the [setup guide](https://github.com/valenxi0/Quill/blob/${env:RELEASE_TAG}/docs/SETUP-GUIDE.md) for installation and troubleshooting. The updater signature does not provide Windows code signing; Smart App Control may block this unsigned installer.
+          "@ | Set-Content "$env:RUNNER_TEMP/release-notes.md" -Encoding utf8
+
       - name: Build, sign, and publish
         uses: tauri-apps/tauri-action@v0
         env:
@@ -52,22 +75,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: Quill ${{ github.ref_name }}
-          releaseBody: |
-            ## [Download Quill-Setup.exe for Windows](https://github.com/valenxi0/Quill/releases/download/${{ github.ref_name }}/Quill-Setup.exe)
-
-            Run **Quill-Setup.exe** and follow the short setup. Already have Quill? Run it over your current copy: your settings and downloaded engines are kept.
-
-            You only need `Quill-Setup.exe`. The other files are for Quill's updater and the source code.
-
-            Windows 10/11, 64-bit. Sign in to GitHub with access to this repository to download.
-
-            ### Included
-            - Local dictation with Parakeet + S1-mini, Cohere, and Whisper engines.
-            - Guided setup, configurable shortcuts, and a recording indicator.
-            - Vocabulary, snippets, optional history, and dictation stats.
-            - Bundled Visual C++ runtime libraries.
-
-            See the [setup guide](https://github.com/valenxi0/Quill/blob/${{ github.ref_name }}/docs/SETUP-GUIDE.md) for installation and troubleshooting. This installer is not Windows code-signed; Smart App Control may block it.
+          releaseBody: Release notes are added from the changelog before publication.
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
@@ -83,4 +91,5 @@ jobs:
           Copy-Item $setup.FullName "$env:RUNNER_TEMP/Quill-Setup.exe"
           gh release upload "${{ github.ref_name }}" "$env:RUNNER_TEMP/Quill-Setup.exe" --clobber
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          gh release edit "${{ github.ref_name }}" --draft=false --latest
+          gh release edit "${{ github.ref_name }}" --notes-file "$env:RUNNER_TEMP/release-notes.md" --draft=false --latest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

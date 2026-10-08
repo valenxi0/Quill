@@ -2,7 +2,7 @@
 
 ## Layout
 
-- `crates/quill-core`: platform-free logic: the text pipeline (vocabulary, snippets, cleanup guard, chunker, command formatter, number formatter), state machine, pause finder, correction diff, history, stats, settings, engine and model tables, and the 16 kHz resampler. All unit tests live here.
+- `crates/quill-core`: platform-free logic: the text pipeline (vocabulary, snippets, cleanup guard, chunker, command formatter, number formatter), state machine, pause finder, correction diff, history, stats, settings, engine and model tables, and the 16 kHz resampler. Most unit tests live here.
 - `src-tauri`: the Windows app: keyboard hook, audio capture, UI Automation, clipboard and paste, overlay, tray, downloads, engines, the dictation controller, and updates (`updates.rs`). `src/bin/quill-bench.rs` is the benchmark.
 - `src`: the Settings window (setup wizard, Insights, Your voice, Setup) and the overlay pill (React, TypeScript, Tailwind). Running `npm run dev` in a plain browser previews both against a fake backend (`src/lib/devMock.ts`).
 - `.github/workflows`: `ci.yml` runs tests on every push; `release.yml` builds and publishes a release when you push a version tag.
@@ -54,7 +54,7 @@ Release builds try to check GitHub shortly after launch and once a day. The priv
 
 ### Each release
 
-1. Bump `version` in the root `Cargo.toml` (`[workspace.package]`). It's the only place the version lives.
+1. Bump `version` in the root `Cargo.toml` (`[workspace.package]`) and refresh the workspace entries in `Cargo.lock`. The root workspace version controls the app version. Add a matching `## [version] - YYYY-MM-DD` entry to `docs/CHANGELOG.md`; the workflow uses it as the release notes.
 2. Commit, then tag and push:
    ```powershell
    git commit -am "Quill 0.2.0"
@@ -78,6 +78,12 @@ Once you have an account, add a `signCommand` under `bundle.windows` in `src-tau
 ## Benchmark
 
 `scripts/make-eval-set.ps1` writes 12 synthetic clips (Windows speech synthesis) with transcripts to `%LOCALAPPDATA%\Quill\Eval`. Add your own `name.wav` + `name.txt` pairs for realistic numbers. `quill-bench [engineId…]` runs every installed engine through the same recognize → pipeline → clipboard path and writes `%TEMP%\quill\bench.json`. Recorded results are in [BENCHMARKS.md](BENCHMARKS.md).
+
+## Cleanup parity and model eval
+
+[QUILL_WINDOWS_HANDOFF.md](../QUILL_WINDOWS_HANDOFF.md) describes cleanup styles, app context, spoken layout cues, guard behavior, and the opt-in S1-mini eval. Set `QUILL_CLEANUP_EVAL=1`, then run `cargo test -p quill --release --locked real_model_cleanup_eval -- --ignored --nocapture` with the release environment above. The test uses installed weights and reports all 23 outputs and rubric misses as JSON. The [October 7 report](cleanup-eval-2026-10-07.json) passed all fixtures with no guard firing.
+
+Development builds never register for login startup. Launch the installed release to reconcile the login setting and repair stale paths. Release login launches run quietly in the tray after onboarding.
 
 ## Licenses
 

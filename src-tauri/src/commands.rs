@@ -186,6 +186,7 @@ pub fn test_vocabulary_entry(entry: VocabEntry, sample: String) -> String {
                 .into_iter()
                 .map(|p| match p {
                     Piece::Speech(s) => s,
+                    Piece::Break(n) => "\n".repeat(n),
                     Piece::Snippet { text, .. } => text,
                 })
                 .collect();

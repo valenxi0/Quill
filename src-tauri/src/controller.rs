@@ -10,14 +10,14 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
-use quill_core::context::{classify, effective_level, AppContext};
+use quill_core::context::{classify, AppContext};
 use quill_core::corrections::{diff, Anchor, CorrectionPair};
 use quill_core::engines::{recognition_language, EngineId, Recognizer};
 use quill_core::errors::DictationError;
 use quill_core::history::HistoryEntry;
 use quill_core::pipeline::{finish, process_segment, Cleaner, Recipe, SegmentResult};
 use quill_core::segments::{pad, split, EarlySegmenter, SAMPLE_RATE};
-use quill_core::settings::CleanupLevel;
+use quill_core::text::directive::Directive;
 use quill_core::state::{action, Action, HotkeyEvent, Phase};
 use quill_core::stats::Session as StatSession;
 use quill_core::text::finish::{has_speech, join, peak, rms_dbfs, MIN_SPEECH_PEAK};
@@ -323,7 +323,8 @@ impl Controller {
         let context = classify(&target.exe, &target.focused_name, target.aumid.as_deref(), vd.adapts_to_app);
         let info = vd.engine.info();
         let recipe = Recipe {
-            level: effective_level(vd.cleanup_level, context),
+            directive: Directive::for_recording(vd.cleanup_level, context, vd.formal_register),
+            layout_cues: vd.layout_cues,
             context,
             writes_numbers: vd.writes_numbers,
             has_cleanup: info.has_cleanup,
@@ -754,13 +755,13 @@ struct HostCleaner<'a> {
 }
 
 impl Cleaner for HostCleaner<'_> {
-    fn clean(&mut self, text: &str, level: CleanupLevel) -> Result<String, String> {
+    fn clean(&mut self, text: &str, directive: Directive) -> Result<String, String> {
         if !self.controller.is_current(self.generation) {
             return Err("cancelled".into());
         }
         self.controller.advance(self.generation, Phase::Transcribing, Phase::Cleaning);
         let start = Instant::now();
-        let result = self.controller.engines.with_cleaner(|c| c.clean(text, level));
+        let result = self.controller.engines.with_cleaner(|c| c.clean(text, directive));
         let elapsed = start.elapsed();
         match result {
             Ok((r, cold)) => {

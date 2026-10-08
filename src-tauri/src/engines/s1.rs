@@ -14,7 +14,7 @@ use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::model::{AddBos, LlamaModel};
 use llama_cpp_2::sampling::LlamaSampler;
-use quill_core::settings::CleanupLevel;
+use quill_core::text::directive::Directive;
 use quill_core::text::finish::tidy_s1;
 
 use super::TextCleaner;
@@ -26,9 +26,10 @@ const MAX_OUTPUT: usize = 1024;
 const SYSTEM: &str = "<|im_start|>system\nYou are a text normalizer for speech-to-text transcripts. The input begins with a control line specifying the styling, structure, and context settings; clean the transcript to match those settings and output only the cleaned text.<|im_end|>\n";
 
 /// The user turn. Only the trained control values are valid.
-pub fn user_turn(styling: &str, transcript: &str) -> String {
+pub fn user_turn(directive: Directive, transcript: &str) -> String {
+    let control = directive.control_line();
     format!(
-        "<|im_start|>user\n[Styling: {styling}] [Structure: prose] [Context: general]\n{transcript}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+        "<|im_start|>user\n{control}\n{transcript}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
     )
 }
 
@@ -119,7 +120,7 @@ impl TextCleaner for S1Mini {
         decode_tokens(&mut ctx, &prefix, 0)?;
         self.loaded = Some(Loaded { ctx, model, prefix_len: prefix.len() });
         // Warm the generation path once.
-        let _ = self.clean("okay so this is a test", CleanupLevel::Full);
+        let _ = self.clean("okay so this is a test", Directive::default());
         Ok(())
     }
 
@@ -127,8 +128,7 @@ impl TextCleaner for S1Mini {
         self.loaded.is_some()
     }
 
-    fn clean(&mut self, text: &str, level: CleanupLevel) -> Result<String, String> {
-        let Some(styling) = level.styling() else { return Ok(text.to_string()) };
+    fn clean(&mut self, text: &str, directive: Directive) -> Result<String, String> {
         let l = self.loaded.as_mut().ok_or("S1-mini is not loaded.")?;
         let model: &LlamaModel = &l.model;
         l.ctx.clear_kv_cache_seq(Some(0), Some(l.prefix_len as u32), None).map_err(|e| e.to_string())?;
@@ -137,7 +137,7 @@ impl TextCleaner for S1Mini {
             let n = model.str_to_token(text, AddBos::Never).map_err(|e| e.to_string())?.len();
             ((n as f64 * 1.3 + 32.0) as usize).min(MAX_OUTPUT)
         };
-        let user = model.str_to_token(&user_turn(styling, text), AddBos::Never).map_err(|e| e.to_string())?;
+        let user = model.str_to_token(&user_turn(directive, text), AddBos::Never).map_err(|e| e.to_string())?;
         if l.prefix_len + user.len() + budget > N_CTX as usize {
             return Err("The text is too long for S1-mini.".into());
         }
@@ -171,5 +171,18 @@ impl TextCleaner for S1Mini {
 
     fn unload(&mut self) {
         self.loaded = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use quill_core::{context::AppContext, settings::CleanupLevel};
+
+    #[test]
+    fn control_line_uses_all_directive_fields() {
+        let d = Directive::for_recording(CleanupLevel::Compose, AppContext::Email, true).unwrap();
+        assert_eq!(user_turn(d, "Hi team"), "<|im_start|>user\n[Styling: formal] [Structure: lists] [Context: email]\nHi team<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n");
+        assert!(user_turn(Directive::default(), "hello").contains("[Styling: semi-formal] [Structure: prose] [Context: general]"));
     }
 }

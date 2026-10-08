@@ -43,7 +43,8 @@ pub fn run() {
                         q.controller.command(cmd);
                     }
                 }
-                None => app::open_settings(app),
+                None if !launch::is_autostart(&argv) => app::open_settings(app),
+                None => {},
             }
         }))
         .plugin(tauri_plugin_deep_link::init())
@@ -131,9 +132,8 @@ pub fn run() {
                     log::warn!("could not register quill://: {e}");
                 }
             }
-            if first_run {
-                app::set_autostart(&handle, settings.launch_at_login);
-            }
+            // Refresh stale development or previous-install paths on every release launch.
+            app::set_autostart(&handle, settings.launch_at_login);
             spawn_history_purge(quill.clone(), handle.clone());
             // Debug builds never self-update.
             if !cfg!(debug_assertions) {

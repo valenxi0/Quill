@@ -10,6 +10,8 @@ The first-run setup lets you choose your shortcut, push-to-talk or toggle mode, 
 
 For a walkthrough and troubleshooting, see the [setup guide](docs/SETUP-GUIDE.md).
 
+See the [changelog](docs/CHANGELOG.md) for what's new.
+
 ![The recording pill](docs/screenshots/recording-pill.png)
 
 ## Use

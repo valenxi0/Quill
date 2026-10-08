@@ -12,10 +12,10 @@ export type AssetId =
   | "whisperBaseEnglish"
   | "whisperTinyEnglish";
 export type ActivationMode = "pushToTalk" | "toggle";
-export type CleanupLevel = "verbatim" | "light" | "full";
+export type CleanupLevel = "verbatim" | "light" | "full" | "compose";
 export type EntryKind = "vocabulary" | "snippet";
 export type Phase = "idle" | "recording" | "transcribing" | "cleaning" | "completed" | "failed" | "cancelled";
-export type AppContext = "general" | "chat" | "terminal";
+export type AppContext = "general" | "chat" | "terminal" | "email";
 
 export interface Hotkey {
   vk: number;
@@ -35,6 +35,8 @@ export interface VoiceDictation {
   activationMode: ActivationMode;
   hotkey: Hotkey;
   cleanupLevel: CleanupLevel;
+  formalRegister: boolean;
+  layoutCues: boolean;
   language: string;
   writesNumbers: boolean;
   adaptsToApp: boolean;

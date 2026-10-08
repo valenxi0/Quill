@@ -4,8 +4,8 @@ import { useState, type ReactNode } from "react";
 import { api, type ActivationMode, type EngineView } from "../lib/api";
 import { bytes } from "../lib/format";
 import type { Ctx } from "./App";
-import { ShortcutButton } from "./SetupTab";
-import { Button, Capsule, cx, Icon, Progress, Switch, Warning } from "./ui";
+import { CLEANUP, ShortcutButton } from "./SetupTab";
+import { Button, Capsule, cx, Icon, Progress, Segmented, Switch, Warning } from "./ui";
 
 const STEPS = ["Welcome", "Shortcut", "Engine", "Done"] as const;
 
@@ -176,6 +176,16 @@ function EngineStep({ ctx }: { ctx: Ctx }) {
         {engines.map((e) => (
           <EngineChoice key={e.id} engine={e} selected={e.id === vd.engine} onSelect={() => ctx.saveVd({ engine: e.id })} />
         ))}
+      </div>
+      <div className="mt-5">
+        <p className="mb-2 text-[13px] font-semibold">Cleanup style</p>
+        <Segmented
+          disabled={!engines.find((e) => e.id === vd.engine)?.hasCleanup}
+          value={vd.cleanupLevel}
+          onChange={(v) => ctx.saveVd({ cleanupLevel: v })}
+          options={CLEANUP.map((c) => ({ value: c.value, label: c.label }))}
+        />
+        <p className="mt-2 text-[12px] text-text-2">{CLEANUP.find((c) => c.value === vd.cleanupLevel)?.detail}</p>
       </div>
     </>
   );

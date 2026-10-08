@@ -281,11 +281,17 @@ impl Quill {
 }
 
 pub fn set_autostart(app: &AppHandle, on: bool) {
+    // Development executables need Vite and must never own the login entry.
+    if cfg!(debug_assertions) { return; }
     use tauri_plugin_autostart::ManagerExt;
     let launcher = app.autolaunch();
     let result = if on { launcher.enable() } else { launcher.disable() };
     if let Err(e) = result {
         log::warn!("autostart: {e}");
+    } else if on {
+        if let Err(e) = crate::launch::quote_autostart_path(&app.package_info().name) {
+            log::warn!("autostart path: {e}");
+        }
     }
 }
 

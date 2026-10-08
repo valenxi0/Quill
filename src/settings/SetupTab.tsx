@@ -26,7 +26,7 @@ const ACTIVATION_DETAIL = {
   toggle: "Press the shortcut once to start and again to finish.",
 };
 
-const CLEANUP: { value: CleanupLevel; label: string; detail: string }[] = [
+export const CLEANUP: { value: CleanupLevel; label: string; detail: string }[] = [
   {
     value: "verbatim",
     label: "Verbatim",
@@ -35,14 +35,19 @@ const CLEANUP: { value: CleanupLevel; label: string; detail: string }[] = [
   },
   {
     value: "light",
-    label: "Light",
-    detail: "Removes fillers and false starts and writes numbers properly, but keeps your contractions and casual phrasing.",
+    label: "Casual",
+    detail: "Writes like a text message: lowercase, light punctuation, your wording left as spoken. Corrections are still resolved and numbers written as figures.",
   },
   {
     value: "full",
-    label: "Full",
+    label: "Polished",
     detail:
-      "Removes fillers and false starts, writes numbers, dates, and emails properly, and tidies the register. The default.",
+      "Removes fillers and false starts, writes numbers, dates, and emails properly, and punctuates as sentences. The default.",
+  },
+  {
+    value: "compose",
+    label: "Compose",
+    detail: "Polished, and items you count off or list become a numbered or bulleted list.",
   },
 ];
 
@@ -431,7 +436,7 @@ function CleanupCard({ ctx }: { ctx: Ctx }) {
         title="Cleanup"
         detail={
           hasCleanup
-            ? "How much S1-mini may rewrite what you said. It cleans English only; other languages are written as heard. Whatever the level, Quill keeps the recognizer's wording for any sentence where cleanup would drop a negation like “not” or “never”."
+            ? "How S1-mini writes up what you said. It cleans English only; other languages are written as heard. Whatever the style, Quill keeps the recognizer's wording for any stretch where cleanup would drop a “not” or “never”, write a figure you did not say, or lose a sentence."
             : `${engine?.title ?? "This engine"} has no cleanup stage; transcripts are delivered as recognized. Choose Parakeet + S1-mini to adjust this.`
         }
       />
@@ -444,6 +449,12 @@ function CleanupCard({ ctx }: { ctx: Ctx }) {
         />
         <p className="mt-2 text-[12px] text-text-2">{level.detail}</p>
       </div>
+      <Divider />
+      <CardHeader
+        title="Formal wording"
+        detail="Polished and Compose write contractions out: “I do not think so” for “I don't think so”."
+        right={<Switch label="Formal wording" disabled={!hasCleanup} checked={vd.formalRegister} onChange={(v) => ctx.saveVd({ formalRegister: v })} />}
+      />
     </Card>
   );
 }
@@ -454,7 +465,7 @@ function FormattingCard({ ctx }: { ctx: Ctx }) {
     <Card>
       <CardHeader
         title="Adapt to the app"
-        detail="In a terminal, or a terminal pane in VS Code or Cursor, Developer Mode writes spoken commands as commands. In Slack, Teams, Discord and other chat apps, cleanup stays casual and a one-line message drops its full stop."
+        detail="In a terminal, or a terminal pane in VS Code or Cursor, Developer Mode writes spoken commands as commands. In Slack, Teams, Discord and other chat apps, a one-line message drops its full stop. In Outlook and other mail apps, a greeting and a sign-off get their own lines."
         right={<Switch label="Adapt to the app" checked={vd.adaptsToApp} onChange={(v) => ctx.saveVd({ adaptsToApp: v })} />}
       />
       {vd.adaptsToApp && (
@@ -468,6 +479,12 @@ function FormattingCard({ ctx }: { ctx: Ctx }) {
           ))}
         </div>
       )}
+      <Divider />
+      <CardHeader
+        title="Spoken line breaks"
+        detail="Say “new line” or “new paragraph” to break the text. Said as part of a sentence, as in “add a new line”, the words are typed. Off in terminals."
+        right={<Switch label="Spoken line breaks" checked={vd.layoutCues} onChange={(v) => ctx.saveVd({ layoutCues: v })} />}
+      />
       <Divider />
       <CardHeader
         title="Write numbers as figures"

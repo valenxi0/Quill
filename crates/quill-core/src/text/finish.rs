@@ -27,20 +27,37 @@ fn collapse_spaces(s: &str) -> String {
     out
 }
 
-/// Join pieces with single spaces, never before closing punctuation.
-pub fn join(pieces: &[String]) -> String {
+fn list_start(text: &str) -> bool {
+    if text.starts_with("- ") { return true; }
+    let digits = text.bytes().take_while(u8::is_ascii_digit).count();
+    digits > 0 && (text[digits..].starts_with(". ") || text[digits..].starts_with(") "))
+}
+
+/// Join a segment while retaining edge breaks for the final cross-segment join.
+pub fn join_segment(pieces: &[String]) -> String {
     let mut out = String::new();
-    for p in pieces {
-        let p = p.trim_matches(|c: char| c == ' ' || c == '\t');
-        if p.is_empty() {
-            continue;
+    let mut pending = 0;
+    for piece in pieces {
+        let p = piece.trim_matches(|c: char| c.is_whitespace() && c != '\n');
+        let leading = p.chars().take_while(|c| c.is_whitespace()).filter(|c| *c == '\n').count().min(2);
+        pending = pending.max(leading);
+        let text = p.trim();
+        if text.is_empty() { continue; }
+        if pending > 0 {
+            out.push_str(&"\n".repeat(pending));
+        } else if !out.is_empty() && !text.starts_with(CLOSING) {
+            out.push(if list_start(text) { '\n' } else { ' ' });
         }
-        if !out.is_empty() {
-            out.push(' ');
-        }
-        out.push_str(p);
+        out.push_str(text);
+        pending = p.chars().rev().take_while(|c| c.is_whitespace()).filter(|c| *c == '\n').count().min(2);
     }
-    collapse_spaces(&out).trim().to_string()
+    out.push_str(&"\n".repeat(pending));
+    collapse_spaces(&out)
+}
+
+/// Final join drops breaks outside the neighbouring text.
+pub fn join(pieces: &[String]) -> String {
+    join_segment(pieces).trim().to_string()
 }
 
 /// In a chat app, a one-sentence, one-line message drops its full stop.

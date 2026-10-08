@@ -11,7 +11,7 @@ use quill_core::engines::{EngineId, Recognizer, ENGINES};
 use quill_core::pipeline::{finish, process_segment, Cleaner, Recipe};
 use quill_core::resample::{downmix, Resampler};
 use quill_core::segments::{pad, split};
-use quill_core::settings::CleanupLevel;
+use quill_core::text::directive::Directive;
 use quill_core::text::finish::{join, rms_dbfs};
 use serde::Serialize;
 
@@ -133,8 +133,8 @@ struct Machine {
 struct BenchCleaner<'a>(&'a EngineHost);
 
 impl Cleaner for BenchCleaner<'_> {
-    fn clean(&mut self, text: &str, level: CleanupLevel) -> Result<String, String> {
-        self.0.with_cleaner(|c| c.clean(text, level)).map(|(r, _)| r)?
+    fn clean(&mut self, text: &str, directive: Directive) -> Result<String, String> {
+        self.0.with_cleaner(|c| c.clean(text, directive)).map(|(r, _)| r)?
     }
 }
 
@@ -227,7 +227,8 @@ pub fn run(only: Option<Vec<String>>) -> Result<PathBuf, String> {
             language: quill_core::engines::recognition_language(info.id, "auto", &crate::platform::system::preferred_languages()),
         };
         let recipe = Recipe {
-            level: CleanupLevel::Full,
+            directive: Some(Directive::default()),
+            layout_cues: true,
             context: AppContext::General,
             writes_numbers: true,
             has_cleanup: info.has_cleanup,
@@ -351,7 +352,7 @@ pub fn s1_speed() -> Result<(), String> {
     println!("load {:.2}s", start.elapsed().as_secs_f64());
     for _ in 0..3 {
         let t = Instant::now();
-        let (out, _) = host.with_cleaner(|c| c.clean(text, CleanupLevel::Full))?;
+        let (out, _) = host.with_cleaner(|c| c.clean(text, Directive::default()))?;
         let out = out?;
         println!("clean {:.3}s, {} words out", t.elapsed().as_secs_f64(), out.split_whitespace().count());
     }

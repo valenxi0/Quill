@@ -10,6 +10,7 @@ pub enum AppContext {
     #[default]
     General,
     Chat,
+    Email,
     Terminal,
 }
 
@@ -48,14 +49,16 @@ pub fn classify(exe: &str, focused_name: &str, aumid: Option<&str>, adapts_to_ap
     if is(CHATS) || aumid.is_some_and(|a| CHAT_AUMID_PREFIXES.iter().any(|p| a.starts_with(p))) {
         return AppContext::Chat;
     }
+    if is(&["OUTLOOK.EXE", "olk.exe", "HxOutlook.exe", "thunderbird.exe", "MailClient.exe"]) {
+        return AppContext::Email;
+    }
     AppContext::General
 }
 
-/// Chat turns `full` into `light`; a terminal turns any level into `verbatim`.
+/// A terminal turns any level into `verbatim`; chat preserves the chosen style.
 pub fn effective_level(level: CleanupLevel, context: AppContext) -> CleanupLevel {
     match (context, level) {
         (AppContext::Terminal, _) => CleanupLevel::Verbatim,
-        (AppContext::Chat, CleanupLevel::Full) => CleanupLevel::Light,
         _ => level,
     }
 }
@@ -79,7 +82,7 @@ mod tests {
     #[test]
     fn overrides() {
         use CleanupLevel::*;
-        assert_eq!(effective_level(Full, AppContext::Chat), Light);
+        assert_eq!(effective_level(Full, AppContext::Chat), Full);
         assert_eq!(effective_level(Light, AppContext::Chat), Light);
         assert_eq!(effective_level(Full, AppContext::Terminal), Verbatim);
         assert_eq!(effective_level(Full, AppContext::General), Full);

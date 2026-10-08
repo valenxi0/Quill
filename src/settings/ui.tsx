@@ -104,6 +104,7 @@ export function Segmented<T extends string>({
         <button
           key={o.value}
           role="radio"
+          disabled={disabled}
           aria-checked={o.value === value}
           onClick={() => onChange(o.value)}
           className={cx(

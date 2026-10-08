@@ -1,0 +1,394 @@
+[
+  {
+    "id": "fillers-semi-formal-prose-general",
+    "transcript": "Um, so I think we should, uh, ship it on Tuesday, no, Thursday, and, um, let the team know before the standup.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "Thursday",
+      "team",
+      "standup"
+    ],
+    "gone": [
+      "Tuesday",
+      "um",
+      "uh"
+    ],
+    "matches": [],
+    "guardExpected": false
+  },
+  {
+    "id": "fillers-formal-prose-general",
+    "transcript": "Um, so I think we should, uh, ship it on Tuesday, no, Thursday, and, um, let the team know before the standup.",
+    "styling": "formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "Thursday",
+      "team",
+      "standup"
+    ],
+    "gone": [
+      "Tuesday",
+      "um",
+      "uh"
+    ],
+    "matches": [],
+    "guardExpected": false
+  },
+  {
+    "id": "fillers-casual-prose-general",
+    "transcript": "Um, so I think we should, uh, ship it on Tuesday, no, Thursday, and, um, let the team know before the standup.",
+    "styling": "casual",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "Thursday",
+      "team",
+      "standup"
+    ],
+    "gone": [
+      "Tuesday"
+    ],
+    "matches": [],
+    "guardExpected": false
+  },
+  {
+    "id": "numbers-semi-formal-prose-general",
+    "transcript": "The invoice came to twenty three thousand four hundred and fifty dollars and it's due on March third twenty twenty six.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "23,450",
+      "2026",
+      "March 3"
+    ],
+    "gone": [],
+    "matches": [],
+    "guardExpected": false
+  },
+  {
+    "id": "numbers-semi-formal-lists-general",
+    "transcript": "The invoice came to twenty three thousand four hundred and fifty dollars and it's due on March third twenty twenty six.",
+    "styling": "semi-formal",
+    "structure": "lists",
+    "context": "general",
+    "kept": [
+      "23,450",
+      "2026",
+      "March 3"
+    ],
+    "gone": [],
+    "matches": [
+      "\\A[^\\r\\n]*\\z"
+    ],
+    "guardExpected": false
+  },
+  {
+    "id": "numbers-casual-prose-general",
+    "transcript": "The invoice came to twenty three thousand four hundred and fifty dollars and it's due on March third twenty twenty six.",
+    "styling": "casual",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "23,450",
+      "2026"
+    ],
+    "gone": [],
+    "matches": [],
+    "guardExpected": false
+  },
+  {
+    "id": "prose-semi-formal-prose-general",
+    "transcript": "I talked to the landlord yesterday and he said the repair is not going to happen until next month, which is, you know, kind of frustrating, but I don't think we should push back yet.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "next month",
+      "landlord",
+      "not going to happen"
+    ],
+    "gone": [
+      "you know"
+    ],
+    "matches": [],
+    "guardExpected": false
+  },
+  {
+    "id": "prose-formal-prose-general",
+    "transcript": "I talked to the landlord yesterday and he said the repair is not going to happen until next month, which is, you know, kind of frustrating, but I don't think we should push back yet.",
+    "styling": "formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "next month",
+      "landlord"
+    ],
+    "gone": [],
+    "matches": [],
+    "guardExpected": false
+  },
+  {
+    "id": "prose-casual-prose-general",
+    "transcript": "I talked to the landlord yesterday and he said the repair is not going to happen until next month, which is, you know, kind of frustrating, but I don't think we should push back yet.",
+    "styling": "casual",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "next month",
+      "landlord",
+      "not going to happen"
+    ],
+    "gone": [],
+    "matches": [],
+    "guardExpected": false
+  },
+  {
+    "id": "prose-semi-formal-lists-general",
+    "transcript": "I talked to the landlord yesterday and he said the repair is not going to happen until next month, which is, you know, kind of frustrating, but I don't think we should push back yet.",
+    "styling": "semi-formal",
+    "structure": "lists",
+    "context": "general",
+    "kept": [],
+    "gone": [],
+    "matches": [
+      "\\A[^\\r\\n]*\\z"
+    ],
+    "guardExpected": false,
+    "absent": [
+      "- ",
+      "1."
+    ]
+  },
+  {
+    "id": "prose-semi-formal-prose-email",
+    "transcript": "I talked to the landlord yesterday and he said the repair is not going to happen until next month, which is, you know, kind of frustrating, but I don't think we should push back yet.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "email",
+    "kept": [],
+    "gone": [],
+    "matches": [
+      "\\A[^\\r\\n]*\\z"
+    ],
+    "guardExpected": false
+  },
+  {
+    "id": "counted-semi-formal-lists-general",
+    "transcript": "Okay so before the release we need to do three things. First, update the changelog. Second, um, run the full test suite. And third, tag the build and notify the team.",
+    "styling": "semi-formal",
+    "structure": "lists",
+    "context": "general",
+    "kept": [],
+    "gone": [],
+    "matches": [
+      "^1[.)] .*changelog",
+      "^2[.)] .*test suite",
+      "^3[.)] .*tag the build"
+    ],
+    "guardExpected": false
+  },
+  {
+    "id": "counted-semi-formal-prose-general",
+    "transcript": "Okay so before the release we need to do three things. First, update the changelog. Second, um, run the full test suite. And third, tag the build and notify the team.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [],
+    "gone": [],
+    "matches": [
+      "\\A[^\\r\\n]*\\z"
+    ],
+    "guardExpected": false
+  },
+  {
+    "id": "groceries-semi-formal-lists-general",
+    "transcript": "For the trip we need to bring sunscreen, a first aid kit, uh, two tents, and enough water for three days.",
+    "styling": "semi-formal",
+    "structure": "lists",
+    "context": "general",
+    "kept": [
+      "three days"
+    ],
+    "gone": [],
+    "matches": [
+      "^- sunscreen",
+      "^- .*tents"
+    ],
+    "guardExpected": false
+  },
+  {
+    "id": "email-semi-formal-prose-email",
+    "transcript": "Hi Priya, um, thanks for sending the report over. I had a look and I think the numbers in section two are off by about ten percent. Can you double check them before Friday? Thanks, Jorge.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "email",
+    "kept": [
+      "Priya",
+      "section",
+      "10",
+      "Friday",
+      "Jorge"
+    ],
+    "gone": [
+      "um"
+    ],
+    "matches": [
+      "^Hi Priya,\\r?$",
+      "^Thanks,\\r?$",
+      "^Jorge[.]?\\r?$",
+      "(?s)Hi Priya,.*Thanks,.*Jorge"
+    ],
+    "guardExpected": false
+  },
+  {
+    "id": "email-formal-prose-email",
+    "transcript": "Hi Priya, um, thanks for sending the report over. I had a look and I think the numbers in section two are off by about ten percent. Can you double check them before Friday? Thanks, Jorge.",
+    "styling": "formal",
+    "structure": "prose",
+    "context": "email",
+    "kept": [
+      "Priya",
+      "section",
+      "10",
+      "Friday",
+      "Jorge"
+    ],
+    "gone": [
+      "um"
+    ],
+    "matches": [
+      "^Hi Priya,\\r?$",
+      "^Thanks,\\r?$",
+      "^Jorge[.]?\\r?$",
+      "(?s)Hi Priya,.*Thanks,.*Jorge"
+    ],
+    "guardExpected": false
+  },
+  {
+    "id": "email-semi-formal-prose-general",
+    "transcript": "Hi Priya, um, thanks for sending the report over. I had a look and I think the numbers in section two are off by about ten percent. Can you double check them before Friday? Thanks, Jorge.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [],
+    "gone": [],
+    "matches": [
+      "\\A[^\\r\\n]*\\z"
+    ],
+    "guardExpected": false
+  },
+  {
+    "id": "combined-semi-formal-lists-email",
+    "transcript": "Hi team, Okay so before the release we need to do three things. First, update the changelog. Second, um, run the full test suite. And third, tag the build and notify the team. Thanks, Jorge.",
+    "styling": "semi-formal",
+    "structure": "lists",
+    "context": "email",
+    "kept": [],
+    "gone": [],
+    "matches": [
+      "^Hi team,\\r?$",
+      "^1[.)] ",
+      "^3[.)] ",
+      "^Jorge[.]?\\r?$"
+    ],
+    "guardExpected": false
+  },
+  {
+    "id": "figures-semi-formal-prose-general",
+    "transcript": "Call me back at five five five, zero one nine eight, before the fourteenth. I'm free at four thirty PM.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "555",
+      "0198",
+      "4:30",
+      "14"
+    ],
+    "gone": [],
+    "matches": [],
+    "guardExpected": false
+  },
+  {
+    "id": "amounts-semi-formal-prose-general",
+    "transcript": "It costs about a hundred dollars a month, so, uh, two and a half times what we paid in nineteen ninety nine for twelve seats.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "100",
+      "1999",
+      "12"
+    ],
+    "gone": [],
+    "matches": [
+      "2\\.5|two and a half"
+    ],
+    "guardExpected": false
+  },
+  {
+    "id": "technical-semi-formal-prose-general",
+    "transcript": "We migrated the Kubernetes cluster to Postgres sixteen, rewrote the SwiftUI view in Xcode, and asked Priya Ramaswamy to review it. Email me at jorge dot valen at example dot com.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "Kubernetes",
+      "Postgres 16",
+      "SwiftUI",
+      "Priya Ramaswamy",
+      "jorge.valen@example.com"
+    ],
+    "gone": [],
+    "matches": [],
+    "guardExpected": false
+  },
+  {
+    "id": "long-semi-formal-prose-general",
+    "transcript": "Here is the status update for the Quill release that Priya Ramaswamy and Jorge Valen reviewed yesterday. We now have three engines running reliably on the Windows test machines, and the team will watch performance over the next twenty four hours. Morgan finished the Kubernetes deployment checks and confirmed that the Postgres migration preserves all customer records. The SwiftUI work remains with the Mac team while we finish the installer and keyboard shortcut verification. Everyone should record their findings in the shared release document before the afternoon review. We still need feedback from Berlin on microphone permissions and from Seattle on the onboarding copy. Once those reports arrive, Priya will compare the results against our acceptance checklist and schedule the final walkthrough. Please keep the existing release branch available so Jorge can reproduce any failures without rebuilding the entire environment. I will send another update tomorrow after the overnight tests finish.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "Quill",
+      "Priya Ramaswamy",
+      "Jorge Valen",
+      "Morgan",
+      "Kubernetes",
+      "Postgres",
+      "SwiftUI",
+      "Berlin",
+      "Seattle",
+      "24 hours"
+    ],
+    "gone": [],
+    "matches": [],
+    "guardExpected": false
+  },
+  {
+    "id": "long-semi-formal-lists-general",
+    "transcript": "Here is the status update for the Quill release that Priya Ramaswamy and Jorge Valen reviewed yesterday. We now have three engines running reliably on the Windows test machines, and the team will watch performance over the next twenty four hours. Morgan finished the Kubernetes deployment checks and confirmed that the Postgres migration preserves all customer records. The SwiftUI work remains with the Mac team while we finish the installer and keyboard shortcut verification. Everyone should record their findings in the shared release document before the afternoon review. We still need feedback from Berlin on microphone permissions and from Seattle on the onboarding copy. Once those reports arrive, Priya will compare the results against our acceptance checklist and schedule the final walkthrough. Please keep the existing release branch available so Jorge can reproduce any failures without rebuilding the entire environment. I will send another update tomorrow after the overnight tests finish.",
+    "styling": "semi-formal",
+    "structure": "lists",
+    "context": "general",
+    "kept": [
+      "Quill",
+      "Priya Ramaswamy",
+      "Jorge Valen",
+      "Morgan",
+      "Kubernetes",
+      "Postgres",
+      "SwiftUI",
+      "Berlin",
+      "Seattle",
+      "24 hours"
+    ],
+    "gone": [],
+    "matches": [],
+    "guardExpected": false
+  }
+]
