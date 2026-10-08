@@ -46,6 +46,7 @@ jobs:
       - run: npm ci
 
       - name: Release notes
+        id: notes
         shell: pwsh
         env:
           RELEASE_TAG: ${{ github.ref_name }}
@@ -67,6 +68,10 @@ jobs:
 
           See the [setup guide](https://github.com/valenxi0/Quill/blob/${env:RELEASE_TAG}/docs/SETUP-GUIDE.md) for installation and troubleshooting. The updater signature does not provide Windows code signing; Smart App Control may block this unsigned installer.
           "@ | Set-Content "$env:RUNNER_TEMP/release-notes.md" -Encoding utf8
+          $delimiter = "release_notes_$([guid]::NewGuid().ToString('N'))"
+          "body<<$delimiter" >> $env:GITHUB_OUTPUT
+          Get-Content "$env:RUNNER_TEMP/release-notes.md" -Raw -Encoding utf8 >> $env:GITHUB_OUTPUT
+          $delimiter >> $env:GITHUB_OUTPUT
 
       - name: Build, sign, and publish
         uses: tauri-apps/tauri-action@v0
@@ -75,7 +80,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: Quill ${{ github.ref_name }}
-          releaseBody: Release notes are added from the changelog before publication.
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
