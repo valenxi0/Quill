@@ -58,26 +58,48 @@ const EXAMPLES: [string, string][] = [
 ];
 
 export function SetupTab({ ctx }: { ctx: Ctx }) {
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   return (
     <div className="flex flex-col gap-[10px]">
-      <StatusCard ctx={ctx} />
-      <ActivationCard ctx={ctx} />
-      <EngineCard ctx={ctx} />
-      <CleanupCard ctx={ctx} />
-      <FormattingCard ctx={ctx} />
-      <LaunchersCard />
-      <HistoryCard ctx={ctx} />
-      <Card>
-        <CardHeader title="Privacy" />
-        <p className="mt-1.5 text-[12px] text-text-2">Audio is processed in memory and discarded when the transcript is ready.</p>
-        <p className="mt-1 text-[12px] text-text-2">Recognition and cleanup run on this PC. No audio or text is sent anywhere.</p>
-      </Card>
       <Card>
         <CardHeader title="Start at login" detail="Quill waits in the tray, ready for your shortcut." right={
           <Switch label="Start at login" checked={ctx.state.settings.launchAtLogin} onChange={(v) => ctx.save({ ...ctx.state.settings, launchAtLogin: v })} />
         } />
       </Card>
+      <StatusCard ctx={ctx} />
+      <ActivationCard ctx={ctx} />
+      <EngineCard ctx={ctx} />
+      <CleanupCard ctx={ctx} />
       <UpdatesCard ctx={ctx} />
+      <Card>
+        <button
+          type="button"
+          aria-expanded={advancedOpen}
+          aria-controls="advanced-settings"
+          onClick={() => setAdvancedOpen(!advancedOpen)}
+          className="flex w-full items-center gap-3 text-left"
+        >
+          <Icon.Chevron open={advancedOpen} />
+          <span>
+            <span className="block text-[13.5px] font-semibold">Advanced</span>
+            <span className="block mt-0.5 text-[12px] text-text-2">App formatting, launchers, history, and privacy.</span>
+          </span>
+        </button>
+      </Card>
+      <div id="advanced-settings" hidden={!advancedOpen}>
+        {advancedOpen && (
+          <div className="flex flex-col gap-[10px]">
+            <FormattingCard ctx={ctx} />
+            <LaunchersCard />
+            <HistoryCard ctx={ctx} />
+            <Card>
+              <CardHeader title="Privacy" />
+              <p className="mt-1.5 text-[12px] text-text-2">Audio is processed in memory and discarded when the transcript is ready.</p>
+              <p className="mt-1 text-[12px] text-text-2">Recognition and cleanup run on this PC. No audio or text is sent anywhere.</p>
+            </Card>
+          </div>
+        )}
+      </div>
       <LicensesCard />
     </div>
   );
@@ -212,6 +234,7 @@ function assetStateLine(a: AssetView) {
 
 function EngineCard({ ctx }: { ctx: Ctx }) {
   const vd = ctx.state.settings.voiceDictation;
+  const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<{ engine?: EngineView; assets: AssetView[] } | null>(null);
   const selected = ctx.state.engines.find((e) => e.id === vd.engine);
@@ -224,33 +247,46 @@ function EngineCard({ ctx }: { ctx: Ctx }) {
 
   return (
     <Card>
-      <CardHeader
-        title="Engine"
-        detail="Nothing downloads until you ask. Models live in Quill's app data folder and are verified against pinned checksums."
-      />
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls="engine-options"
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center gap-3 text-left"
+      >
+        <Icon.Chevron open={open} />
+        <span className="min-w-0 flex-1">
+          <span className="block text-[13.5px] font-semibold">Engine</span>
+          <span className="block mt-0.5 text-[12px] text-text-2">{selected?.title ?? "Choose an engine"}</span>
+        </span>
+        {selected && <Capsule accent={selected.ready}>{selected.ready ? "Ready" : selected.busy ? "Preparing…" : "Download needed"}</Capsule>}
+      </button>
       {error && <Warning>{error}</Warning>}
-      {ctx.state.engines.map((e) => (
-        <div key={e.id}>
-          <Divider />
-          <EngineRow
-            engine={e}
-            selected={e.id === vd.engine}
-            onSelect={() => ctx.saveVd({ engine: e.id })}
-            onDownload={() => startDownload(e)}
-            onCancel={() => run(api.cancelDownload(e.id))}
-            onRemove={() => run(api.removeEngine(e.id))}
-            onAssetDownload={(a) => setConfirm({ assets: [a] })}
-            onAssetRemove={(a) => run(api.removeAsset(a.id))}
-            onAssetRetry={(a) => run(api.downloadAsset(a.id))}
-          />
-        </div>
-      ))}
-      {selected?.showsLanguagePicker && (
-        <>
-          <Divider />
-          <LanguageRow ctx={ctx} engine={selected} />
-        </>
-      )}
+      <div id="engine-options" hidden={!open}>
+        <p className="mt-3 text-[12px] text-text-2">Models download only when you choose them and are verified against pinned checksums.</p>
+        {ctx.state.engines.map((e) => (
+          <div key={e.id}>
+            <Divider />
+            <EngineRow
+              engine={e}
+              selected={e.id === vd.engine}
+              onSelect={() => ctx.saveVd({ engine: e.id })}
+              onDownload={() => startDownload(e)}
+              onCancel={() => run(api.cancelDownload(e.id))}
+              onRemove={() => run(api.removeEngine(e.id))}
+              onAssetDownload={(a) => setConfirm({ assets: [a] })}
+              onAssetRemove={(a) => run(api.removeAsset(a.id))}
+              onAssetRetry={(a) => run(api.downloadAsset(a.id))}
+            />
+          </div>
+        ))}
+        {selected?.showsLanguagePicker && (
+          <>
+            <Divider />
+            <LanguageRow ctx={ctx} engine={selected} />
+          </>
+        )}
+      </div>
       {confirm && (
         <Sheet
           title="Download models"
@@ -436,7 +472,7 @@ function CleanupCard({ ctx }: { ctx: Ctx }) {
         title="Cleanup"
         detail={
           hasCleanup
-            ? "How S1-mini writes up what you said. It cleans English only; other languages are written as heard. Whatever the style, Quill keeps the recognizer's wording for any stretch where cleanup would drop a “not” or “never”, write a figure you did not say, or lose a sentence."
+            ? "Choose how S1-mini cleans up your English. Other languages are written as heard. Cleanup guards protect your wording, numbers, and negations."
             : `${engine?.title ?? "This engine"} has no cleanup stage; transcripts are delivered as recognized. Choose Parakeet + S1-mini to adjust this.`
         }
       />

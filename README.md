@@ -1,29 +1,52 @@
-# Quill for Windows
+<div align="center">
 
-Local push-to-talk dictation for Windows 10/11 (x64). Hold **Ctrl+Alt+M**, speak, and release to paste your words into the app you're using. Recognition and cleanup run on your PC; recorded audio stays in memory and is never uploaded.
+<img src="src-tauri/icons/128x128.png" width="80" alt="Quill icon" />
 
-## Install
+# Quill
 
-**[Download Quill-Setup.exe](https://github.com/valenxi0/Quill/releases/latest/download/Quill-Setup.exe)** and run it. Sign in to GitHub with access to this repository first. Installation is per-user and needs no admin prompt.
+**Your voice, wherever you type.**
 
-The first-run setup lets you choose your shortcut, push-to-talk or toggle mode, and a speech engine. Models download only when you choose them. **Parakeet + S1-mini** is the default; Cohere Transcribe and Whisper Turbo, Base, and Tiny are also available.
+Local dictation for Windows. Hold a shortcut, speak, and let go to paste.
 
-For a walkthrough and troubleshooting, see the [setup guide](docs/SETUP-GUIDE.md).
+[**Download Quill-Setup.exe**](https://github.com/valenxi0/Quill/releases/latest/download/Quill-Setup.exe) · [Setup guide](docs/SETUP-GUIDE.md) · [Changelog](docs/CHANGELOG.md)
 
-See the [changelog](docs/CHANGELOG.md) for what's new.
+Windows 10 / 11 · x64 · MIT licensed
 
-![The recording pill](docs/screenshots/recording-pill.png)
+</div>
 
-## Use
+![Quill Insights: speaking speed, time saved, and dictation activity](docs/screenshots/insights.png)
 
-- Hold your shortcut to speak, then release to paste. In toggle mode, press once to start and again to finish. **Esc** cancels.
-- Open Settings from the tray to change engines, add vocabulary and snippets, or view history and stats.
-- To update, run the latest installer over your copy. Settings and downloaded engines are kept. Automatic updates cannot access this private repository; use **Watch → Custom → Releases** on GitHub for notifications.
+## Speak. Release. Done.
 
-## Development
+Hold **Ctrl+Alt+M**, say what you want to write, and release. Quill pastes into the app you're using. Prefer a toggle? Press once to start and again to finish. **Esc** cancels.
 
-The app uses Tauri and Rust, with React and TypeScript for Settings and the recording overlay.
+- **Runs on your PC.** Recognition and cleanup happen locally. Audio stays in memory and is discarded after transcription.
+- **Choose your engine.** Parakeet + S1-mini is the default. Whisper Tiny, Base, Turbo, and Cohere Transcribe are also available. Models download only when you ask.
+- **Write your way.** Choose Verbatim, Casual, Polished, or Compose. Add vocabulary and snippets for the words you use every day.
+- **See your progress.** Track words dictated, speaking speed, and time saved. Insights keep counts, never your words.
+- **Ready in the tray.** Set your shortcut, enable Start at login, and dictate without keeping a window open.
 
-- [Build, repository layout, releases, and component licenses](docs/DEVELOPMENT.md)
-- [Recorded benchmarks](docs/BENCHMARKS.md)
-- [MIT license](LICENSE)
+<details>
+<summary><strong>Your voice: vocabulary, snippets, and corrections</strong></summary>
+
+![Quill Your voice settings](docs/screenshots/your-voice.png)
+
+</details>
+
+## Get started
+
+1. Download and run [**Quill-Setup.exe**](https://github.com/valenxi0/Quill/releases/latest/download/Quill-Setup.exe). Installation is per-user, with no admin prompt.
+2. Choose your shortcut and download an engine during setup.
+3. Click into a text field and try your first dictation.
+
+Open Quill from the tray to change settings. Setup keeps the essentials up front, with an expandable engine picker and extra controls under **Advanced**.
+
+Quill checks for updates daily when the GitHub release feed is accessible. You can also run the latest installer over your copy; settings and downloaded models are kept. See the [setup guide](docs/SETUP-GUIDE.md) for installation and troubleshooting.
+
+## Build & contribute
+
+Quill uses **Rust + Tauri**, with **React + TypeScript** for the settings window and recording overlay.
+
+See [Development](docs/DEVELOPMENT.md) for prerequisites, builds, tests, and model licenses, and [Contributing](CONTRIBUTING.md) to get involved. Performance measurements live in [Benchmarks](docs/BENCHMARKS.md).
+
+Quill is [MIT licensed](LICENSE). Speech models and bundled runtimes have their own licenses, listed in the development guide and in **Setup → Licenses**.

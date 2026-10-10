@@ -62,7 +62,7 @@ jobs:
 
           Run **Quill-Setup.exe** to install or update. Your settings and downloaded engines are kept.
 
-          Windows 10/11, 64-bit. Sign in to GitHub with access to this repository to download. The other assets support Quill's updater.
+          Windows 10/11, 64-bit. The other assets support Quill's updater.
 
           $changes
 

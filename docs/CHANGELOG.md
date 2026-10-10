@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Setup puts Start at login first and Updates directly after Cleanup. The engine picker collapses to the selected engine and its readiness; less-used controls live under Advanced, with Licenses at the bottom.
+- Refreshed the README with cropped app screenshots, a prominent installer link, and contribution guidance. Moved cleanup documentation into `docs/CLEANUP.md` and prepared install and release instructions for public downloads.
+
 ## [0.2.0] - 2026-10-07
 
 ### Added

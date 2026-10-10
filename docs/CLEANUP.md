@@ -1,6 +1,6 @@
-# Quill Windows cleanup handoff
+# Cleanup contract and evaluation
 
-Updated October 7, 2026. This documents the requested cleanup work against the September 25 behavior, not unrelated later Mac changes. The earlier handoff file was absent from this checkout.
+Updated October 7, 2026. This documents Quill's Windows cleanup pipeline, settings, and model evaluation.
 
 ## Pipeline and model contract
 
@@ -108,7 +108,7 @@ Picker details:
 
 ## Verification and installation
 
-Follow [Development](docs/DEVELOPMENT.md) for prerequisites, the short target directory, Smart App Control settings, bundling native DLLs, and the per-user NSIS installer. Full checks:
+Follow [Development](DEVELOPMENT.md) for prerequisites, the short target directory, Smart App Control settings, bundling native DLLs, and the per-user NSIS installer. Full checks:
 
 ```powershell
 $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
@@ -130,7 +130,7 @@ Install the generated NSIS setup per-user. Release startup reconciles the saved 
 
 - Full Windows workspace suite: 92 passed; the real-model test is ignored in the default suite. The final cue boundary adjustment also passed the complete 88-test core suite.
 - Optional-number-formatter-disabled build: 74 tests passed.
-- Real S1-mini eval: 23/23 fixtures passed, zero guard restorations, no relaxed rubrics. [Actual outputs and timings](docs/cleanup-eval-2026-10-07.json). Median 107 ms; range 60–3,689 ms on the local RTX 3070 Ti. Phone output was `5550198` without a hyphen and the amount stayed `two and a half`; both satisfy the specified rubrics.
+- Real S1-mini eval: 23/23 fixtures passed, zero guard restorations, no relaxed rubrics. [Actual outputs and timings](cleanup-eval-2026-10-07.json). Median 107 ms; range 60–3,689 ms on the local RTX 3070 Ti. Phone output was `5550198` without a hyphen and the amount stayed `two and a half`; both satisfy the specified rubrics.
 - Frontend production build passed. Browser checks covered style selection, new switches, disabled controls without cleanup, and all four onboarding styles.
 - Release built, NSIS bundled, updater signature generated using the existing key, and per-user installation exited successfully. In PowerShell, assigning an empty environment variable may remove it; bundling with `--ci` and an explicitly empty `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` in the child process environment avoids an interactive signing prompt.
 - Installed binary matches the release build except for Tauri's expected three-byte NSIS bundle marker, and uses the Windows GUI subsystem. The login registry entry now points to the quoted installed exe. Fresh and duplicate login launches leave Quill's UI hidden; normal launch opens Settings; closing Settings leaves Quill running.

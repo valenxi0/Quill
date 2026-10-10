@@ -37,7 +37,7 @@ Cargo features: `whisper`, `sherpa`, `llama`, `vulkan` (all on by default). CPU 
 
 ## Releasing and updates
 
-Release builds try to check GitHub shortly after launch and once a day. The private repository requires authentication, so users currently update manually from GitHub Releases. If the update feed is publicly accessible, Quill offers a new version:
+Release builds check GitHub shortly after launch and once a day. The update feed must be publicly accessible; while the repository is private, install updates manually from GitHub Releases. When an update is available, Quill offers it:
 - once, in the overlay: "Quill 0.2.0 is available · Later · Update";
 - and from then on in the tray menu and at the top of Settings.
 
@@ -81,7 +81,7 @@ Once you have an account, add a `signCommand` under `bundle.windows` in `src-tau
 
 ## Cleanup parity and model eval
 
-[QUILL_WINDOWS_HANDOFF.md](../QUILL_WINDOWS_HANDOFF.md) describes cleanup styles, app context, spoken layout cues, guard behavior, and the opt-in S1-mini eval. Set `QUILL_CLEANUP_EVAL=1`, then run `cargo test -p quill --release --locked real_model_cleanup_eval -- --ignored --nocapture` with the release environment above. The test uses installed weights and reports all 23 outputs and rubric misses as JSON. The [October 7 report](cleanup-eval-2026-10-07.json) passed all fixtures with no guard firing.
+[Cleanup contract](CLEANUP.md) describes cleanup styles, app context, spoken layout cues, guard behavior, and the opt-in S1-mini eval. Set `QUILL_CLEANUP_EVAL=1`, then run `cargo test -p quill --release --locked real_model_cleanup_eval -- --ignored --nocapture` with the release environment above. The test uses installed weights and reports all 23 outputs and rubric misses as JSON. The [October 7 report](cleanup-eval-2026-10-07.json) passed all fixtures with no guard firing.
 
 Development builds never register for login startup. Launch the installed release to reconcile the login setting and repair stale paths. Release login launches run quietly in the tray after onboarding.
 

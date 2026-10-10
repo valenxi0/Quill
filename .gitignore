@@ -7,3 +7,9 @@ src-tauri/gen/schemas
 .DS_Store
 src-tauri/windows/hooks.nsh
 *.key
+.env
+.env.*
+!.env.example
+*.pem
+*.pfx
+*.p12
