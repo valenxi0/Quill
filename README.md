@@ -1,52 +1,51 @@
-<div align="center">
-
-<img src="src-tauri/icons/128x128.png" width="80" alt="Quill icon" />
-
 # Quill
 
-**Your voice, wherever you type.**
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-FF5E5B?style=flat-square&logo=kofi&logoColor=white)](https://ko-fi.com/R2I828JQB1) [![X](https://img.shields.io/badge/X-%40valenxi-181717?style=flat-square&logo=x&logoColor=white)](https://x.com/valenxi)
 
-Local dictation for Windows. Hold a shortcut, speak, and let go to paste.
+Offline voice dictation for Windows 10 and 11. Hold a shortcut, speak, and release to paste text into the app you are using. Recognition and cleanup run on your PC.
 
-[**Download Quill-Setup.exe**](https://github.com/valenxi0/Quill/releases/latest/download/Quill-Setup.exe) · [Setup guide](docs/SETUP-GUIDE.md) · [Changelog](docs/CHANGELOG.md)
+[Download Quill-Setup.exe](https://github.com/valenxi0/Quill/releases/latest/download/Quill-Setup.exe)
 
-Windows 10 / 11 · x64 · MIT licensed
+The installer supports 64-bit Windows and installs without an admin prompt. Models download during setup. After that, dictation works offline.
 
-</div>
+![Quill Insights with sample activity data](docs/screenshots/insights.jpg)
 
-![Quill Insights: speaking speed, time saved, and dictation activity](docs/screenshots/insights.png)
+## How to use Quill
 
-## Speak. Release. Done.
+Hold **Ctrl+Alt+M** to record, then release to paste. Toggle mode lets you press once to start and again to finish. Press Esc twice within one second to cancel.
 
-Hold **Ctrl+Alt+M**, say what you want to write, and release. Quill pastes into the app you're using. Prefer a toggle? Press once to start and again to finish. **Esc** cancels.
+Quill runs in the system tray. Open Settings to change your shortcut, choose an engine, or enable Start at login. Setup has a collapsible engine picker, with extra controls under Advanced.
 
-- **Runs on your PC.** Recognition and cleanup happen locally. Audio stays in memory and is discarded after transcription.
-- **Choose your engine.** Parakeet + S1-mini is the default. Whisper Tiny, Base, Turbo, and Cohere Transcribe are also available. Models download only when you ask.
-- **Write your way.** Choose Verbatim, Casual, Polished, or Compose. Add vocabulary and snippets for the words you use every day.
-- **See your progress.** Track words dictated, speaking speed, and time saved. Insights keep counts, never your words.
-- **Ready in the tray.** Set your shortcut, enable Start at login, and dictate without keeping a window open.
+## Speech engines and cleanup
 
-<details>
-<summary><strong>Your voice: vocabulary, snippets, and corrections</strong></summary>
+Parakeet + S1-mini is the default engine. S1-mini cleans English transcripts and can remove fillers, fix punctuation, and format spoken lists. Choose Verbatim, Casual, Polished, or Compose to control the result. Whisper Tiny, Base, Turbo, and Cohere Transcribe are also available.
 
-![Quill Your voice settings](docs/screenshots/your-voice.png)
+Add vocabulary for names and terms, or snippets for text you repeat. Quill can suggest dictionary entries when you make the same correction twice.
 
-</details>
+![Quill Your voice settings with sample vocabulary](docs/screenshots/your-voice.jpg)
 
-## Get started
+Screenshots use sample data.
 
-1. Download and run [**Quill-Setup.exe**](https://github.com/valenxi0/Quill/releases/latest/download/Quill-Setup.exe). Installation is per-user, with no admin prompt.
-2. Choose your shortcut and download an engine during setup.
-3. Click into a text field and try your first dictation.
+## Privacy
 
-Open Quill from the tray to change settings. Setup keeps the essentials up front, with an expandable engine picker and extra controls under **Advanced**.
+Quill processes audio in memory and discards it after transcription. Recognition and cleanup do not send audio or text to a server. Downloads and update checks need an internet connection.
 
-Quill checks for updates daily when the GitHub release feed is accessible. You can also run the latest installer over your copy; settings and downloaded models are kept. See the [setup guide](docs/SETUP-GUIDE.md) for installation and troubleshooting.
+Insights store counts on your PC, including words dictated and the app you used. Transcript history is off by default. If you enable it, Quill keeps the final text on your PC for 24 hours. You can turn both features off in Settings.
 
-## Build & contribute
+## Install and update
 
-Quill uses **Rust + Tauri**, with **React + TypeScript** for the settings window and recording overlay.
+See the [setup guide](docs/SETUP-GUIDE.md) for installation and troubleshooting. Quill checks for updates daily when the GitHub release feed is accessible. Running the latest installer over your copy keeps your settings and downloaded models.
 
-See [Development](docs/DEVELOPMENT.md) for prerequisites, builds, tests, and model licenses, and [Contributing](CONTRIBUTING.md) to get involved. Performance measurements live in [Benchmarks](docs/BENCHMARKS.md).
+Release notes are in the [changelog](docs/CHANGELOG.md). The installer also includes CHANGELOG.md in the Quill installation folder.
 
-Quill is [MIT licensed](LICENSE). Speech models and bundled runtimes have their own licenses, listed in the development guide and in **Setup → Licenses**.
+## Build and contribute
+
+Quill uses Rust and Tauri, with React and TypeScript for Settings and the recording overlay. See [Development](docs/DEVELOPMENT.md) for build instructions and [Contributing](CONTRIBUTING.md) for bug reports and pull requests.
+
+Quill is [MIT licensed](LICENSE). Bundled runtimes and downloaded models have their own licenses, listed in the development guide and in Setup under Licenses.
+
+## Troubleshooting
+
+If Windows 11 says **"Smart App Control blocked an app"** when installing or opening Quill, you can turn it off under **Windows Security > App & browser control > Smart App Control settings > Off**, then retry. This disables that protection for all apps. Updated Windows versions let you turn it back on; older versions may require a Windows reset or reinstall. See [Microsoft's Smart App Control FAQ](https://support.microsoft.com/en-us/windows/security/threat-malware-protection/smart-app-control-frequently-asked-questions).
+
+For other installation, microphone, or shortcut issues, see the [setup guide](docs/SETUP-GUIDE.md#troubleshooting).

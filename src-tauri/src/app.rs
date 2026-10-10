@@ -248,7 +248,7 @@ impl Quill {
             if p.hotkey != n.hotkey {
                 hook.set_hotkey(n.hotkey);
             }
-            hook.set_suspended(!next.enabled);
+            hook.set_suspended(!next.enabled || self.capturing.load(SeqCst));
         }
         if prev.launch_at_login != next.launch_at_login {
             set_autostart(app, next.launch_at_login);
@@ -322,14 +322,15 @@ pub fn spawn_hook_consumer(app: AppHandle, rx: std::sync::mpsc::Receiver<HookEve
                     HookEvent::Released => q.controller.on_hotkey(quill_core::state::HotkeyEvent::Released),
                     HookEvent::Escape => q.controller.on_hotkey(quill_core::state::HotkeyEvent::Escape),
                     HookEvent::Captured(hotkey) => {
+                        if !q.capturing.load(SeqCst) { continue; }
                         if let Some(problem) = hotkey.problem() {
                             *q.capture_error.lock() = Some(problem);
                         } else {
                             *q.capture_error.lock() = None;
-                            end_capture(&q);
                             let mut s = q.stores.settings.get();
                             s.voice_dictation.hotkey = hotkey;
                             q.apply_settings(&app, s);
+                            end_capture(&q);
                         }
                         notify(&app);
                     }
@@ -349,6 +350,8 @@ pub fn begin_capture(q: &Quill) {
         q.capturing.store(true, SeqCst);
         h.set_suspended(true);
         h.set_capturing(true);
+    } else {
+        *q.capture_error.lock() = Some("Quill could not start the keyboard hook. Quit Quill from the tray and reopen it, then try again.".into());
     }
 }
 

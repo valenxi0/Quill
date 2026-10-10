@@ -42,7 +42,7 @@ Quill opens a short setup:
 2. Hold **Ctrl+Alt+M** (or your shortcut) and speak. A small bar at the bottom of the screen shows Quill is listening.
 3. Let go. Your words appear.
 
-Press **Esc** while it's listening to cancel.
+Press **Esc twice within one second** to cancel a recording or stop transcription. A single press does not cancel dictation.
 
 Quill starts with Windows and waits in the **tray**: the icons near the clock, bottom right. You may need to click the **^** arrow to see it. Click Quill's icon to open Settings, where you can change the shortcut or engine, add words it should spell your way, and see your stats.
 
@@ -55,6 +55,7 @@ To hear about new versions, open [the repo](https://github.com/valenxi0/Quill) a
 ## Troubleshooting
 
 - **Nothing happens when I press the shortcut.** Check that Quill's icon is in the tray. If it isn't, open Quill from the Start menu.
+- **The shortcut stays on the default.** Click the shortcut button, hold Ctrl, Alt, Shift or Win, then press another key, such as Space. Modifier keys alone do not save a shortcut. Keep Settings in focus and check for an error below the button. If Quill reports a keyboard hook error, quit it from the tray and reopen it.
 - **"Microphone access is off"**: open **Settings → Privacy & security → Microphone** and turn on both **Microphone access** and **Let desktop apps access your microphone**.
 - **The text was copied but not pasted.** Some windows, like those run as administrator, don't accept typing from other apps. The text is still on your clipboard, so press **Ctrl+V**.
 
@@ -65,7 +66,7 @@ Smart App Control is a Windows 11 security feature that only allows apps from ve
 - **If the release is signed** (the release notes say so), Quill installs normally.
 - **If it isn't signed yet**, Smart App Control blocks it with no "run anyway" option. You can check whether yours is on under **Windows Security → App & browser control → Smart App Control**.
 
-  If it's on and blocks Quill, wait for a signed release. Turning Smart App Control off works, but on many PCs it can't be turned back on without reinstalling Windows, so we don't recommend it.
+  If it blocks Quill, you can turn it off under **Windows Security > App & browser control > Smart App Control settings > Off**, then retry installation. This disables that protection for all apps. Updated Windows versions let you turn it back on; older versions may require a Windows reset or reinstall. See [Microsoft's Smart App Control FAQ](https://support.microsoft.com/en-us/windows/security/threat-malware-protection/smart-app-control-frequently-asked-questions).
 
 ## Uninstall
 

@@ -170,7 +170,7 @@ function ActivationCard({ ctx }: { ctx: Ctx }) {
       <Divider />
       <CardHeader
         title="Shortcut"
-        detail={capturingHotkey ? "Press the new shortcut. Esc cancels." : "Works in every app. Needs at least one modifier key."}
+        detail={capturingHotkey ? "Hold Ctrl, Alt, Shift or Win, then press another key. Esc cancels." : "Use Ctrl, Alt, Shift or Win plus another key, such as Ctrl+Shift+Space."}
         right={<ShortcutButton ctx={ctx} />}
       />
       {captureError && <Warning>{captureError}</Warning>}

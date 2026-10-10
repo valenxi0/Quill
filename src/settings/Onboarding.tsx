@@ -133,7 +133,7 @@ function ShortcutStep({ ctx }: { ctx: Ctx }) {
           <p className="text-[13.5px] font-semibold">Shortcut</p>
           <p className="text-[12.5px] text-text-2">
             {ctx.state.capturingHotkey
-              ? "Press the new shortcut now. Esc cancels."
+              ? "Hold Ctrl, Alt, Shift or Win, then press another key. Esc cancels."
               : "Click to change it. Use at least one of Ctrl, Alt, Shift or Win plus a key."}
           </p>
         </div>
@@ -155,7 +155,7 @@ function ShortcutStep({ ctx }: { ctx: Ctx }) {
           onClick={() => setMode("toggle")}
         />
       </div>
-      <p className="mt-3 text-[12px] text-text-3">You can change both later in Settings. Esc always cancels a dictation.</p>
+      <p className="mt-3 text-[12px] text-text-3">You can change both later in Settings. Press Esc twice within a second to cancel dictation.</p>
     </>
   );
 }

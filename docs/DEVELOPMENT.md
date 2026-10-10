@@ -77,11 +77,13 @@ Once you have an account, add a `signCommand` under `bundle.windows` in `src-tau
 
 ## Benchmark
 
-`scripts/make-eval-set.ps1` writes 12 synthetic clips (Windows speech synthesis) with transcripts to `%LOCALAPPDATA%\Quill\Eval`. Add your own `name.wav` + `name.txt` pairs for realistic numbers. `quill-bench [engineId…]` runs every installed engine through the same recognize → pipeline → clipboard path and writes `%TEMP%\quill\bench.json`. Recorded results are in [BENCHMARKS.md](BENCHMARKS.md).
+`scripts/make-eval-set.ps1` writes 12 synthetic clips with transcripts to `%LOCALAPPDATA%\Quill\Eval`. Add `name.wav` and `name.txt` pairs to test your own recordings. `quill-bench [engineId…]` runs every installed engine through recognition, cleanup, and clipboard delivery. It writes results to `%TEMP%\quill\bench.json`. Keep recordings and generated reports outside the repository.
 
-## Cleanup parity and model eval
+## Cleanup and model evaluation
 
-[Cleanup contract](CLEANUP.md) describes cleanup styles, app context, spoken layout cues, guard behavior, and the opt-in S1-mini eval. Set `QUILL_CLEANUP_EVAL=1`, then run `cargo test -p quill --release --locked real_model_cleanup_eval -- --ignored --nocapture` with the release environment above. The test uses installed weights and reports all 23 outputs and rubric misses as JSON. The [October 7 report](cleanup-eval-2026-10-07.json) passed all fixtures with no guard firing.
+Parakeet recognizes speech. S1-mini cleans English through llama.cpp. Other languages bypass cleanup. Preserve the S1-mini system prompt, chat template, greedy sampler, and output budget: `min(1024, floor(input_tokens * 1.3 + 32))`. Retain the cleanup guards and fixture rubrics.
+
+Set `QUILL_CLEANUP_EVAL=1`, then run `cargo test -p quill --release --locked real_model_cleanup_eval -- --ignored --nocapture` with the release environment above. The test uses installed model weights and checks 23 fixtures. It writes outputs, timing, guard decisions, and rubric misses to `%LOCALAPPDATA%\Quill\Eval\cleanup-report.json`. Do not commit generated reports.
 
 Development builds never register for login startup. Launch the installed release to reconcile the login setting and repair stale paths. Release login launches run quietly in the tray after onboarding.
 

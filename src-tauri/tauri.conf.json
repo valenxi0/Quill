@@ -23,6 +23,9 @@
       "nsis"
     ],
     "publisher": "Quill",
+    "resources": {
+      "../docs/CHANGELOG.md": "CHANGELOG.md"
+    },
     "shortDescription": "Local push-to-talk dictation",
     "category": "Productivity",
     "icon": [

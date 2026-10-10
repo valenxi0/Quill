@@ -94,7 +94,7 @@ jobs:
         run: |
           $setup = Get-ChildItem "$env:CARGO_TARGET_DIR/release/bundle/nsis/*-setup.exe" | Select-Object -First 1
           Copy-Item $setup.FullName "$env:RUNNER_TEMP/Quill-Setup.exe"
-          gh release upload "${{ github.ref_name }}" "$env:RUNNER_TEMP/Quill-Setup.exe" --clobber
+          gh release upload "${{ github.ref_name }}" "$env:RUNNER_TEMP/Quill-Setup.exe" "docs/CHANGELOG.md" --clobber
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           gh release edit "${{ github.ref_name }}" --notes-file "$env:RUNNER_TEMP/release-notes.md" --draft=false --latest
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

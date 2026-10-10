@@ -24,7 +24,7 @@ const settings: Settings = {
     insightsEnabled: true,
     vocabulary: [
       { id: "a", phrase: "mac island", replacement: "Nano", kind: "vocabulary", isEnabled: true },
-      { id: "b", phrase: "my sign off", replacement: "Best,\nJorge", kind: "snippet", isEnabled: true },
+      { id: "b", phrase: "my sign off", replacement: "Best,\nAlex", kind: "snippet", isEnabled: true },
     ],
   },
 };
@@ -58,8 +58,8 @@ const state: UiState = {
   dictionaryHits: { a: 12, b: 3 },
   dictation: { phase: "idle", outcome: null, errorTitle: null, errorDetail: null, context: "general" },
   hasLastTranscript: true,
-  version: "0.1.0",
-  update: { version: "0.2.0", current: "0.1.0", notes: "Faster Parakeet on long dictations." },
+  version: "0.2.1",
+  update: null,
   updating: false,
   updateError: null,
 };

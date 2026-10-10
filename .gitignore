@@ -13,3 +13,4 @@ src-tauri/windows/hooks.nsh
 *.pem
 *.pfx
 *.p12
+docs/cleanup-eval-*.json

@@ -8,9 +8,12 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering::SeqCst};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::OnceLock;
 
+use super::escape::EscapeSequence;
+
 use quill_core::settings::{is_modifier_vk, modifiers, Hotkey};
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS,
     KEYEVENTF_KEYUP, VIRTUAL_KEY, VK_CONTROL, VK_ESCAPE, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN,
@@ -43,8 +46,10 @@ struct Shared {
     suspended: AtomicBool,
     /// Settings is capturing a new shortcut.
     capturing: AtomicBool,
+    modifier_keys: AtomicU32,
+    capture_key: AtomicU32,
     /// Escape is intercepted only while dictation is busy.
-    escape_active: AtomicBool,
+    escape: EscapeSequence,
     tx: Sender<HookEvent>,
 }
 
@@ -65,7 +70,9 @@ impl HotkeyHook {
             latched: AtomicBool::new(false),
             suspended: AtomicBool::new(false),
             capturing: AtomicBool::new(false),
-            escape_active: AtomicBool::new(false),
+            modifier_keys: AtomicU32::new(initial_modifier_keys()),
+            capture_key: AtomicU32::new(0),
+            escape: EscapeSequence::default(),
             tx,
         };
         SHARED.set(shared).map_err(|_| anyhow::anyhow!("hotkey hook already installed"))?;
@@ -114,7 +121,7 @@ impl HotkeyHook {
     }
 
     pub fn set_escape_active(&self, active: bool) {
-        Self::shared().escape_active.store(active, SeqCst);
+        Self::shared().escape.set_active(active);
     }
 }
 
@@ -122,18 +129,27 @@ fn pressed(vk: VIRTUAL_KEY) -> bool {
     unsafe { GetAsyncKeyState(vk.0 as i32) as u16 & 0x8000 != 0 }
 }
 
-fn current_modifiers() -> u32 {
+const MODIFIER_KEYS: [u32; 11] = [0x11, 0xA2, 0xA3, 0x12, 0xA4, 0xA5, 0x10, 0xA0, 0xA1, 0x5B, 0x5C];
+
+fn initial_modifier_keys() -> u32 {
+    MODIFIER_KEYS.iter().enumerate().fold(0, |bits, (i, &vk)| {
+        // Side-specific keys seed the state before the hook starts.
+        if i != 0 && i != 3 && i != 6 && pressed(VIRTUAL_KEY(vk as u16)) { bits | (1 << i) } else { bits }
+    })
+}
+
+fn current_modifiers(keys: u32) -> u32 {
     let mut m = 0;
-    if pressed(VK_CONTROL) {
+    if keys & 0b111 != 0 {
         m |= modifiers::CTRL;
     }
-    if pressed(VK_MENU) {
+    if keys & (0b111 << 3) != 0 {
         m |= modifiers::ALT;
     }
-    if pressed(VK_SHIFT) {
+    if keys & (0b111 << 6) != 0 {
         m |= modifiers::SHIFT;
     }
-    if pressed(VK_LWIN) || pressed(VK_RWIN) {
+    if keys & (0b11 << 9) != 0 {
         m |= modifiers::WIN;
     }
     m
@@ -189,12 +205,24 @@ fn handle(s: &Shared, vk: u32, msg: u32) -> bool {
     let is_down = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
     let is_up = msg == WM_KEYUP || msg == WM_SYSKEYUP;
 
+    if let Some(i) = MODIFIER_KEYS.iter().position(|&key| key == vk) {
+        if is_down { s.modifier_keys.fetch_or(1 << i, SeqCst); }
+        if is_up { s.modifier_keys.fetch_and(!(1 << i), SeqCst); }
+    }
+    let mods = current_modifiers(s.modifier_keys.load(SeqCst));
+    if s.capture_key.load(SeqCst) == vk && vk != 0 {
+        if is_up { s.capture_key.store(0, SeqCst); }
+        return true;
+    }
+
     if s.capturing.load(SeqCst) {
         if is_down && !is_modifier_vk(vk) {
+            // Keep repeats and key-up out of both capture and dictation.
+            s.capture_key.store(vk, SeqCst);
             let event = if vk == VK_ESCAPE.0 as u32 {
                 HookEvent::CaptureCancelled
             } else {
-                HookEvent::Captured(Hotkey { vk, modifiers: current_modifiers() })
+                HookEvent::Captured(Hotkey { vk, modifiers: mods })
             };
             let _ = s.tx.send(event);
             return true;
@@ -202,9 +230,12 @@ fn handle(s: &Shared, vk: u32, msg: u32) -> bool {
         return false;
     }
 
-    if vk == VK_ESCAPE.0 as u32 && s.escape_active.load(SeqCst) {
-        if is_down {
+    if vk == VK_ESCAPE.0 as u32 && s.escape.intercepts() {
+        if is_down && s.escape.key_down(unsafe { GetTickCount() }) {
             let _ = s.tx.send(HookEvent::Escape);
+        }
+        if is_up {
+            s.escape.key_up();
         }
         return true;
     }
@@ -226,7 +257,7 @@ fn handle(s: &Shared, vk: u32, msg: u32) -> bool {
             }
             return true;
         }
-        if is_down && current_modifiers() == want_mods {
+        if is_down && mods == want_mods {
             s.latched.store(true, SeqCst);
             s.down.store(true, SeqCst);
             if want_mods & (modifiers::ALT | modifiers::WIN) != 0 {
@@ -239,9 +270,101 @@ fn handle(s: &Shared, vk: u32, msg: u32) -> bool {
     }
 
     // A required modifier going up also ends the chord; let it through.
-    if is_up && s.down.load(SeqCst) && modifier_bit(vk) & want_mods != 0 {
+    if is_up && s.down.load(SeqCst) && modifier_bit(vk) & want_mods != 0 && mods & want_mods != want_mods {
         s.down.store(false, SeqCst);
         let _ = s.tx.send(HookEvent::Released);
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn shared() -> (Shared, Receiver<HookEvent>) {
+        let (tx, rx) = channel();
+        (Shared {
+            vk: AtomicU32::new(0x4D),
+            mods: AtomicU32::new(modifiers::CTRL | modifiers::SHIFT),
+            down: AtomicBool::new(false),
+            latched: AtomicBool::new(false),
+            suspended: AtomicBool::new(false),
+            capturing: AtomicBool::new(false),
+            modifier_keys: AtomicU32::new(0),
+            capture_key: AtomicU32::new(0),
+            escape: EscapeSequence::default(),
+            tx,
+        }, rx)
+    }
+
+    #[test]
+    fn captures_right_side_modifiers_from_events() {
+        let (s, rx) = shared();
+        s.capturing.store(true, SeqCst);
+        handle(&s, 0xA3, WM_KEYDOWN);
+        handle(&s, 0xA5, WM_SYSKEYDOWN);
+        assert!(handle(&s, 0x4B, WM_SYSKEYDOWN));
+        assert_eq!(rx.try_recv().unwrap(), HookEvent::Captured(Hotkey {
+            vk: 0x4B, modifiers: modifiers::CTRL | modifiers::ALT,
+        }));
+    }
+
+    #[test]
+    fn captured_key_cannot_repeat_or_start_dictation_after_save() {
+        let (s, rx) = shared();
+        s.capturing.store(true, SeqCst);
+        handle(&s, 0xA2, WM_KEYDOWN);
+        handle(&s, 0xA0, WM_KEYDOWN);
+        handle(&s, 0x4D, WM_KEYDOWN);
+        assert!(matches!(rx.try_recv(), Ok(HookEvent::Captured(_))));
+        assert!(handle(&s, 0x4D, WM_KEYDOWN));
+        s.capturing.store(false, SeqCst);
+        assert!(handle(&s, 0x4D, WM_KEYDOWN));
+        assert!(handle(&s, 0x4D, WM_KEYUP));
+        assert!(rx.try_recv().is_err());
+        assert!(handle(&s, 0x4D, WM_KEYDOWN));
+        assert_eq!(rx.try_recv().unwrap(), HookEvent::Pressed);
+    }
+
+    #[test]
+    fn releasing_one_of_two_ctrl_keys_keeps_chord_active() {
+        let (s, rx) = shared();
+        handle(&s, 0xA2, WM_KEYDOWN);
+        handle(&s, 0xA3, WM_KEYDOWN);
+        handle(&s, 0xA0, WM_KEYDOWN);
+        handle(&s, 0x4D, WM_KEYDOWN);
+        assert_eq!(rx.try_recv().unwrap(), HookEvent::Pressed);
+        handle(&s, 0xA2, WM_KEYUP);
+        assert!(rx.try_recv().is_err());
+        handle(&s, 0xA3, WM_KEYUP);
+        assert_eq!(rx.try_recv().unwrap(), HookEvent::Released);
+        assert!(handle(&s, 0x4D, WM_KEYUP));
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn invalid_capture_can_be_retried_after_release() {
+        let (s, rx) = shared();
+        s.capturing.store(true, SeqCst);
+        handle(&s, 0x4B, WM_KEYDOWN);
+        let HookEvent::Captured(key) = rx.try_recv().unwrap() else { panic!("capture expected") };
+        assert!(key.problem().is_some());
+        handle(&s, 0x4B, WM_KEYUP);
+        handle(&s, 0xA2, WM_KEYDOWN);
+        handle(&s, 0x4B, WM_KEYDOWN);
+        let HookEvent::Captured(key) = rx.try_recv().unwrap() else { panic!("capture expected") };
+        assert!(key.problem().is_none());
+    }
+
+    #[test]
+    fn escape_cancels_capture_once_without_leaking_key_up() {
+        let (s, rx) = shared();
+        s.capturing.store(true, SeqCst);
+        assert!(handle(&s, 0x1B, WM_KEYDOWN));
+        assert_eq!(rx.try_recv().unwrap(), HookEvent::CaptureCancelled);
+        s.capturing.store(false, SeqCst);
+        assert!(handle(&s, 0x1B, WM_KEYDOWN));
+        assert!(handle(&s, 0x1B, WM_KEYUP));
+        assert!(rx.try_recv().is_err());
+    }
 }

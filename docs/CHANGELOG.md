@@ -1,11 +1,19 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.1] - 2026-10-10
+
+### Added
+
+- The installer includes CHANGELOG.md in the Quill installation folder. GitHub release notes and in-app update notes use this changelog.
 
 ### Changed
 
 - Setup puts Start at login first and Updates directly after Cleanup. The engine picker collapses to the selected engine and its readiness; less-used controls live under Advanced, with Licenses at the bottom.
-- Refreshed the README with cropped app screenshots, a prominent installer link, and contribution guidance. Moved cleanup documentation into `docs/CLEANUP.md` and prepared install and release instructions for public downloads.
+- Refreshed the README with sample app screenshots, a prominent installer link, and contribution guidance. Removed internal handoff notes and generated evaluation reports.
+- Recording uses a red outline with no drop shadow or rotating square. The waveform and elapsed time remain visible.
+- Transcription and cleanup show their status text without the rotating square.
+- Cancel dictation with two separate Esc presses within one second. A held key or single press does not cancel.
+- Shortcut capture tracks modifier presses directly and ignores held-key repeats. If the keyboard hook fails to start, Settings shows an error.
 
 ## [0.2.0] - 2026-10-07
 

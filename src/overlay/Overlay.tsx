@@ -2,8 +2,8 @@
 import { useEffect, useState } from "react";
 import { api, on, type AppContext, type CorrectionPair, type DictationView, type UpdateInfo } from "../lib/api";
 
-export default function Overlay() {
-  const [view, setView] = useState<DictationView | null>(null);
+export default function Overlay({ preview }: { preview?: DictationView }) {
+  const [view, setView] = useState<DictationView | null>(preview ?? null);
   const [suggestion, setSuggestion] = useState<CorrectionPair | null>(null);
   const [reduced, setReduced] = useState(false);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
@@ -37,13 +37,10 @@ export default function Overlay() {
 
   return (
     <div className="flex h-screen items-end justify-center pb-2">
-      <Pill cancelled={phase === "cancelled"}>
+      <Pill recording={phase === "recording"}>
         {phase === "recording" && <Listening context={view.context} />}
         {(phase === "transcribing" || phase === "cleaning") && (
-          <>
-            <Spinner />
-            <span>{phase === "transcribing" ? "Transcribing" : "Cleaning up"}</span>
-          </>
+          <span>{phase === "transcribing" ? "Transcribing" : "Cleaning up"}</span>
         )}
         {phase === "completed" && (
           <>
@@ -70,28 +67,18 @@ export default function Overlay() {
   );
 }
 
-function Pill({ children, cancelled }: { children: React.ReactNode; cancelled?: boolean }) {
+function Pill({ children, recording }: { children: React.ReactNode; recording?: boolean }) {
   return (
     <div
       className="flex h-[40px] items-center gap-2 rounded-full px-3 text-[12.5px] font-medium text-white"
       style={{
         background: "rgba(10, 10, 10, 0.92)",
-        border: "1px solid rgba(255,255,255,0.12)",
-        boxShadow: "0 6px 24px rgba(0,0,0,0.35)",
-        animation: cancelled ? "flash 1.2s ease-out" : "pop-in 0.14s ease-out",
+        border: recording ? "1px solid #ff453a" : "1px solid rgba(255,255,255,0.12)",
+        animation: "pop-in 0.14s ease-out",
       }}
     >
       {children}
     </div>
-  );
-}
-
-/** A small white square turning a full circle every 2 s, easing through each half. */
-function Spinner() {
-  return (
-    <span className="flex h-6 w-6 shrink-0 items-center justify-center">
-      <span className="h-4 w-4 rounded-[3px] bg-white" style={{ animation: "square-turn 2s ease-in-out infinite" }} />
-    </span>
   );
 }
 
@@ -126,8 +113,7 @@ function Listening({ context }: { context: AppContext }) {
 
   return (
     <>
-      <Spinner />
-      <div className="flex items-center gap-2 overflow-hidden" style={{ animation: "reveal 0.4s ease-in-out" }}>
+      <div className="flex items-center gap-2">
         <div className="flex h-6 items-center gap-[2px]">
           {bars.map((v, i) => (
             <span
@@ -137,7 +123,7 @@ function Listening({ context }: { context: AppContext }) {
             />
           ))}
         </div>
-        <span className="w-10 text-center text-[12px] font-normal tabular-nums text-white/55">{mmss(seconds)}</span>
+        <span className="w-10 text-center text-[12px] font-normal tabular-nums text-white/70">{mmss(seconds)}</span>
       </div>
       {(context === "terminal" || context === "email") && <span className="rounded-full bg-white/15 px-1.5 text-[10.5px] text-white/80">{context === "email" ? "Email" : "Terminal"}</span>}
     </>

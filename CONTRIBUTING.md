@@ -21,4 +21,4 @@ npm run build
 cargo test -p quill-core --locked
 ```
 
-Keep changes focused, describe the behavior you changed, and include screenshots for UI changes. Preserve model licenses and attribution. Cleanup changes should follow the [cleanup contract](docs/CLEANUP.md) and retain the existing guards and model evaluation rubrics.
+Keep changes focused, describe the behavior you changed, and include screenshots for UI changes. Preserve model licenses and attribution. Cleanup changes must retain the S1-mini prompt, chat template, greedy decoding, output budget, guards, and model evaluation rubrics. See [Development](docs/DEVELOPMENT.md#cleanup-and-model-evaluation) for the evaluation command.
