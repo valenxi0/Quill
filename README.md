@@ -8,7 +8,7 @@ Offline voice dictation for Windows 10 and 11. Hold a shortcut, speak, and relea
 
 The installer supports 64-bit Windows and installs without an admin prompt. Models download during setup. After that, dictation works offline.
 
-![Quill Insights with sample activity data](docs/screenshots/insights.jpg)
+![Quill Insights in dark mode with sample activity data](docs/screenshots/insights.jpg)
 
 ## How to use Quill
 
@@ -16,13 +16,15 @@ Hold **Ctrl+Alt+M** to record, then release to paste. Toggle mode lets you press
 
 Quill runs in the system tray. Open Settings to change your shortcut, choose an engine, or enable Start at login. Setup has a collapsible engine picker, with extra controls under Advanced.
 
+Quill uses a dark interface, including the window title bar, even when Windows uses light mode.
+
 ## Speech engines and cleanup
 
 Parakeet + S1-mini is the default engine. S1-mini cleans English transcripts and can remove fillers, fix punctuation, and format spoken lists. Choose Verbatim, Casual, Polished, or Compose to control the result. Whisper Tiny, Base, Turbo, and Cohere Transcribe are also available.
 
 Add vocabulary for names and terms, or snippets for text you repeat. Quill can suggest dictionary entries when you make the same correction twice.
 
-![Quill Your voice settings with sample vocabulary](docs/screenshots/your-voice.jpg)
+![Quill Your voice settings in dark mode with sample vocabulary](docs/screenshots/your-voice.jpg)
 
 Screenshots use sample data.
 

@@ -1,42 +1,22 @@
 @import "tailwindcss";
 
-/* Follows the system theme. Colors are semantic so components never branch on it. */
 :root {
-  color-scheme: light dark;
-  --bg: #f3f3f3;
-  --card: rgb(255 255 255 / 0.72);
-  --card-border: rgb(0 0 0 / 0.07);
-  --fill: rgb(0 0 0 / 0.045);
-  --fill-strong: rgb(0 0 0 / 0.08);
-  --text: #1c1c1e;
-  --text-2: rgb(28 28 30 / 0.66);
-  --text-3: rgb(28 28 30 / 0.46);
-  --hairline: rgb(0 0 0 / 0.08);
+  color-scheme: dark;
+  --bg: #1f1f1f;
+  --card: rgb(255 255 255 / 0.045);
+  --card-border: rgb(255 255 255 / 0.07);
+  --fill: rgb(255 255 255 / 0.06);
+  --fill-strong: rgb(255 255 255 / 0.1);
+  --text: #f2f2f7;
+  --text-2: rgb(242 242 247 / 0.66);
+  --text-3: rgb(242 242 247 / 0.6);
+  --hairline: rgb(255 255 255 / 0.08);
   --accent: #0a84ff;
-  --accent-soft: rgb(10 132 255 / 0.12);
-  --green: #28a745;
-  --yellow: #d9a400;
-  --orange: #e8710a;
-  --red: #e5383b;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #1f1f1f;
-    --card: rgb(255 255 255 / 0.045);
-    --card-border: rgb(255 255 255 / 0.07);
-    --fill: rgb(255 255 255 / 0.06);
-    --fill-strong: rgb(255 255 255 / 0.1);
-    --text: #f2f2f7;
-    --text-2: rgb(242 242 247 / 0.66);
-    --text-3: rgb(242 242 247 / 0.42);
-    --hairline: rgb(255 255 255 / 0.08);
-    --accent-soft: rgb(10 132 255 / 0.2);
-    --green: #32d74b;
-    --yellow: #ffd60a;
-    --orange: #ff9f0a;
-    --red: #ff453a;
-  }
+  --accent-soft: rgb(10 132 255 / 0.2);
+  --green: #32d74b;
+  --yellow: #ffd60a;
+  --orange: #ff9f0a;
+  --red: #ff453a;
 }
 
 @theme {

@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Quill uses dark mode regardless of the Windows theme, including its window title bar. README screenshots show the dark interface with sample data.
+
 ## [0.2.1] - 2026-10-10
 
 ### Added
