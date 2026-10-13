@@ -1,0 +1,3 @@
+node_modules/
+out/*
+!out/quill-launch.mp4
