@@ -6,4 +6,5 @@ mod escape;
 pub mod paste;
 pub mod system;
 pub mod target;
+pub mod icons;
 pub mod uia;

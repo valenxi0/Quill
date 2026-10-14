@@ -28,6 +28,7 @@ export interface VocabEntry {
   replacement: string;
   kind: EntryKind;
   isEnabled: boolean;
+  appExe?: string | null;
 }
 
 export interface VoiceDictation {
@@ -106,7 +107,14 @@ export interface Status {
   warmError: string | null;
 }
 
+export interface KnownApp {
+  exe: string;
+  name: string;
+  icon?: string | null;
+}
+
 export interface CorrectionPair {
+  appExe?: string | null;
   from: string;
   to: string;
   count: number;
@@ -171,7 +179,7 @@ export interface Insights {
   monthSavedSeconds: number;
   totalWords: number;
   since: string | null;
-  apps: { exe: string; name: string; words: number }[];
+  apps: (KnownApp & { words: number })[];
   currentStreak: number;
   longestStreak: number;
   heatmap: { date: string; words: number; future: boolean }[];
@@ -198,12 +206,13 @@ export const api = {
   getHistory: () => invoke<HistoryEntry[]>("get_history"),
   clearHistory: () => invoke<void>("clear_history"),
   getInsights: () => invoke<Insights>("get_insights"),
+  getKnownApps: () => invoke<KnownApp[]>("get_known_apps"),
   resetInsights: () => invoke<void>("reset_insights"),
-  parseVocabularyList: (text: string) => invoke<VocabEntry[]>("parse_vocabulary_list", { text }),
+  parseVocabularyList: (text: string, appExe: string | null = null) => invoke<VocabEntry[]>("parse_vocabulary_list", { text, appExe }),
   testVocabularyEntry: (entry: VocabEntry, sample: string) =>
     invoke<string>("test_vocabulary_entry", { entry, sample }),
-  acceptSuggestion: (from: string, to: string) => invoke<void>("accept_suggestion", { from, to }),
-  dismissSuggestion: (from: string, to: string) => invoke<void>("dismiss_suggestion", { from, to }),
+  acceptSuggestion: (from: string, to: string, appExe: string | null = null) => invoke<void>("accept_suggestion", { from, to, appExe }),
+  dismissSuggestion: (from: string, to: string, appExe: string | null = null) => invoke<void>("dismiss_suggestion", { from, to, appExe }),
   forgetCorrections: () => invoke<void>("forget_corrections"),
   hideOverlay: () => invoke<void>("hide_overlay"),
   animationsEnabled: () => invoke<boolean>("animations_enabled"),

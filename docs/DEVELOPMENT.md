@@ -4,7 +4,7 @@
 
 - `crates/quill-core`: platform-free logic: the text pipeline (vocabulary, snippets, cleanup guard, chunker, command formatter, number formatter), state machine, pause finder, correction diff, history, stats, settings, engine and model tables, and the 16 kHz resampler. Most unit tests live here.
 - `src-tauri`: the Windows app: keyboard hook, audio capture, UI Automation, clipboard and paste, overlay, tray, downloads, engines, the dictation controller, and updates (`updates.rs`). `src/bin/quill-bench.rs` is the benchmark.
-- `src`: the Settings window (setup wizard, Insights, Your voice, Setup) and the overlay pill (React, TypeScript, Tailwind). Running `npm run dev` in a plain browser previews both against a fake backend (`src/lib/devMock.ts`).
+- `src`: the Settings window (setup wizard, Insights, Your voice, Setup) and the overlay pill (React, TypeScript, Tailwind). Running `npm run dev` in a plain browser previews both against a fake backend (`src/lib/devMock.ts`). The preview uses sample counts and extracts icons from running Windows apps through `scripts/preview-app-icons.ps1`; it does not download logos.
 - `.github/workflows`: `ci.yml` runs tests on every push; `release.yml` builds and publishes a release when you push a version tag.
 - `SETUP-GUIDE.md`: the install guide for users.
 - `vendor/whisper-rs-sys`: whisper-rs-sys 0.15.0, patched to build whisper.cpp against llama.cpp's ggml, so the program holds one copy of ggml.

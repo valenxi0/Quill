@@ -22,7 +22,7 @@ Quill uses a dark interface, including the window title bar, even when Windows u
 
 Parakeet + S1-mini is the default engine. S1-mini cleans English transcripts and can remove fillers, fix punctuation, and format spoken lists. Choose Verbatim, Casual, Polished, or Compose to control the result. Whisper Tiny, Base, Turbo, and Cohere Transcribe are also available.
 
-Add vocabulary for names and terms, or snippets for text you repeat. Quill can suggest dictionary entries when you make the same correction twice.
+Add vocabulary for names and terms, or snippets for text you repeat. Choose All apps or a specific app in the entry editor. App entries override matching global entries, so "Rust" in your code editor can stay "rust" in chat. Quill suggests dictionary entries when you make the same correction twice in an app.
 
 ![Quill Your voice settings in dark mode with sample vocabulary](docs/screenshots/your-voice.jpg)
 

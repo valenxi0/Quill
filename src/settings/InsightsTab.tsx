@@ -4,6 +4,7 @@ import { compact, duration, monthDay } from "../lib/format";
 import type { Ctx } from "./App";
 import { Button, Card, cx, Icon, Sheet, Switch } from "./ui";
 import { useInsights } from "./VoiceTab";
+import { AppIcon } from "./AppScope";
 
 export function InsightsTab({ ctx }: { ctx: Ctx }) {
   const insights = useInsights(ctx.state);
@@ -105,7 +106,7 @@ function Filled({ insights: i }: { insights: Insights }) {
             <div className="flex flex-col gap-2">
               {i.apps.slice(0, 6).map((a) => (
                 <div key={a.exe} className="flex items-center gap-2">
-                  <AppGlyph name={a.name} />
+                  <AppIcon app={a} />
                   <div className="min-w-0 flex-1">
                     <div className="flex justify-between text-[12px]">
                       <span className="truncate">{a.name}</span>
@@ -134,18 +135,6 @@ function Filled({ insights: i }: { insights: Insights }) {
         </Card>
       </div>
     </>
-  );
-}
-
-function AppGlyph({ name }: { name: string }) {
-  const hue = [...name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
-  return (
-    <span
-      className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[6px] text-[11px] font-semibold text-white"
-      style={{ background: `hsl(${hue} 55% 50%)` }}
-    >
-      {name.slice(0, 1).toUpperCase()}
-    </span>
   );
 }
 

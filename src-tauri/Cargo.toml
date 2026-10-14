@@ -48,6 +48,8 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 futures-util = "0.3"
 sha2 = "0.10"
 hex = "0.4"
+base64 = "0.22"
+png = "0.18"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "sync", "time"] }
 whisper-rs = { version = "0.16", optional = true, features = ["log_backend"] }
 llama-cpp-2 = { version = "=0.1.157", optional = true, default-features = false }

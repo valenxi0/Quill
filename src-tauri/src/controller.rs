@@ -22,7 +22,7 @@ use quill_core::state::{action, Action, HotkeyEvent, Phase};
 use quill_core::stats::Session as StatSession;
 use quill_core::text::finish::{has_speech, join, peak, rms_dbfs, MIN_SPEECH_PEAK};
 use quill_core::text::numbers::Itn;
-use quill_core::text::vocabulary::vocabulary_terms;
+use quill_core::text::vocabulary::{for_app, vocabulary_terms};
 use serde::Serialize;
 
 use crate::audio::{AudioError, Recording};
@@ -322,13 +322,15 @@ impl Controller {
         let target = capture.join().unwrap_or_default();
         let context = classify(&target.exe, &target.focused_name, target.aumid.as_deref(), vd.adapts_to_app);
         let info = vd.engine.info();
+        let vocabulary = for_app(&vd.vocabulary, &target.exe);
+        let terms = vocabulary_terms(&vocabulary);
         let recipe = Recipe {
             directive: Directive::for_recording(vd.cleanup_level, context, vd.formal_register),
             layout_cues: vd.layout_cues,
             context,
             writes_numbers: vd.writes_numbers,
             has_cleanup: info.has_cleanup,
-            vocabulary: vd.vocabulary.clone(),
+            vocabulary,
         };
 
         let mut generation = 0;
@@ -348,7 +350,7 @@ impl Controller {
             generation,
             engine: vd.engine,
             language: recognition_language(vd.engine, &vd.language, &self.preferred_languages),
-            vocabulary_terms: vocabulary_terms(&vd.vocabulary),
+            vocabulary_terms: terms,
             recipe,
             target,
             history_at_start: vd.history_enabled,
@@ -644,6 +646,7 @@ impl Controller {
             self.shell.history_changed();
         }
         if vd.insights_enabled {
+            let icon = crate::platform::icons::file_icon(&cfg.target.exe_path);
             let hits: Vec<uuid::Uuid> = results.iter().flat_map(|r| r.hits.iter().copied()).collect();
             let latency = (!metrics.cold_start).then(|| release_to_paste.as_secs_f64());
             self.stores.stats.update(|s| {
@@ -654,6 +657,7 @@ impl Controller {
                     seconds: metrics.audio_seconds,
                     app_exe: &cfg.target.exe,
                     app_name: &app_name,
+                    app_icon: icon.as_deref(),
                     hits: &hits,
                     latency,
                 })
@@ -661,13 +665,13 @@ impl Controller {
         }
         if pasted && vd.learns_corrections && !cfg.target.is_password {
             if let Some(id) = cfg.target.element_id {
-                self.watch_corrections(id, text.to_string());
+                self.watch_corrections(id, text.to_string(), cfg.target.exe.clone());
             }
         }
     }
 
     /// Reread the field at 12 s and 45 s and learn misheard-word fixes.
-    fn watch_corrections(self: &Arc<Self>, element: u64, pasted: String) {
+    fn watch_corrections(self: &Arc<Self>, element: u64, pasted: String, app_exe: String) {
         let watch = self.watch_generation.fetch_add(1, SeqCst) + 1;
         let me = self.clone();
         std::thread::spawn(move || {
@@ -702,13 +706,13 @@ impl Controller {
                 return;
             }
             let vocabulary = me.stores.settings.read(|s| s.voice_dictation.vocabulary.clone());
-            let promoted: Vec<CorrectionPair> = me.stores.corrections.update(|c| c.record(&fixes));
+            let promoted: Vec<CorrectionPair> = me.stores.corrections.update(|c| c.record_for_app(&fixes, (!app_exe.is_empty()).then_some(app_exe.as_str())));
             let visible: Vec<CorrectionPair> = me
                 .stores
                 .corrections
                 .read(|c| c.suggestions(&vocabulary))
                 .into_iter()
-                .filter(|s| promoted.iter().any(|p| p.from == s.from && p.to == s.to))
+                .filter(|s| promoted.iter().any(|p| p.from == s.from && p.to == s.to && p.app_exe == s.app_exe))
                 .collect();
             if let Some(first) = visible.first() {
                 me.shell.suggest(first);

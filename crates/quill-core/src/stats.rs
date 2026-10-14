@@ -40,6 +40,7 @@ pub struct DayStats {
 pub struct AppStats {
     pub name: String,
     pub words: u64,
+    pub icon: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -64,6 +65,7 @@ pub struct Session<'a> {
     pub seconds: f64,
     pub app_exe: &'a str,
     pub app_name: &'a str,
+    pub app_icon: Option<&'a str>,
     pub hits: &'a [Uuid],
     pub latency: Option<f64>,
 }
@@ -90,6 +92,7 @@ impl Stats {
             .entry(s.app_exe.to_lowercase())
             .or_default();
         app.name = s.app_name.to_string();
+        if let Some(icon) = s.app_icon { app.icon = Some(icon.to_string()); }
         app.words += words;
         self.fillers_removed += filler_count(s.raw).saturating_sub(filler_count(s.text));
         for id in s.hits {
@@ -182,7 +185,7 @@ impl Stats {
             .get(&this_month)
             .map(|m| {
                 m.iter()
-                    .map(|(exe, a)| AppInsight { exe: exe.clone(), name: a.name.clone(), words: a.words })
+                    .map(|(exe, a)| AppInsight { exe: exe.clone(), name: a.name.clone(), words: a.words, icon: a.icon.clone() })
                     .collect()
             })
             .unwrap_or_default();
@@ -224,6 +227,7 @@ pub struct AppInsight {
     pub exe: String,
     pub name: String,
     pub words: u64,
+    pub icon: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -270,6 +274,7 @@ mod tests {
             seconds: secs,
             app_exe: "Notepad.exe",
             app_name: "Notepad",
+            app_icon: None,
             hits: &[],
             latency: Some(latency),
         }

@@ -129,6 +129,20 @@ pub fn finish(raw: &str, text: &str, context: AppContext, rms_dbfs: f32) -> Resu
 
 #[cfg(all(test, feature = "itn"))]
 mod tests {
+    #[test]
+    fn app_scoped_snippets_and_terms_flow_through_the_text_pipeline() {
+        use crate::text::vocabulary::for_app;
+        let mut term = VocabEntry::new(EntryKind::Vocabulary, "or rook", "Oruk");
+        term.app_exe = Some("Code.exe".into());
+        let mut snippet = VocabEntry::new(EntryKind::Snippet, "my sign off", "Best,\nDeveloper");
+        snippet.app_exe = Some("code.exe".into());
+        let entries = vec![term, snippet];
+        let mut r = recipe(CleanupLevel::Verbatim, AppContext::General);
+        r.vocabulary = for_app(&entries, "CODE.EXE");
+        assert_eq!(process_segment("or rook my sign off", Some("en"), &r, None, None).text, "Oruk Best,\nDeveloper");
+        r.vocabulary = for_app(&entries, "Discord.exe");
+        assert_eq!(process_segment("or rook my sign off", Some("en"), &r, None, None).text, "or rook my sign off");
+    }
     use super::*;
     use crate::settings::CleanupLevel;
     use crate::text::numbers::NemoItn;

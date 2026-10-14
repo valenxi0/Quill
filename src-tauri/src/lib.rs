@@ -168,6 +168,7 @@ pub fn run() {
             commands::get_history,
             commands::clear_history,
             commands::get_insights,
+            commands::get_known_apps,
             commands::reset_insights,
             commands::parse_vocabulary_list,
             commands::test_vocabulary_entry,

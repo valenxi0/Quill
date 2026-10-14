@@ -3430,9 +3430,10 @@ dependencies = [
 
 [[package]]
 name = "quill"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "chrono",
  "cpal",
  "encoding_rs",
@@ -3441,6 +3442,7 @@ dependencies = [
  "llama-cpp-2",
  "log",
  "parking_lot",
+ "png 0.18.1",
  "quill-core",
  "regex",
  "reqwest 0.12.28",
@@ -3462,7 +3464,7 @@ dependencies = [
 
 [[package]]
 name = "quill-core"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "chrono",
  "regex",

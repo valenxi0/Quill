@@ -126,6 +126,8 @@ pub struct CorrectionPair {
     pub count: u32,
     #[serde(default)]
     pub dismissed: bool,
+    #[serde(default)]
+    pub app_exe: Option<String>,
 }
 
 /// `corrections.json`: word pairs only.
@@ -142,17 +144,22 @@ pub const SUGGEST_AFTER: u32 = 2;
 impl Corrections {
     /// Record fixes; returns pairs that just became suggestions.
     pub fn record(&mut self, fixes: &[(String, String)]) -> Vec<CorrectionPair> {
+        self.record_for_app(fixes, None)
+    }
+
+    pub fn record_for_app(&mut self, fixes: &[(String, String)], app_exe: Option<&str>) -> Vec<CorrectionPair> {
+        let app_exe = app_exe.map(str::to_lowercase);
         let mut promoted = Vec::new();
         for (from, to) in fixes {
             self.seen += 1;
-            match self.pairs.iter_mut().find(|p| &p.from == from && &p.to == to) {
+            match self.pairs.iter_mut().find(|p| &p.from == from && &p.to == to && p.app_exe == app_exe) {
                 Some(p) => {
                     p.count += 1;
                     if p.count == SUGGEST_AFTER && !p.dismissed {
                         promoted.push(p.clone());
                     }
                 }
-                None => self.pairs.push(CorrectionPair { from: from.clone(), to: to.clone(), count: 1, dismissed: false }),
+                None => self.pairs.push(CorrectionPair { from: from.clone(), to: to.clone(), count: 1, dismissed: false, app_exe: app_exe.clone() }),
             }
         }
         promoted
@@ -169,7 +176,11 @@ impl Corrections {
     }
 
     pub fn dismiss(&mut self, from: &str, to: &str) {
-        for p in self.pairs.iter_mut().filter(|p| p.from == from && p.to == to) {
+        self.dismiss_for_app(from, to, None);
+    }
+
+    pub fn dismiss_for_app(&mut self, from: &str, to: &str, app_exe: Option<&str>) {
+        for p in self.pairs.iter_mut().filter(|p| p.from == from && p.to == to && p.app_exe.as_deref() == app_exe) {
             p.dismissed = true;
         }
     }
@@ -181,11 +192,28 @@ impl Corrections {
 
 fn covered(pair: &CorrectionPair, vocabulary: &[VocabEntry]) -> bool {
     let key = normalize(&pair.from);
-    vocabulary.iter().any(|e| normalize(&e.phrase) == key)
+    crate::text::vocabulary::for_app(vocabulary, pair.app_exe.as_deref().unwrap_or(""))
+        .iter().any(|e| normalize(&e.phrase) == key && e.replacement.trim() == pair.to.trim())
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn learned_fixes_count_and_dismiss_independently_per_app() {
+        let fixes = vec![("rust".into(), "Rust".into())];
+        let mut c = Corrections::default();
+        c.record_for_app(&fixes, Some("Code.exe"));
+        c.record_for_app(&fixes, Some("Discord.exe"));
+        let promoted = c.record_for_app(&fixes, Some("CODE.EXE"));
+        assert_eq!(promoted[0].app_exe.as_deref(), Some("code.exe"));
+        assert_eq!(promoted[0].count, 2);
+        c.record_for_app(&fixes, Some("discord.exe"));
+        let mut entry = VocabEntry::new(EntryKind::Vocabulary, "rust", "Rust");
+        entry.app_exe = Some("Code.exe".into());
+        assert_eq!(c.suggestions(&[entry])[0].app_exe.as_deref(), Some("discord.exe"));
+        c.dismiss_for_app("rust", "Rust", Some("code.exe"));
+        assert_eq!(c.suggestions(&[])[0].app_exe.as_deref(), Some("discord.exe"));
+    }
     use super::*;
     use crate::text::vocabulary::EntryKind;
 

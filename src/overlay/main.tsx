@@ -8,7 +8,7 @@ let previewView: DictationView | undefined;
 
 if (import.meta.env.DEV && !("__TAURI_INTERNALS__" in window)) {
   const { installDevMock } = await import("../lib/devMock");
-  installDevMock();
+  await installDevMock();
   document.body.style.background = "#6b7280";
   const preview = new URLSearchParams(location.search).get("preview");
   if (preview === "recording" || preview === "transcribing" || preview === "cleaning" || preview === "cancelled") {

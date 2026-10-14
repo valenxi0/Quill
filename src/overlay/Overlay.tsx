@@ -183,7 +183,7 @@ function UpdatePrompt({ info, onDone }: { info: UpdateInfo; onDone: () => void }
 
 function Suggestion({ pair, onDone }: { pair: CorrectionPair; onDone: () => void }) {
   const finish = (accept: boolean) => {
-    (accept ? api.acceptSuggestion(pair.from, pair.to) : api.dismissSuggestion(pair.from, pair.to)).finally(() => {
+    (accept ? api.acceptSuggestion(pair.from, pair.to, pair.appExe ?? null) : api.dismissSuggestion(pair.from, pair.to, pair.appExe ?? null)).finally(() => {
       onDone();
       api.hideOverlay();
     });
@@ -191,7 +191,7 @@ function Suggestion({ pair, onDone }: { pair: CorrectionPair; onDone: () => void
   return (
     <div className="flex h-screen items-end justify-center pb-2">
       <Pill>
-        <span className="text-white/70">Add</span>
+        <span className="text-white/70" title={pair.appExe ?? "All apps"}>{pair.appExe ? "Add for this app" : "Add"}</span>
         <span>
           {pair.from} → <b>{pair.to}</b>
         </span>

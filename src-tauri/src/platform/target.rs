@@ -1,7 +1,7 @@
 //! The paste target, captured at recording start (section 4.2, step 1).
 
 use windows::core::{PCWSTR, PWSTR};
-use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND};
+use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND, LPARAM};
 use windows::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
 use windows::Win32::Storage::FileSystem::{GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW};
 use windows::Win32::Storage::Packaging::Appx::GetApplicationUserModelId;
@@ -10,7 +10,7 @@ use windows::Win32::System::Threading::{
     PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetClassNameW, GetForegroundWindow, GetWindowThreadProcessId, IsWindow,
+    EnumWindows, GetClassNameW, GetForegroundWindow, GetWindowThreadProcessId, IsWindow, IsWindowVisible,
 };
 
 use super::uia;
@@ -19,6 +19,7 @@ use super::uia;
 pub struct Target {
     pub hwnd: isize,
     pub exe: String,
+    pub exe_path: String,
     pub app_name: String,
     pub aumid: Option<String>,
     pub focused_name: String,
@@ -128,6 +129,36 @@ fn display_name(exe_path: &str, exe: &str) -> String {
         .unwrap_or_else(|| exe.trim_end_matches(".exe").trim_end_matches(".EXE").to_string())
 }
 
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnownApp {
+    pub exe: String,
+    pub name: String,
+    pub icon: Option<String>,
+}
+
+pub fn open_apps() -> Vec<KnownApp> {
+    unsafe extern "system" fn collect(hwnd: HWND, param: LPARAM) -> windows::core::BOOL {
+        if !unsafe { IsWindowVisible(hwnd) }.as_bool() { return true.into(); }
+        let apps = unsafe { &mut *(param.0 as *mut Vec<KnownApp>) };
+        let mut pid = 0;
+        unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)); }
+        if let Ok(h) = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) } {
+            let process = Process(h);
+            if let Some(path) = exe_path(&process) {
+                let exe = path.rsplit('\\').next().unwrap_or(&path).to_lowercase();
+                if !matches!(exe.as_str(), "quill.exe" | "explorer.exe") && !apps.iter().any(|a| a.exe == exe) {
+                    apps.push(KnownApp { name: display_name(&path, &exe), exe, icon: super::icons::file_icon(&path) });
+                }
+            }
+        }
+        true.into()
+    }
+    let mut apps = Vec::new();
+    unsafe { let _ = EnumWindows(Some(collect), LPARAM(&mut apps as *mut Vec<KnownApp> as isize)); }
+    apps
+}
+
 /// Capture the foreground window and its focused element.
 pub fn capture() -> Target {
     let hwnd = unsafe { GetForegroundWindow() };
@@ -146,6 +177,7 @@ pub fn capture() -> Target {
             if let Some(path) = exe_path(&process) {
                 t.exe = path.rsplit('\\').next().unwrap_or(&path).to_string();
                 t.app_name = display_name(&path, &t.exe);
+                t.exe_path = path;
             }
             t.aumid = aumid(&process);
             // A token we can't query belongs to a more privileged process.

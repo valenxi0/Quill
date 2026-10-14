@@ -22,6 +22,8 @@ pub struct VocabEntry {
     pub kind: EntryKind,
     #[serde(default = "yes")]
     pub is_enabled: bool,
+    #[serde(default)]
+    pub app_exe: Option<String>,
 }
 
 fn yes() -> bool {
@@ -36,6 +38,7 @@ impl VocabEntry {
             replacement: replacement.into(),
             kind,
             is_enabled: true,
+            app_exe: None,
         }
     }
 
@@ -55,6 +58,17 @@ impl VocabEntry {
     fn phrase_words(&self) -> usize {
         self.phrase.split_whitespace().count().max(1)
     }
+}
+
+/// Select once at recording start; app entries override global phrases.
+pub fn for_app(entries: &[VocabEntry], exe: &str) -> Vec<VocabEntry> {
+    let scoped: std::collections::HashSet<String> = entries.iter()
+        .filter(|e| e.is_active() && e.app_exe.as_deref().is_some_and(|app| app.eq_ignore_ascii_case(exe)))
+        .map(VocabEntry::key).collect();
+    entries.iter().filter(|e| e.is_active() && match e.app_exe.as_deref() {
+        Some(app) => app.eq_ignore_ascii_case(exe),
+        None => !scoped.contains(&e.key()),
+    }).cloned().collect()
 }
 
 /// Terms that can be offered to a recognizer as vocabulary hints.
@@ -255,6 +269,17 @@ pub fn parse_list(input: &str, existing: &[VocabEntry]) -> Vec<VocabEntry> {
     out
 }
 
+pub fn parse_list_for_app(input: &str, existing: &[VocabEntry], app_exe: Option<&str>) -> Vec<VocabEntry> {
+    let scoped: Vec<_> = existing.iter().filter(|e| match (e.app_exe.as_deref(), app_exe) {
+        (None, None) => true,
+        (Some(a), Some(b)) => a.eq_ignore_ascii_case(b),
+        _ => false,
+    }).cloned().collect();
+    let mut entries = parse_list(input, &scoped);
+    for entry in &mut entries { entry.app_exe = app_exe.map(str::to_lowercase); }
+    entries
+}
+
 /// The first arrow in a line: byte offset and length.
 fn find_arrow(s: &str) -> Option<(usize, usize)> {
     for arrow in ["→", "->", "=>", "\t", "="] {
@@ -267,6 +292,43 @@ fn find_arrow(s: &str) -> Option<(usize, usize)> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn imports_allow_the_same_phrase_in_different_apps() {
+        let global = vocab("rust", "rust");
+        let code = parse_list_for_app("rust -> Rust", &[global.clone()], Some("Code.exe"));
+        assert_eq!(apply("rust", &for_app(&code, "code.exe"), None).text, "Rust");
+        let existing = vec![global, code[0].clone()];
+        assert_eq!(parse_list_for_app("rust -> Rust", &existing, Some("CODE.EXE")), vec![]);
+        let chat = parse_list_for_app("rust -> rust", &existing, Some("discord.exe"));
+        assert_eq!(chat[0].app_exe.as_deref(), Some("discord.exe"));
+        assert_eq!(apply("rust", &for_app(&chat, "Discord.exe"), None).text, "rust");
+    }
+    #[test]
+    fn app_vocabulary_overrides_globals_without_leaking_to_other_apps() {
+        let global = vocab("rust", "rust");
+        let mut code = vocab("rust", "Rust");
+        code.app_exe = Some("Code.exe".into());
+        let mut term = vocab("or rook", "Oruk");
+        term.app_exe = Some("code.exe".into());
+        let entries = vec![global, code, term];
+        let code = for_app(&entries, "CODE.EXE");
+        assert_eq!(apply("rust and or rook", &code, None).text, "Rust and Oruk");
+        assert_eq!(vocabulary_terms(&code), vec!["Rust", "Oruk"]);
+        assert_eq!(apply("rust and or rook", &for_app(&entries, "Discord.exe"), None).text, "rust and or rook");
+        assert_eq!(apply("rust", &for_app(&entries, ""), None).text, "rust");
+    }
+
+    #[test]
+    fn disabled_app_entry_leaves_global_entry_active_and_old_entries_load_globally() {
+        let mut scoped = vocab("q", "Quill");
+        scoped.app_exe = Some("Code.exe".into());
+        scoped.is_enabled = false;
+        assert_eq!(apply("q", &for_app(&[vocab("q", "queue"), scoped], "code.exe"), None).text, "queue");
+        let old = format!(r#"{{"id":"{}","phrase":"q","replacement":"queue","kind":"vocabulary","isEnabled":true}}"#, uuid::Uuid::new_v4());
+        let entry: VocabEntry = serde_json::from_str(&old).unwrap();
+        assert_eq!(apply("q", &for_app(&[entry], "Discord.exe"), None).text, "queue");
+    }
+
     use super::*;
 
     fn vocab(p: &str, r: &str) -> VocabEntry {

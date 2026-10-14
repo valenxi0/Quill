@@ -7,7 +7,7 @@ use quill_core::engines::{AssetId, EngineId};
 use quill_core::history::HistoryEntry;
 use quill_core::settings::{Hotkey, Settings};
 use quill_core::stats::{Insights, Stats};
-use quill_core::text::vocabulary::{apply, parse_list, protect_snippets, EntryKind, Piece, VocabEntry};
+use quill_core::text::vocabulary::{apply, parse_list_for_app, protect_snippets, EntryKind, Piece, VocabEntry};
 use tauri::{AppHandle, State};
 
 use crate::app::{self, notify, Quill, UiState};
@@ -158,9 +158,53 @@ pub fn clear_history(app: AppHandle, q: Q) {
     notify(&app);
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_insights(q: Q) -> Insights {
-    q.stores.stats.read(|s| s.insights(chrono::Local::now().date_naive()))
+    let mut insights = q.stores.stats.read(|s| s.insights(chrono::Local::now().date_naive()));
+    if insights.apps.iter().all(|a| a.icon.is_some()) { return insights; }
+    let open = crate::platform::target::open_apps();
+    let mut resolved = Vec::new();
+    for app in &mut insights.apps {
+        if app.icon.is_none() {
+            app.icon = open.iter().find(|a| a.exe.eq_ignore_ascii_case(&app.exe)).and_then(|a| a.icon.clone());
+            if let Some(icon) = &app.icon { resolved.push((app.exe.clone(), icon.clone())); }
+        }
+    }
+    if !resolved.is_empty() {
+        q.stores.stats.update(|s| {
+            for month in s.months.values_mut() {
+                for (exe, icon) in &resolved {
+                    if let Some(app) = month.get_mut(exe) { app.icon = Some(icon.clone()); }
+                }
+            }
+        });
+    }
+    insights
+}
+
+#[tauri::command(async)]
+pub fn get_known_apps(q: Q) -> Vec<crate::platform::target::KnownApp> {
+    use crate::platform::target::{open_apps, KnownApp};
+    let mut apps = std::collections::BTreeMap::new();
+    q.stores.stats.read(|s| {
+        for month in s.months.values() {
+            for (exe, app) in month {
+                apps.insert(exe.to_lowercase(), KnownApp { exe: exe.to_lowercase(), name: app.name.clone(), icon: app.icon.clone() });
+            }
+        }
+    });
+    q.stores.history.read(|h| {
+        for app in &h.entries {
+            apps.entry(app.app_exe.to_lowercase()).or_insert(KnownApp { exe: app.app_exe.to_lowercase(), name: app.app_name.clone(), icon: None });
+        }
+    });
+    for mut app in open_apps() {
+        if app.icon.is_none() { app.icon = apps.get(&app.exe).and_then(|a| a.icon.clone()); }
+        apps.insert(app.exe.clone(), app);
+    }
+    let mut apps: Vec<_> = apps.into_values().filter(|a| !a.exe.is_empty()).collect();
+    apps.sort_by_key(|a| a.name.to_lowercase());
+    apps
 }
 
 #[tauri::command]
@@ -170,9 +214,9 @@ pub fn reset_insights(app: AppHandle, q: Q) {
 }
 
 #[tauri::command]
-pub fn parse_vocabulary_list(q: Q, text: String) -> Vec<VocabEntry> {
+pub fn parse_vocabulary_list(q: Q, text: String, app_exe: Option<String>) -> Vec<VocabEntry> {
     let existing = q.stores.settings.read(|s| s.voice_dictation.vocabulary.clone());
-    parse_list(&text, &existing)
+    parse_list_for_app(&text, &existing, app_exe.as_deref())
 }
 
 /// Preview an entry applied to sample text (the editor's Test field).
@@ -196,18 +240,20 @@ pub fn test_vocabulary_entry(entry: VocabEntry, sample: String) -> String {
 }
 
 #[tauri::command]
-pub fn accept_suggestion(app: AppHandle, q: Q, from: String, to: String) {
+pub fn accept_suggestion(app: AppHandle, q: Q, from: String, to: String, app_exe: Option<String>) {
     let mut s = q.stores.settings.get();
-    s.voice_dictation.vocabulary.push(VocabEntry::new(EntryKind::Vocabulary, from.clone(), to.clone()));
+    let mut entry = VocabEntry::new(EntryKind::Vocabulary, from.clone(), to.clone());
+    entry.app_exe = app_exe.clone();
+    s.voice_dictation.vocabulary.push(entry);
     q.apply_settings(&app, s);
-    q.stores.corrections.update(|c| c.dismiss(&from, &to));
+    q.stores.corrections.update(|c| c.dismiss_for_app(&from, &to, app_exe.as_deref()));
     crate::overlay::set_interactive(&app, false);
     notify(&app);
 }
 
 #[tauri::command]
-pub fn dismiss_suggestion(app: AppHandle, q: Q, from: String, to: String) {
-    q.stores.corrections.update(|c| c.dismiss(&from, &to));
+pub fn dismiss_suggestion(app: AppHandle, q: Q, from: String, to: String, app_exe: Option<String>) {
+    q.stores.corrections.update(|c| c.dismiss_for_app(&from, &to, app_exe.as_deref()));
     crate::overlay::set_interactive(&app, false);
     notify(&app);
 }

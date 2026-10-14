@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-13
+
+### Added
+
+- Vocabulary and snippets can apply to all apps or one app. App entries override matching global entries, including recognition hints. Learned corrections keep their source app, and list imports support an app scope.
+- Where you dictate shows native Windows app icons, with a neutral app glyph when an icon is unavailable. The browser preview extracts icons from locally installed apps too. The app scope picker uses a dark menu with app icons and keyboard navigation.
+
 ### Changed
 
 - Quill uses dark mode regardless of the Windows theme, including its window title bar. README screenshots show the dark interface with sample data.

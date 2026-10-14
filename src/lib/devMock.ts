@@ -2,7 +2,7 @@
 // http://localhost:1420). Never loaded inside the Tauri app.
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { emit } from "@tauri-apps/api/event";
-import type { Insights, Settings, UiState } from "./api";
+import type { Insights, KnownApp, Settings, UiState } from "./api";
 
 const settings: Settings = {
   enabled: true,
@@ -51,7 +51,7 @@ const state: UiState = {
   capturingHotkey: false,
   captureError: null,
   itnAvailable: true,
-  suggestions: [{ from: "Tori", to: "Tauri", count: 2, dismissed: false }],
+  suggestions: [{ from: "Tori", to: "Tauri", count: 2, dismissed: false, appExe: "code.exe" }],
   correctionsSeen: 5,
   historyCount: 2,
   hasDictated: true,
@@ -71,7 +71,7 @@ monday.setDate(today.getDate() - ((today.getDay() + 6) % 7) - 14 * 7);
 const insights: Insights = {
   isEmpty: false, weekWords: 1840, weekSavedSeconds: 1980, wpm: 152, sparkline: [120, 140, 131, 160, 152, 171, 149],
   monthSavedSeconds: 7400, totalWords: 12480, since: "2026-08-02",
-  apps: [{ exe: "slack.exe", name: "Slack", words: 5200 }, { exe: "code.exe", name: "Visual Studio Code", words: 3100 }, { exe: "outlook.exe", name: "Outlook", words: 1400 }],
+  apps: [],
   currentStreak: 6, longestStreak: 11,
   heatmap: Array.from({ length: 105 }, (_, i) => {
     const d = new Date(monday); d.setDate(monday.getDate() + i);
@@ -80,11 +80,25 @@ const insights: Insights = {
   fillersRemoved: 214, dictionaryExpansions: 15, medianLatency: 0.42,
 };
 
-export function installDevMock() {
+export async function installDevMock() {
+  let apps: KnownApp[] = [];
+  try {
+    const response = await fetch("/__quill_preview_apps");
+    const data: unknown = await response.json();
+    if (Array.isArray(data)) {
+      apps = data.filter((item): item is KnownApp => item != null && typeof item === "object" &&
+        "exe" in item && typeof item.exe === "string" && "name" in item && typeof item.name === "string" &&
+        "icon" in item && (item.icon === null || typeof item.icon === "string"));
+    }
+  } catch {
+    console.warn("Installed app icons are unavailable in this browser preview.");
+  }
+  insights.apps = apps.map((app, index) => ({ ...app, words: [5200, 3100, 1400, 960, 300, 156][index] ?? 78 }));
   mockIPC((cmd) => {
     switch (cmd) {
       case "get_state": return state;
       case "get_insights": return insights;
+      case "get_known_apps": return insights.apps;
       case "get_history": return [
         { id: "1", text: "Can we move the meeting to Thursday afternoon instead?", engine: "parakeetS1", appName: "Slack", appExe: "slack.exe", secondsSpoken: 3.1, releaseToPasteMs: 410, createdAt: new Date().toISOString() },
         { id: "2", text: "git commit -m \"fix the build\"", engine: "parakeetS1", appName: "Windows Terminal", appExe: "WindowsTerminal.exe", secondsSpoken: 2.2, releaseToPasteMs: 180, createdAt: new Date().toISOString() },
