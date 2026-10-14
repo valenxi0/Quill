@@ -12,7 +12,7 @@ const dir = path.dirname(fileURLToPath(import.meta.url));
 const TL = createRequire(import.meta.url)("./timeline.js");
 const arg = (k, d) => { const i = process.argv.indexOf("--" + k); return i > 0 ? process.argv[i + 1] : d; };
 const fps = Number(arg("fps", TL.fps));
-const from = Number(arg("from", 0));
+const from = Number(arg("from", TL.start ?? 0));
 const to = Number(arg("to", TL.duration));
 const workers = Number(arg("workers", 3));
 const outName = arg("out", "quill-launch.mp4");

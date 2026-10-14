@@ -49,23 +49,24 @@
   const speechStart = 13.05;
   const speech = [
     ["um", 0.0, "filler"],
-    ["so", 0.56, "filler"],
-    ["I", 0.66],
-    ["think", 0.9],
-    ["we", 1.06],
-    ["should", 1.2],
-    ["uh", 1.64, "filler"],
-    ["ship", 2.2],
-    ["the", 2.38],
-    ["windows", 2.58, "", "Windows"],
-    ["build", 2.78],
-    ["on", 3.16],
-    ["friday", 3.36, "", "Friday."],
+    ["so", 0.46, "filler"],
+    ["I", 0.54],
+    ["think", 0.7],
+    ["we", 0.86],
+    ["should", 1.02],
+    ["uh", 1.2, "filler"],
+    ["ship", 1.5],
+    ["the", 1.74],
+    ["windows", 1.96, "", "Windows"],
+    ["build", 2.32],
+    ["on", 2.64],
+    ["friday", 2.86, "", "Friday."],
   ].map(([w, at, kind = "", clean]) => ({ w, t: speechStart + at, kind, clean: clean ?? w }));
 
   const TL = {
     BPM,
     BEAT,
+    start: 1.5, // the film begins here; earlier timeline time is unused
     duration: 31,
     fps: 60,
     typed,
@@ -73,7 +74,6 @@
     speech,
     speechStart,
     scenes: {
-      cold: [0, 1.5],
       typing: [1.5, 4.6],
       search: [4.5, 8.05],
       turn: [8.0, 9.1],
@@ -84,9 +84,6 @@
     },
     // Cue times shared with the score.
     cues: {
-      // Cold open: 0–1.5 s replays the demo from coldFrom at coldRate, then rewinds.
-      coldFrom: 17.2,
-      coldRate: 0.8,
       searchIn: 4.5,
       searchEnter: 5.5,
       cardsIn: 5.55,

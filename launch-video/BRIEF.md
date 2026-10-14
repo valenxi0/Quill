@@ -2,9 +2,9 @@
 
 **Logline.** You want to dictate on Windows, but every good dictation app is Mac-only. Then Quill arrives: offline, fast, open source, built for Windows.
 
-**Format.** 1920×1080, 60 fps, 31 s, H.264 + AAC for X. The score is synthesized on the same timeline at 120 BPM (one beat = 0.5 s), and every cut lands on a beat.
+**Format.** 1920×1080, 60 fps, 29.5 s (timeline 1.5–31 s; the film opens on the typing), H.264 + AAC for X. The score is synthesized on the same timeline at 120 BPM (one beat = 0.5 s), and every cut lands on a beat.
 
-**Sound.** An A-major IV–V–iii–vi progression (Dmaj9, E6/9, C#m7, F#m9): FM electric piano, sidechained sub bass, a lead hook on the drop and the feature run, and a plucked arp. The music stops dead on "Until now.", drops on the logo, closes to a low-pass while Quill listens, and sweeps open into the paste. Typing uses real keystroke recordings (`sfx/keys`, CC0, Keyboard Soundpack #1 by unicaegames on OpenGameArt). To use a different typing recording, save it as `sfx/typing.wav`; `audio.mjs` detects and slices its keystrokes. The demo line is an AI voice: Kokoro v1.0 (Apache 2.0), a 70/30 blend of the `af_heart` and `af_nicole` voices, run locally, then high-passed, lightly compressed and given a small room. The word times in `timeline.js` were measured from the file with Whisper, and `sfx/voice-env.js` (its loudness envelope) drives the pill's waveform.
+**Sound.** An A-major IV–V–iii–vi progression (Dmaj9, E6/9, C#m7, F#m9): FM electric piano, sidechained sub bass, a lead hook on the drop and the feature run, and a plucked arp. The music stops dead on "Until now.", drops on the logo, closes to a low-pass while Quill listens, and sweeps open into the paste. Typing uses real keystroke recordings (`sfx/keys`, CC0, Keyboard Soundpack #1 by unicaegames on OpenGameArt). To use a different typing recording, save it as `sfx/typing.wav`; `audio.mjs` detects and slices its keystrokes. The demo line is an AI voice: Kokoro v1.0 (Apache 2.0), a 70/30 blend of the `af_heart` and `af_nicole` voices, run locally. Silences between words were shortened to 90 ms so the line flows, then it was high-passed, lightly compressed and given a small room. The word times in `timeline.js` were measured from the file with Whisper, and `sfx/voice-env.js` (its loudness envelope) drives the pill's waveform.
 
 **Text effects.** Ported from 21st.dev components into pure functions of time: Text Animate by appica-dev (`rise` for "Until now." and feature headlines, `flip` for the verdict line, `highlight` for the taglines), Rolling Text by hyperiux (the end-card wordmark reels) and Text Shimmer by ibelick (the "Cleaning up" pill).
 
@@ -16,7 +16,6 @@
 
 | Time | Scene | What happens |
 | --- | --- | --- |
-| 0.0–1.5 | Cold open | The Slack paste moment replayed at 0.8× (fillers struck, Paste sent, text lands), then a tape-stop rewind. Frame 0 is never black. |
 | 1.5–4.5 | Typing | Giant type, a typo and backspace: "Typing every word by hand is slow." |
 | 4.5–8.0 | Search | "voice dictation app for windows" → four results. Each denied card lands one reason: "The good ones are Mac-first, cloud-based, or $15 a month." |
 | 8.0–9.0 | Turn | "Until now." Hard stop in the music. |

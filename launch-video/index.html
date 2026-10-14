@@ -704,7 +704,7 @@ scene("typing", () => {
 }, (t) => {
   const st = typedAt(TL.typed, t);
   $("#ty-text").textContent = st.text;
-  $("#ty .caret").style.opacity = caretOn(t, lastKey(TL.typed, t));
+  $("#ty .caret").style.opacity = t < TL.typed.keys[0] ? 1 : caretOn(t, lastKey(TL.typed, t));
   const ty = $("#ty");
   const push = lerp(1.0, 1.035, prog(t, 1.5, 4.5));
   const q = inOut(prog(t, 4.2, 4.56));
@@ -1127,23 +1127,6 @@ function grain(frame) {
 // ---------- seek ----------
 let inited = false;
 window.seek = function (t) {
-  const demo = scenes.find((s) => s.name === "demo");
-  const [c0, c1] = TL.scenes.cold;
-  if (t >= c0 && t < c1) {
-    for (const s of scenes) s.el.style.display = "none";
-    demo.el.style.display = "block";
-    demo.render(C.coldFrom + (t - c0) * C.coldRate);
-    // rewind: smear sideways, wash out, cut
-    const r = easeIn(prog(t, c1 - 0.28, c1));
-    demo.el.style.filter = r > 0.001 ? `blur(${(r * 22).toFixed(1)}px) brightness(${(1 + r * 1.6).toFixed(2)})` : "";
-    demo.el.style.transform = r > 0.001 ? `translateX(${(r * 260).toFixed(1)}px) scale(${(1 + r * 0.08).toFixed(3)},${(1 - r * 0.05).toFixed(3)})` : "";
-    grain(Math.round(t * TL.fps));
-    $("#fade").style.opacity = 0;
-    return;
-  }
-  const demoEl = scenes.find((s) => s.name === "demo").el;
-  demoEl.style.filter = "";
-  demoEl.style.transform = "";
   for (const s of scenes) {
     const on = t >= s.range[0] && t < s.range[1];
     s.el.style.display = on ? "block" : "none";
@@ -1170,7 +1153,7 @@ window.ready = (async () => {
   }
   inited = true;
   const q = new URLSearchParams(location.search).get("t");
-  seek(q ? parseFloat(q) : 0);
+  seek(q ? parseFloat(q) : TL.start);
   return true;
 })();
 </script>
