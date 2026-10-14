@@ -46,6 +46,10 @@ See the [setup guide](docs/SETUP-GUIDE.md) for installation and troubleshooting.
 
 Release notes are in the [changelog](docs/CHANGELOG.md). The installer also includes CHANGELOG.md in the Quill installation folder.
 
+### Code signing policy
+
+Quill is applying to the SignPath Foundation for free code signing; until approved, releases are unsigned. Once approved, free code signing is provided by [SignPath.io](https://signpath.io), with a certificate by [SignPath Foundation](https://signpath.org). Releases are built from this repository by GitHub Actions, and each signing is approved by the maintainer. See the [code signing policy](docs/CODE-SIGNING.md) for what is signed, team roles, and privacy.
+
 ## Build and contribute
 
 Quill uses Rust and Tauri, with React and TypeScript for Settings and the recording overlay. See [Development](docs/DEVELOPMENT.md) for build instructions and [Contributing](CONTRIBUTING.md) for bug reports and pull requests.
