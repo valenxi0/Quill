@@ -73,7 +73,7 @@ Windows 11's Smart App Control blocks unsigned installers with no way to run the
 
 Options, cheapest first:
 
-- **SignPath Foundation** signs open-source projects for free. Quill applied on 2026-10-14 and is waiting for review. The policy reviewers check is [CODE-SIGNING.md](CODE-SIGNING.md). Once approved, replace the Azure step in the release workflow with SignPath's `submit-signing-request` GitHub Action. It needs the SignPath API token as a secret, plus the organization ID, project slug and signing policy slug, and it signs an artifact uploaded with `actions/upload-artifact`.
+- **SignPath Foundation** signs open-source projects for free, but only ones with visible community adoption. It declined Quill in October 2026 and welcomes a new application once the project has more stars, contributors, and outside mentions. Approval would need a code signing policy page and SignPath's `submit-signing-request` GitHub Action in place of the Azure step.
 - **Azure Artifact Signing** (formerly Trusted Signing) costs about $10 a month. Individual developers must be in the USA or Canada; organizations can also be in the EU or UK. Identity checks take a few business days.
 - **Microsoft Store.** Microsoft signs Store packages, which Smart App Control trusts. This needs an MSIX package instead of the NSIS installer.
 
