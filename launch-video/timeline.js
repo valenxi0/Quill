@@ -45,22 +45,22 @@
   const typed = typing(["Typing every word by hamd", { back: 2 }, "nd is slow."], 0.3, 19, 7);
   const search = typing(["voice dictation app for windows"], 3.25, 30, 11);
 
-  // Spoken words in the demo: start times measured from sfx/voice.wav (Whisper word alignment).
-  const speechStart = 13.05;
+  // Spoken words in the demo: start times measured from sfx/voice.wav (Whisper word alignment
+  // plus the loudness envelope for the "uh", which runs into "ship").
+  const speechStart = 12.9;
   const speech = [
     ["um", 0.0, "filler"],
-    ["so", 0.34, "filler"],
-    ["I", 0.42],
-    ["think", 0.58],
-    ["we", 0.72],
-    ["should", 0.88],
-    ["uh", 1.04, "filler"],
-    ["ship", 1.18],
-    ["the", 1.42],
-    ["windows", 1.56, "", "Windows"],
-    ["build", 1.92],
-    ["on", 2.2],
-    ["friday", 2.4, "", "Friday."],
+    ["I", 0.58],
+    ["think", 0.7],
+    ["we", 0.96],
+    ["should", 1.16],
+    ["uh", 1.55, "filler"],
+    ["ship", 1.95],
+    ["the", 2.24],
+    ["windows", 2.38, "", "Windows"],
+    ["build", 2.78],
+    ["on", 3.04],
+    ["friday", 3.24, "", "Friday."],
   ].map(([w, at, kind = "", clean]) => ({ w, t: speechStart + at, kind, clean: clean ?? w }));
 
   const TL = {
@@ -97,11 +97,11 @@
       wordmark: 10.25,
       tagline: 11.0,
       toDemo: 12.5,
-      recStart: 13.0,
-      transcribing: 16.4,
-      cleaning: 16.75,
-      pasted: 17.25,
-      sent: 17.9,
+      recStart: 12.85,
+      transcribing: 16.75,
+      cleaning: 17.1,
+      pasted: 17.6,
+      sent: 18.25,
       features: [19.5, 22.0, 24.0],
       styleTabs: [19.8, 20.35, 20.9, 21.45],
       learnClick: 23.1,
