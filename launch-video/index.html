@@ -353,15 +353,6 @@ body { font-family: Inter, sans-serif; color: var(--text); -webkit-font-smoothin
     <div class="fx-bg"></div>
     <div class="fx-glow" id="f-glow"></div>
 
-    <div class="feat" id="f2">
-      <div class="copy"><div class="num">FAST</div><h2 class="display">Let go. It's pasted.</h2><p>No server round-trip. Hold the shortcut, speak, release.</p></div>
-      <div class="vis">
-        <div class="abs" id="f2-lines" style="left:0;top:0;width:820px;height:1080px"></div>
-        <div id="f2-pillwrap"></div>
-        <div class="panel" id="f2-field" style="left:60px;top:600px;width:700px;height:110px;border-radius:22px;display:flex;align-items:center;padding:0 34px;font-size:34px"><span id="f2-text">Let's ship it on Friday.</span><span class="caret" style="width:3px;height:40px;background:#fff;margin-left:4px" id="f2-caret"></span></div>
-      </div>
-    </div>
-
     <div class="feat" id="f3">
       <div class="copy"><div class="num">CLEANUP</div><h2 class="display">Four writing styles.</h2><p>Word-for-word to ready-to-send. Cleaned up on your PC.</p></div>
       <div class="vis">
@@ -378,19 +369,6 @@ body { font-family: Inter, sans-serif; color: var(--text); -webkit-font-smoothin
         <div class="panel" id="f4-doc" style="left:60px;top:330px;width:720px;height:120px;border-radius:22px;display:flex;align-items:center;padding:0 36px;font-size:36px;white-space:pre">We built it with <span id="f4-word" style="position:relative;display:inline-block"><span id="f4-a">Tori</span><span id="f4-b" style="position:absolute;left:0;top:0">Tauri</span><svg id="f4-sq" style="position:absolute;left:0;bottom:-10px" width="80" height="10"><path d="M0 6 q5 -6 10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0" stroke="#ff453a" stroke-width="2.5" fill="none"/></svg></span> and Rust.</div>
         <div id="f4-pillwrap"></div>
         <div class="panel" id="f4-row" style="left:60px;top:690px;width:720px;height:96px;border-radius:22px;display:flex;align-items:center;padding:0 32px;font-size:28px;gap:14px">Tori → <b>Tauri</b><span style="margin-left:auto;font-size:20px;background:rgba(255,255,255,.08);border-radius:12px;padding:6px 14px;color:var(--text2)">Vocabulary</span><span style="width:60px;height:34px;border-radius:17px;background:var(--accent);position:relative"><i style="position:absolute;right:4px;top:4px;width:26px;height:26px;border-radius:50%;background:#fff"></i></span></div>
-      </div>
-    </div>
-
-    <div class="feat" id="f5">
-      <div class="copy"><div class="num">OPEN SOURCE</div><h2 class="display">Read every line.</h2><p>Built in Rust and Tauri. Every line is on GitHub.</p></div>
-      <div class="vis">
-        <div class="panel" id="f5-code" style="left:0;top:240px;width:840px;height:600px;overflow:hidden;border-radius:22px">
-          <div style="height:58px;display:flex;align-items:center;gap:10px;padding:0 22px;border-bottom:1px solid rgba(255,255,255,.07);font-size:19px;color:var(--text2)" class="mono">
-            <i style="width:12px;height:12px;border-radius:50%;background:#ff5f57"></i><i style="width:12px;height:12px;border-radius:50%;background:#febc2e"></i><i style="width:12px;height:12px;border-radius:50%;background:#28c840;margin-right:14px"></i>quill-core/src/pipeline.rs
-          </div>
-          <div class="code abs" id="f5-src" style="left:10px;top:78px"></div>
-          <div class="abs" style="left:0;right:0;bottom:0;height:120px;background:linear-gradient(transparent, rgba(22,22,25,1))"></div>
-        </div>
       </div>
     </div>
 
@@ -881,11 +859,9 @@ scene("demo", () => {
 
 // 6. Features
 const FEATS = [
-  { id: "f2", t: [C.features[0], C.features[1]] },
-  { id: "f3", t: [C.features[1], C.features[2]] },
-  { id: "f4", t: [C.features[2], C.features[3]] },
-  { id: "f5", t: [C.features[3], C.features[4]] },
-  { id: "f6", t: [C.features[4], C.endCard] },
+  { id: "f3", t: [C.features[0], C.features[1]] },
+  { id: "f4", t: [C.features[1], C.features[2]] },
+  { id: "f6", t: [C.features[2], C.endCard] },
 ];
 const F = (id) => FEATS.find((f) => f.id === id);
 const STYLES = [
@@ -894,48 +870,7 @@ const STYLES = [
   ["Polished", "For Friday, we need the installer, the release notes, and the video."],
   ["Compose", "For Friday, we need:\n1. The installer\n2. The release notes\n3. The video"],
 ];
-const RUST = `/// Rewrites a chunk of English speech (S1-mini).
-pub trait Cleaner {
-    fn clean(&mut self, text: &str, directive: Directive) -> Result<String, String>;
-}
-
-/// How one dictation is processed, fixed at recording start.
-#[derive(Debug, Clone)]
-pub struct Recipe {
-    /// The directive after context overrides; None skips cleanup.
-    pub directive: Option<Directive>,
-    pub layout_cues: bool,
-    pub context: AppContext,
-    pub writes_numbers: bool,
-    /// Whether the engine has a cleanup stage at all.
-    pub has_cleanup: bool,
-    pub vocabulary: Vec<VocabEntry>,
-}
-
-/// Process one recognized segment. \`cleaner\` is \`None\` for engines without
-/// cleanup; \`itn\` is \`None\` when the number formatter isn't in the build.
-pub fn process_segment(
-    raw: &str,
-    reported_language: Option<&str>,
-    recipe: &Recipe,
-    mut cleaner: Option<&mut dyn Cleaner>,
-    itn: Option<&dyn Itn>,
-) -> SegmentResult {
-    let english = is_english(raw, reported_language);
-    let terminal = recipe.context == AppContext::Terminal;`;
-function highlight(line) {
-  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const ci = line.indexOf("//");
-  let code = ci >= 0 ? line.slice(0, ci) : line;
-  const com = ci >= 0 ? line.slice(ci) : "";
-  code = esc(code)
-    .replace(/\b(pub|fn|struct|trait|mut|let|use|crate|impl|dyn|derive)\b/g, '<span class="k">$1</span>')
-    .replace(/\b([A-Z][A-Za-z]+)\b/g, '<span class="ty">$1</span>')
-    .replace(/\b(bool|str|usize)\b/g, '<span class="ty">$1</span>')
-    .replace(/\b([a-z_]+)(?=\()/g, '<span class="f">$1</span>');
-  return code + (com ? `<span class="c">${esc(com)}</span>` : "");
-}
-let F_PILL1, F_PILL2, F_PILL4, F6_ICON, F3_TABS;
+let F_PILL4, F6_ICON, F3_TABS;
 scene("feat", () => {
   for (const f of FEATS) {
     const el = $("#" + f.id);
@@ -945,7 +880,6 @@ scene("feat", () => {
     f.num = $(".num", el);
     f.vis = $(".vis", el);
   }
-  F_PILL2 = makePill($("#f2-pillwrap"), 3.2);
   F_PILL4 = makePill($("#f4-pillwrap"), 2.6, {
     sug: `<span style="color:rgba(255,255,255,.7)">Add</span><span>Tori → <b>Tauri</b></span><span class="btn ghost" id="f4-no">Not now</span><span class="btn blue" id="f4-add">Add</span>`,
     done: `<svg width="${16 * 2.6}" height="${16 * 2.6}" viewBox="0 0 16 16" fill="none" stroke="#32d74b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path class="ck2" d="M3.5 8.5l3 3 6-7" stroke-dasharray="14"/></svg><span><b>Tauri</b> added</span>`,
@@ -964,10 +898,8 @@ scene("feat", () => {
   $(".pillbg", tabs).style.width = tw + "px";
   F3_TABS = { tw };
   $("#f3-outs").innerHTML = STYLES.map(([, txt], i) => `<div class="out" style="${i === 0 ? "color:var(--text2)" : ""}">${txt}</div>`).join("");
-  $("#f5-src").innerHTML = RUST.split("\n").map((l, i) => `<div><span class="ln">${16 + i}</span>${highlight(l)}</div>`).join("");
   F6_ICON = makeIcon($("#f6-icon"), 104);
   // trailing pill visuals
-  $("#f2-lines").innerHTML = [0, 1, 2, 3, 4].map((i) => `<div class="abs" style="height:3px;border-radius:2px;background:linear-gradient(90deg,transparent,rgba(106,180,255,.9));top:${330 + i * 34}px;width:${[260, 380, 300, 420, 240][i]}px"></div>`).join("");
 }, (t) => {
   // feature pages slide side-by-side
   FEATS.forEach((f, idx) => {
@@ -989,26 +921,6 @@ scene("feat", () => {
   const g = $("#f-glow");
   set(g, { x: Math.sin(t * 0.6) * 40, y: Math.cos(t * 0.5) * 30 });
 
-  // F2: fast
-  {
-    const [a] = F("f2").t;
-    F_PILL2.render(t, {
-      seq: [[a, "rec"], [a + 0.45, "cl"], [a + 0.72, "ok"]],
-      show: [a, 99], cx: 410, cy: 440,
-      level: (tt) => 0.35 + 0.65 * noise(tt * 12) * Math.abs(Math.sin(tt * 7)), recStart: a,
-    });
-    const pasteAt = a + 0.74;
-    const fp = easeOut(prog(t, pasteAt, pasteAt + 0.25));
-    set($("#f2-text"), { o: fp, x: (1 - fp) * -10, blur: (1 - fp) * 4 });
-    const field = $("#f2-field");
-    field.style.borderColor = `rgba(10,132,255,${(0.9 * (1 - prog(t, pasteAt + 0.1, pasteAt + 0.7))).toFixed(2)})`;
-    field.style.boxShadow = `0 40px 90px rgba(0,0,0,.5), 0 0 ${(60 * (1 - prog(t, pasteAt, pasteAt + 0.7))).toFixed(0)}px rgba(10,132,255,${(0.5 * (1 - prog(t, pasteAt, pasteAt + 0.7))).toFixed(2)})`;
-    $("#f2-caret").style.opacity = Math.floor(t * 2) % 2 ? 1 : 0;
-    $$("#f2-lines > div").forEach((ln, i) => {
-      const lp = prog(t, pasteAt - 0.18 + i * 0.03, pasteAt + 0.15 + i * 0.03);
-      set(ln, { x: lerp(-300, 900, inOut(lp)), o: lp > 0 && lp < 1 ? Math.sin(Math.PI * lp) : 0 });
-    });
-  }
   // F3: styles
   {
     const times = C.styleTabs;
@@ -1046,11 +958,6 @@ scene("feat", () => {
     add.style.filter = `brightness(${1 + press * 0.3})`;
     rise($("#f4-row"), t, clickAt + 0.3, { dur: 0.5, dist: 30, blur: 10 });
     if (t < clickAt + 0.3) $("#f4-row").style.visibility = "hidden";
-  }
-  // F5: open source
-  {
-    const [a] = F("f5").t;
-    $("#f5-src").style.transform = `translateY(${(-easeOut(prog(t, a, a + 1.6)) * 200).toFixed(1)}px)`;
   }
   // F6: installer
   {

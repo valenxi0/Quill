@@ -66,7 +66,7 @@
   const TL = {
     BPM,
     BEAT,
-    duration: 34,
+    duration: 31,
     fps: 60,
     typed,
     search,
@@ -77,8 +77,8 @@
       turn: [8.0, 9.1],
       reveal: [8.95, 12.75],
       demo: [12.4, 19.75],
-      feat: [19.4, 28.75],
-      end: [28.4, 34],
+      feat: [19.4, 25.75],
+      end: [25.4, 31],
     },
     // Cue times shared with the score.
     cues: {
@@ -98,11 +98,11 @@
       cleaning: 16.85,
       pasted: 17.35,
       sent: 18.0,
-      features: [19.5, 21.0, 23.5, 25.5, 27.0],
-      styleTabs: [21.3, 21.85, 22.4, 22.95],
-      learnClick: 24.6,
-      endCard: 28.5,
-      fadeOut: 33.2,
+      features: [19.5, 22.0, 24.0],
+      styleTabs: [19.8, 20.35, 20.9, 21.45],
+      learnClick: 23.1,
+      endCard: 25.5,
+      fadeOut: 30.2,
     },
     rng,
   };

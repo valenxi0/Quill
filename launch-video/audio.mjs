@@ -327,12 +327,11 @@ bell(C.pasted + 0.05, 85, 0.13, 0, sfx); bell(C.pasted + 0.13, 92, 0.1, 0, sfx);
 whoosh(C.sent - 0.05, 0.25, 0.5);
 blip(C.sent + 0.05, 81, 0.06);
 C.features.forEach((t, i) => whoosh(t - 0.18, 0.4, i ? 0.55 : 0.75, i % 2 === 0));
-blip(C.features[0] + 0.74, 88, 0.07);
 C.styleTabs.slice(1).forEach((t) => key(t, 0.9));
 key(C.learnClick, 1);
 bell(C.learnClick + 0.15, 86, 0.1, 0, sfx); bell(C.learnClick + 0.24, 93, 0.08, 0, sfx);
-riser(C.features[4] + 0.15, 0.7, 0.4);
-bell(C.features[4] + 0.9, 88, 0.1, 0, sfx);
+riser(C.features[2] + 0.15, 0.7, 0.4);
+bell(C.features[2] + 0.9, 88, 0.1, 0, sfx);
 
 // ---------- mix ----------
 const kicks = [];
