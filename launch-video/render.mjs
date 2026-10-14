@@ -46,6 +46,7 @@ const r = spawnSync("ffmpeg", [
   "-y", "-hide_banner", "-loglevel", "error",
   "-framerate", String(fps), "-start_number", String(first), "-i", path.join(frames, "f%05d.png"),
   "-ss", String(from), "-t", String(to - from), "-i", score,
+  "-frames:v", String(total),
   "-c:v", "libx264", "-preset", "slow", "-crf", "16", "-profile:v", "high", "-pix_fmt", "yuv420p",
   "-c:a", "aac", "-b:a", "320k", "-ar", "48000",
   "-movflags", "+faststart", "-shortest", out,
