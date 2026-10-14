@@ -335,7 +335,7 @@ bell(C.learnClick + 0.15, 86, 0.1, 0, sfx); bell(C.learnClick + 0.24, 93, 0.08, 
 riser(C.features[2] + 0.15, 0.7, 0.4);
 bell(C.features[2] + 0.9, 88, 0.1, 0, sfx);
 
-// The spoken demo line (AI voice, Kokoro af_heart/af_nicole blend, pauses tightened),
+// The spoken demo line (AI voice, Kokoro af_heart, pauses tightened, light room tone),
 // placed at the first word; timeline.js word times were measured from this file.
 const voiceFile = path.join(dir, "sfx", "voice.wav");
 if (existsSync(voiceFile)) {

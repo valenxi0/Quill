@@ -42,8 +42,8 @@
     return { states, keys, end: t };
   }
 
-  const typed = typing(["Typing every word by hamd", { back: 2 }, "nd is slow."], 1.75, 19, 7);
-  const search = typing(["voice dictation app for windows"], 4.6, 38, 11);
+  const typed = typing(["Typing every word by hamd", { back: 2 }, "nd is slow."], 0.3, 19, 7);
+  const search = typing(["voice dictation app for windows"], 3.25, 30, 11);
 
   // Spoken words in the demo: start times measured from sfx/voice.wav (Whisper word alignment).
   const speechStart = 13.05;
@@ -52,21 +52,21 @@
     ["so", 0.34, "filler"],
     ["I", 0.42],
     ["think", 0.58],
-    ["we", 0.74],
-    ["should", 0.92],
-    ["uh", 1.06, "filler"],
-    ["ship", 1.2],
-    ["the", 1.4],
-    ["windows", 1.6, "", "Windows"],
-    ["build", 1.96],
-    ["on", 2.26],
-    ["friday", 2.48, "", "Friday."],
+    ["we", 0.72],
+    ["should", 0.88],
+    ["uh", 1.04, "filler"],
+    ["ship", 1.18],
+    ["the", 1.42],
+    ["windows", 1.56, "", "Windows"],
+    ["build", 1.92],
+    ["on", 2.2],
+    ["friday", 2.4, "", "Friday."],
   ].map(([w, at, kind = "", clean]) => ({ w, t: speechStart + at, kind, clean: clean ?? w }));
 
   const TL = {
     BPM,
     BEAT,
-    start: 1.5, // the film begins here; earlier timeline time is unused
+    start: 0,
     duration: 31,
     fps: 60,
     typed,
@@ -74,8 +74,8 @@
     speech,
     speechStart,
     scenes: {
-      typing: [1.5, 4.6],
-      search: [4.5, 8.05],
+      typing: [0, 3.1],
+      search: [3.0, 8.05],
       turn: [8.0, 9.1],
       reveal: [8.95, 12.75],
       demo: [12.4, 19.75],
@@ -84,12 +84,13 @@
     },
     // Cue times shared with the score.
     cues: {
-      searchIn: 4.5,
-      searchEnter: 5.5,
-      cardsIn: 5.55,
-      clicks: [6.0],
-      denied: [6.0, 6.25, 6.5, 6.75],
-      verdict: 5.8,
+      searchIn: 3.0,
+      searchEnter: 4.5,
+      cardsIn: 4.6,
+      clicks: [5.2, 5.85, 6.5],
+      denied: [5.2, 5.85, 6.5, 6.85],
+      verdict: 4.95,
+      verdictFocus: 7.05,
       untilNow: 8.0,
       drop: 9.0,
       tileIn: 9.5,

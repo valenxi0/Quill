@@ -4,9 +4,6 @@
 <meta charset="utf-8">
 <title>Quill launch film</title>
 <style>
-@font-face { font-family: "Bricolage"; font-weight: 600; src: url(fonts/bricolage-600.woff2) format("woff2"); }
-@font-face { font-family: "Bricolage"; font-weight: 700; src: url(fonts/bricolage-700.woff2) format("woff2"); }
-@font-face { font-family: "Bricolage"; font-weight: 800; src: url(fonts/bricolage-800.woff2) format("woff2"); }
 @font-face { font-family: "Lato"; font-weight: 400; src: url(fonts/lato-400.woff2) format("woff2"); }
 @font-face { font-family: "Lato"; font-weight: 700; src: url(fonts/lato-700.woff2) format("woff2"); }
 @font-face { font-family: "Lato"; font-weight: 800 900; src: url(fonts/lato-900.woff2) format("woff2"); }
@@ -30,7 +27,7 @@ body { font-family: Inter, sans-serif; color: var(--text); -webkit-font-smoothin
 #stage { position: absolute; inset: 0; overflow: hidden; background: var(--bg); }
 .scene { position: absolute; inset: 0; display: none; overflow: hidden; }
 .abs { position: absolute; }
-.display { font-family: "Bricolage", "Inter Display", Inter, sans-serif; font-weight: 700; letter-spacing: -0.04em; }
+.display { font-family: "Inter Display", Inter, sans-serif; font-weight: 600; letter-spacing: -0.035em; }
 .w { display: inline-block; white-space: pre; }
 .mono { font-family: JBM, monospace; }
 .caret { display: inline-block; background: var(--accent); border-radius: 3px; vertical-align: -0.1em; }
@@ -41,7 +38,7 @@ body { font-family: Inter, sans-serif; color: var(--text); -webkit-font-smoothin
 #fade { position: absolute; inset: 0; background: #000; opacity: 0; }
 
 /* typing */
-#ty { font-size: 100px; font-weight: 600; white-space: pre; top: 470px; }
+#ty { font-size: 96px; font-weight: 500; white-space: pre; top: 470px; }
 #ty .caret { width: 7px; height: 104px; margin-left: 6px; }
 
 /* search */
@@ -214,31 +211,17 @@ body { font-family: Inter, sans-serif; color: var(--text); -webkit-font-smoothin
 .qs-foot span { display: flex; align-items: center; gap: 10px; }
 
 
-/* ---------- light scenes: soft mesh gradients, grain, dark ink (after the reference film) ---------- */
-.scene.light { --text: #14161b; --text2: rgba(20, 22, 27, 0.62); --text3: rgba(20, 22, 27, 0.42); --card: #ffffff; --border: rgba(20, 24, 40, 0.08); color: var(--text); }
-.bg { position: absolute; inset: -80px; }
-.bg-sky { background: radial-gradient(ellipse 60% 50% at 25% 10%, rgba(255, 255, 255, 0.6), transparent 70%), linear-gradient(180deg, #b6d1ea 0%, #d6e2ea 40%, #f1e3d2 75%, #f3d6b8 100%); }
-.bg-glow { background: radial-gradient(ellipse 42% 50% at 50% 44%, #fffaf4 0%, rgba(255, 250, 244, 0) 72%), radial-gradient(ellipse 62% 72% at 92% 4%, #86b4f3 0%, rgba(134, 180, 243, 0) 70%), radial-gradient(ellipse 62% 72% at 4% 100%, #f5bf92 0%, rgba(245, 191, 146, 0) 70%), #f1e7dc; }
-.bg-cream { background: radial-gradient(rgba(20, 24, 40, 0.11) 1.3px, transparent 1.6px) 0 0 / 30px 30px, radial-gradient(ellipse 55% 60% at 88% 18%, rgba(134, 180, 243, 0.5), transparent 70%), radial-gradient(ellipse 50% 55% at 6% 92%, rgba(245, 191, 146, 0.5), transparent 70%), #f5f0e8; }
-.accent { color: #1766ea; }
-.light .searchbar { background: #fff; border-color: rgba(20, 24, 40, 0.07); box-shadow: 0 24px 60px rgba(30, 45, 90, 0.12); }
-.light .card { box-shadow: 0 30px 70px rgba(30, 45, 90, 0.13); }
-.light .card .os { background: rgba(20, 24, 40, 0.06); }
-.light .card .sk { background: rgba(20, 24, 40, 0.12); }
-.light .card .sk.b { background: rgba(20, 24, 40, 0.06); }
-.light #verdict .hot { color: #e2443a; }
-.light .panel { background: #fff; border-color: rgba(20, 24, 40, 0.07); box-shadow: 0 30px 80px rgba(30, 45, 90, 0.14); }
-.light .tabs { background: rgba(20, 24, 40, 0.06); }
-.light .bar-track { background: rgba(20, 24, 40, 0.08); }
-.light .chip { background: #fff; border-color: rgba(20, 24, 40, 0.07); box-shadow: 0 10px 30px rgba(30, 45, 90, 0.1); color: var(--text); }
-.light .icon .tile { box-shadow: 0 30px 70px rgba(10, 96, 224, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
-.label { position: absolute; left: 50%; height: 46px; padding: 0 22px; border-radius: 23px; background: #fff; box-shadow: 0 10px 30px rgba(30, 45, 90, 0.14); display: flex; align-items: center; font: 700 18px Inter, sans-serif; letter-spacing: 0.16em; color: #14161b; white-space: nowrap; }
+/* ---------- per-scene grounds (ported from 21st.dev backgrounds) and reference-inspired details ---------- */
+.bgc { position: absolute; inset: 0; width: 1920px; height: 1080px; }
+.accent { color: #4da3ff; }
+.label { position: absolute; left: 50%; height: 46px; padding: 0 22px; border-radius: 23px; background: rgba(255, 255, 255, 0.07); border: 1.5px solid rgba(255, 255, 255, 0.14); display: flex; align-items: center; font: 600 18px Inter, sans-serif; letter-spacing: 0.16em; color: rgba(242, 242, 247, 0.85); white-space: nowrap; }
 .sel { position: absolute; }
-.sel i { position: absolute; width: 14px; height: 14px; border-radius: 3px; background: #1766ea; }
-.sel i:nth-child(1) { left: -7px; top: -7px; } .sel i:nth-child(2) { right: -7px; top: -7px; }
-.sel i:nth-child(3) { left: -7px; bottom: -7px; } .sel i:nth-child(4) { right: -7px; bottom: -7px; }
-.sel b { position: absolute; inset: 0; border: 1.5px solid rgba(23, 102, 234, 0.55); }
-
+.sel i { position: absolute; width: 14px; height: 14px; border-radius: 3px; background: #3d9bff; }
+.sel i:nth-child(2) { left: -7px; top: -7px; } .sel i:nth-child(3) { right: -7px; top: -7px; }
+.sel i:nth-child(4) { left: -7px; bottom: -7px; } .sel i:nth-child(5) { right: -7px; bottom: -7px; }
+.sel b { position: absolute; inset: 0; border: 1.5px solid rgba(61, 155, 255, 0.55); }
+#verdict .frag { position: relative; display: inline-block; }
+#verdict .mark { position: absolute; left: -0.08em; right: -0.08em; top: 0.16em; bottom: 0.02em; border-radius: 0.12em; background: rgba(255, 69, 58, 0.22); transform-origin: 0 50%; }
 /* end */
 #e-chips { position: absolute; top: 710px; left: 50%; display: flex; gap: 18px; }
 #e-chips .chip { position: relative; }
@@ -250,34 +233,34 @@ body { font-family: Inter, sans-serif; color: var(--text); -webkit-font-smoothin
 <div id="stage">
 
   <!-- 1. Typing is slow -->
-  <section class="scene light" id="s-typing">
-    <div class="bg bg-sky"></div>
+  <section class="scene" id="s-typing">
+    <canvas class="bgc" data-bg="aurora" width="960" height="540"></canvas>
     <div class="abs display" id="ty"><span id="ty-text"></span><span class="caret"></span></div>
   </section>
 
   <!-- 2. Searching: every app is Mac-only -->
-  <section class="scene light" id="s-search">
-    <div class="bg bg-cream"></div>
+  <section class="scene" id="s-search">
+    <canvas class="bgc" data-bg="grid" width="960" height="540"></canvas>
     <div class="abs searchbar" id="sb">
-      <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="rgba(20,22,27,.45)" stroke-width="2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg>
+      <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="rgba(242,242,247,.6)" stroke-width="2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg>
       <span class="ph" id="sb-ph">Search apps</span>
       <span id="sb-text"></span><span class="caret"></span>
     </div>
     <div id="cards"></div>
-    <div class="abs display" id="verdict"><span id="v0">The good ones are</span><br><span class="hot" id="v1">Mac-first,</span> <span class="hot" id="v2">cloud-based,</span> <span class="hot" id="v3">or $15 a month.</span></div>
+    <div class="abs display" id="verdict"><span id="v0">The good ones are</span><br><span class="frag"><i class="mark" id="m1"></i><span class="hot" id="v1">Mac-first,</span></span> <span class="frag"><i class="mark" id="m2"></i><span class="hot" id="v2">cloud-based,</span></span> <span class="frag"><i class="mark" id="m3"></i><span class="hot" id="v3">or $15 a month.</span></span></div>
     <svg id="cursor" viewBox="0 0 24 24"><path d="M4 2.5v17.2l4.6-4.4 3 6.8 3-1.3-3-6.7h6.4z" fill="#fff" stroke="#000" stroke-width="1.3" stroke-linejoin="round"/></svg>
   </section>
 
   <!-- 3. Until now -->
-  <section class="scene light" id="s-turn">
-    <div class="bg bg-glow"></div>
+  <section class="scene" id="s-turn">
+    <canvas class="bgc" data-bg="spotlight" width="960" height="540"></canvas>
     <div class="abs display" id="un">Until now.</div>
   </section>
 
   <!-- 4. Reveal -->
-  <section class="scene light" id="s-reveal">
-    <div class="bg bg-glow"></div>
-    <div class="abs" id="r-glow" style="left:460px;top:40px;width:1000px;height:1000px;border-radius:50%;background:radial-gradient(closest-side, rgba(255,255,255,.75), rgba(134,180,243,.22) 60%, transparent)"></div>
+  <section class="scene" id="s-reveal">
+    <canvas class="bgc" data-bg="beams" width="960" height="540"></canvas>
+    <div class="abs" id="r-glow" style="left:460px;top:40px;width:1000px;height:1000px;border-radius:50%;background:radial-gradient(closest-side, rgba(10,132,255,.4), rgba(10,132,255,.1) 55%, transparent)"></div>
     <div class="label" id="r-pill">FOR WINDOWS 10 &amp; 11</div>
     <div class="sel" id="r-sel"><b></b><i></i><i></i><i></i><i></i></div>
     <div class="icon" id="r-icon"></div>
@@ -384,8 +367,8 @@ body { font-family: Inter, sans-serif; color: var(--text); -webkit-font-smoothin
   </section>
 
   <!-- 6. Features -->
-  <section class="scene light" id="s-feat">
-    <div class="bg bg-cream"></div>
+  <section class="scene" id="s-feat">
+    <canvas class="bgc" data-bg="waves" width="960" height="540"></canvas>
     <div class="fx-glow" id="f-glow" style="display:none"></div>
 
     <div class="feat" id="f3">
@@ -403,7 +386,7 @@ body { font-family: Inter, sans-serif; color: var(--text); -webkit-font-smoothin
       <div class="vis">
         <div class="panel" id="f4-doc" style="left:60px;top:330px;width:720px;height:120px;border-radius:22px;display:flex;align-items:center;padding:0 36px;font-size:36px;white-space:pre">We built it with <span id="f4-word" style="position:relative;display:inline-block"><span id="f4-a">Tori</span><span id="f4-b" style="position:absolute;left:0;top:0">Tauri</span><svg id="f4-sq" style="position:absolute;left:0;bottom:-10px" width="80" height="10"><path d="M0 6 q5 -6 10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0 t10 0" stroke="#ff453a" stroke-width="2.5" fill="none"/></svg></span> and Rust.</div>
         <div id="f4-pillwrap"></div>
-        <div class="panel" id="f4-row" style="left:60px;top:690px;width:720px;height:96px;border-radius:22px;display:flex;align-items:center;padding:0 32px;font-size:28px;gap:14px">Tori → <b>Tauri</b><span style="margin-left:auto;font-size:20px;background:rgba(20,24,40,.06);border-radius:12px;padding:6px 14px;color:var(--text2)">Vocabulary</span><span style="width:60px;height:34px;border-radius:17px;background:var(--accent);position:relative"><i style="position:absolute;right:4px;top:4px;width:26px;height:26px;border-radius:50%;background:#fff"></i></span></div>
+        <div class="panel" id="f4-row" style="left:60px;top:690px;width:720px;height:96px;border-radius:22px;display:flex;align-items:center;padding:0 32px;font-size:28px;gap:14px">Tori → <b>Tauri</b><span style="margin-left:auto;font-size:20px;background:rgba(255,255,255,.08);border-radius:12px;padding:6px 14px;color:var(--text2)">Vocabulary</span><span style="width:60px;height:34px;border-radius:17px;background:var(--accent);position:relative"><i style="position:absolute;right:4px;top:4px;width:26px;height:26px;border-radius:50%;background:#fff"></i></span></div>
       </div>
     </div>
 
@@ -425,9 +408,9 @@ body { font-family: Inter, sans-serif; color: var(--text); -webkit-font-smoothin
   </section>
 
   <!-- 7. End card -->
-  <section class="scene light" id="s-end">
-    <div class="bg bg-glow"></div>
-    <div class="abs" id="e-glow" style="left:460px;top:0px;width:1000px;height:1000px;border-radius:50%;background:radial-gradient(closest-side, rgba(255,255,255,.7), rgba(134,180,243,.2) 60%, transparent)"></div>
+  <section class="scene" id="s-end">
+    <canvas class="bgc" data-bg="mesh" width="960" height="540"></canvas>
+    <div class="abs" id="e-glow" style="left:460px;top:0px;width:1000px;height:1000px;border-radius:50%;background:radial-gradient(closest-side, rgba(10,132,255,.32), rgba(10,132,255,.07) 60%, transparent)"></div>
     <div class="icon" id="e-icon"></div>
     <div class="abs display" id="e-wm" style="font-size:200px;top:290px;letter-spacing:-0.045em">Quill</div>
     <div class="abs" id="e-tag" style="width:100%;text-align:center;top:600px;font-size:50px;color:var(--text2);font-weight:500;letter-spacing:-0.02em">Offline voice dictation for Windows.</div>
@@ -741,8 +724,8 @@ scene("typing", () => {
   $("#ty-text").textContent = st.text;
   $("#ty .caret").style.opacity = t < TL.typed.keys[0] ? 1 : caretOn(t, lastKey(TL.typed, t));
   const ty = $("#ty");
-  const push = lerp(1.0, 1.035, prog(t, 1.5, 4.5));
-  const q = inOut(prog(t, 4.2, 4.56));
+  const push = lerp(1.0, 1.035, prog(t, 0, 3));
+  const q = inOut(prog(t, 2.72, 3.08));
   set(ty, { y: -q * 40, o: 1 - q, blur: q * 18, s: push });
 });
 
@@ -787,7 +770,7 @@ scene("search", () => {
 
   // cards
   const cards = $$("#cards .card");
-  const dim = easeOut(prog(t, 7.0, 7.4));
+  const dim = easeOut(prog(t, C.verdictFocus, C.verdictFocus + 0.5));
   const exit = inOut(prog(t, 7.75, 8.02));
   cards.forEach((card, i) => {
     const tin = C.cardsIn + i * 0.07;
@@ -813,23 +796,33 @@ scene("search", () => {
     const os = $(".os", card);
     const flash = easeOut(prog(t, deniedAt, deniedAt + 0.2));
     os.style.background = `rgba(255,69,58,${(0.08 + flash * 0.18).toFixed(3)})`;
-    os.style.color = flash > 0.5 ? "#d93a30" : "";
+    os.style.color = flash > 0.5 ? "#ff8a80" : "";
   });
 
-  // cursor: enters, clicks card 1 then card 2
+  // cursor: visits the first three Download buttons in turn
   const cur = $("#cursor");
-  const p1 = [192 + 180, 270 + 410 - 28 - 34];
-  const cx = track(t, 1500, [[5.55, p1[0], S.ui], [6.2, 1150, S.def]]);
-  const cy = track(t, 1150, [[5.55, p1[1], S.ui], [6.2, 1000, S.def]]);
+  const by = 270 + 410 - 28 - 34;
+  const bx = (i) => 192 + i * 392 + 180;
+  const cx = track(t, 1500, [[C.clicks[0] - 0.45, bx(0), S.ui], [C.clicks[1] - 0.45, bx(1), S.ui], [C.clicks[2] - 0.45, bx(2), S.ui], [C.clicks[2] + 0.35, 1500, S.def]]);
+  const cy = track(t, 1150, [[C.clicks[0] - 0.45, by, S.ui], [C.clicks[2] + 0.35, 1150, S.def]]);
   const click = Math.max(...C.clicks.map((c) => Math.max(0, 1 - Math.abs(t - c - 0.02) / 0.08)));
-  set(cur, { x: cx, y: cy, s: 1 - click * 0.15, o: t > 5.5 && t < 6.6 ? 1 : 0 });
+  set(cur, { x: cx, y: cy, s: 1 - click * 0.15, o: t > C.clicks[0] - 0.55 && t < C.clicks[2] + 0.7 ? 1 : 0 });
 
-  // verdict: each denied card lands one reason
-  fx.rise($("#v0")._u, prog(t, C.verdict, C.verdict + 0.45), 0.6);
-  ["#v1", "#v2", "#v3"].forEach((id, i) => fx.flip($(id)._u, prog(t, C.denied[i] + 0.02, C.denied[i] + 0.36), 0.6));
+  // verdict: the setup rises, then each denied card lands one reason:
+  // its letters rise out of a mask, the fragment pops, and a red marker sweeps under it
+  fx.rise($("#v0")._u, prog(t, C.verdict, C.verdict + 0.7), 0.55);
+  ["1", "2", "3"].forEach((n, i) => {
+    const at = C.denied[i] + 0.04;
+    fx.rise($("#v" + n)._u, prog(t, at, at + 0.5), 0.5);
+    const pop = spring(t - at, S.playful);
+    set($("#v" + n).parentElement, { s: t < at ? 1 : lerp(1.18, 1, clamp(pop, 0, 1.2)) });
+    const mk = $("#m" + n);
+    mk.style.transform = `scaleX(${easeOut(prog(t, at + 0.12, at + 0.5)).toFixed(3)})`;
+    mk.style.opacity = (1 - dim * 0.4).toFixed(3);
+  });
   const v = $("#verdict");
-  const vq = inOut(prog(t, 7.75, 8.0));
-  set(v, { y: -dim * 250, s: 1 + dim * 0.25, o: 1 - vq, blur: vq * 16 });
+  const vq = inOut(prog(t, 7.78, 8.0));
+  set(v, { y: -dim * 250, s: 1 + dim * 0.22, o: 1 - vq, blur: vq * 16 });
 });
 
 // 3. Until now
@@ -1073,7 +1066,7 @@ scene("feat", () => {
     const x = track(t, 6, times.slice(1).map((at, i) => [at, 6 + (i + 1) * F3_TABS.tw, S.snappy]));
     $("#f3-tabs .pillbg").style.left = x + "px";
     $$("#f3-tabs .tb").forEach((tb, i) => {
-      tb.style.color = i === cur ? "#fff" : "rgba(20,22,27,.5)";
+      tb.style.color = i === cur ? "#fff" : "rgba(242,242,247,.55)";
     });
     $$("#f3-outs .out").forEach((o, i) => {
       const at = times[i];
@@ -1155,6 +1148,118 @@ scene("end", () => {
   set(g, { x: left + size / 2 - 960, s: lerp(0.6, 1, easeOut(prog(t, a, a + 1.4))) + 0.03 * Math.sin(t * 1.4), o: easeOut(prog(t, a, a + 1)) });
 });
 
+
+// ---------- scene grounds: 21st.dev backgrounds ported to pure functions of time ----------
+// Aurora Background (pulkitxm), Noise Dark Blue Gradient with Squares (larsen66), SpotlightBackground
+// (dhileepkumargm), Beams Background (kokonutd), Shader Background (minhxthanh), Mesh Gradient (adrielzimbril).
+// Drawn at half resolution; they are soft by design and the film grain sits on top.
+const BEAMS = (() => {
+  const r = TL.rng(4242);
+  return Array.from({ length: 30 }, (_, i) => ({
+    x: r() * 960 * 1.4 - 130, y0: r() * 900, w: 18 + r() * 42, len: 1300,
+    ang: -35 + r() * 10, speed: 40 + r() * 70, op: 0.14 + r() * 0.16,
+    hue: 205 + (i * 30) / 30 + r() * 8, ph: r() * 6.28, pr: 1.2 + r() * 1.8,
+  }));
+})();
+const GRID_LIT = (() => { const r = TL.rng(77); return Array.from({ length: 22 }, () => ({ c: Math.floor(r() * 30), w: Math.floor(r() * 17), ph: r() * 6.28, f: 0.8 + r() * 1.6 })); })();
+function drawBg(cv, t) {
+  const g = cv.getContext("2d"), W = cv.width, H = cv.height, kind = cv.dataset.bg;
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalCompositeOperation = "source-over";
+  g.filter = "none";
+  const radial = (x, y, r, stops) => {
+    const gr = g.createRadialGradient(x, y, 0, x, y, r);
+    stops.forEach(([o, c]) => gr.addColorStop(o, c));
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  };
+  if (kind === "aurora") {
+    g.fillStyle = "#04050a"; g.fillRect(0, 0, W, H);
+    g.globalCompositeOperation = "screen";
+    const cols = [["rgba(29,78,216,.55)", "rgba(29,78,216,.12)"], ["rgba(91,63,217,.45)", "rgba(91,63,217,.1)"], ["rgba(14,165,233,.35)", "rgba(14,165,233,.06)"]];
+    for (let i = 0; i < 5; i++) {
+      const ph = (i / 5) * Math.PI * 2 + t * 0.35;
+      const x = W / 2 + Math.sin(ph) * W * 0.22 + Math.cos(t * 0.2) * W * 0.08;
+      const y = H * 0.62 + Math.cos(ph * 0.7) * H * 0.22 + Math.sin(t * 0.15) * H * 0.06;
+      const [c1, c2] = cols[i % 3];
+      radial(x, y, W * 0.42, [[0, c1], [0.5, c2], [1, "rgba(0,0,0,0)"]]);
+    }
+  } else if (kind === "grid") {
+    const lg = g.createLinearGradient(0, 0, W, H);
+    lg.addColorStop(0, "#03050b"); lg.addColorStop(0.55, "#06112a"); lg.addColorStop(1, "#0c2a66");
+    g.fillStyle = lg; g.fillRect(0, 0, W, H);
+    const cell = 32;
+    g.fillStyle = "rgba(61,155,255,1)";
+    GRID_LIT.forEach((q) => {
+      const a = Math.max(0, Math.sin(t * q.f + q.ph)) * 0.16;
+      g.globalAlpha = a; g.fillRect(q.c * cell + 1, q.w * cell + 1, cell - 1, cell - 1);
+    });
+    g.globalAlpha = 1;
+    g.strokeStyle = "rgba(140,180,255,0.075)"; g.lineWidth = 1;
+    g.beginPath();
+    for (let x = 0; x <= W; x += cell) { g.moveTo(x + 0.5, 0); g.lineTo(x + 0.5, H); }
+    for (let y = 0; y <= H; y += cell) { g.moveTo(0, y + 0.5); g.lineTo(W, y + 0.5); }
+    g.stroke();
+    radial(W / 2, H * 0.45, W * 0.75, [[0, "rgba(0,0,0,0)"], [0.6, "rgba(2,3,8,.35)"], [1, "rgba(2,3,8,.9)"]]);
+  } else if (kind === "spotlight") {
+    g.fillStyle = "#030304"; g.fillRect(0, 0, W, H);
+    [[0.3, 0.75, 250, 0.9], [0.55, 0.85, 300, 0.6], [0.78, 0.7, 230, 1.2]].forEach(([fx_, fy, r, sp], i) => {
+      const x = W * fx_ + Math.sin(t * 0.3 * sp + i) * 30, y = H * fy + Math.cos(t * 0.25 * sp + i) * 20;
+      radial(x, y, r, [[0, "rgba(255,255,255,0.05)"], [0.85, "rgba(255,255,255,0.018)"], [1, "rgba(255,255,255,0)"]]);
+      g.strokeStyle = "rgba(255,255,255,0.06)"; g.lineWidth = 1;
+      g.beginPath(); g.arc(x, y, r * 0.98, 0, Math.PI * 2); g.stroke();
+    });
+    g.save(); g.translate(W / 2, -40); g.scale(1, 1.9);
+    radial(0, 0, 330, [[0, "rgba(160,200,255,0.20)"], [0.5, "rgba(80,140,255,0.06)"], [1, "rgba(0,0,0,0)"]]);
+    g.restore();
+  } else if (kind === "beams") {
+    g.fillStyle = "#03050a"; g.fillRect(0, 0, W, H);
+    g.filter = "blur(16px)";
+    BEAMS.forEach((b) => {
+      const span = H + b.len;
+      const y = ((((b.y0 - b.speed * t) % span) + span) % span) - b.len * 0.35;
+      const op = b.op * (0.8 + Math.sin(b.ph + t * b.pr) * 0.2);
+      g.save(); g.translate(b.x, y); g.rotate((b.ang * Math.PI) / 180);
+      const lg = g.createLinearGradient(0, 0, 0, b.len);
+      [[0, 0], [0.1, 0.5], [0.4, 1], [0.6, 1], [0.9, 0.5], [1, 0]].forEach(([o, k]) => lg.addColorStop(o, `hsla(${b.hue},85%,62%,${(op * k).toFixed(3)})`));
+      g.fillStyle = lg; g.fillRect(-b.w / 2, 0, b.w, b.len);
+      g.restore();
+    });
+    g.filter = "none";
+    radial(W / 2, H / 2, W * 0.7, [[0, "rgba(0,0,0,0)"], [1, "rgba(3,5,10,.75)"]]);
+  } else if (kind === "waves") {
+    const lg = g.createLinearGradient(0, 0, 0, H);
+    lg.addColorStop(0, "#04050c"); lg.addColorStop(1, "#0a0f2a");
+    g.fillStyle = lg; g.fillRect(0, 0, W, H);
+    const rnd = (v) => (Math.cos(v) + Math.cos(v * 1.3 + 1.3) + Math.cos(v * 1.4 + 1.4)) / 3;
+    g.globalCompositeOperation = "lighter";
+    g.shadowColor = "rgba(77,163,255,0.8)"; g.shadowBlur = 10;
+    for (let l = 0; l < 14; l++) {
+      g.beginPath();
+      for (let px = 0; px <= W; px += 6) {
+        const u = px / W, fade = 1 - (Math.cos(u * 6.283) * 0.5 + 0.5);
+        const sx = (u - 0.5) * 10;
+        const off = rnd(l + sx * 0.5 + t * 0.27 * (1 + l / 14)) * (0.6 + 1.4 * fade);
+        const yy = H * 0.88 + (rnd(sx * 0.2 + t * 0.2) * 1.0 * fade + off * fade * 0.6) * 45;
+        px === 0 ? g.moveTo(px, yy) : g.lineTo(px, yy);
+      }
+      g.strokeStyle = `hsla(${215 + l * 3},90%,${60 + (l % 3) * 6}%,${0.1 + (l % 4) * 0.04})`;
+      g.lineWidth = 0.6 + (l % 3) * 0.5;
+      g.stroke();
+    }
+    g.shadowBlur = 0;
+  } else if (kind === "mesh") {
+    g.fillStyle = "#04060f"; g.fillRect(0, 0, W, H);
+    g.globalCompositeOperation = "screen";
+    [["rgba(23,80,214,.6)", 0.2, 0.3, 0.55], ["rgba(61,155,255,.32)", 0.8, 0.25, 0.45], ["rgba(107,76,255,.28)", 0.75, 0.85, 0.5], ["rgba(10,42,122,.7)", 0.25, 0.9, 0.6]].forEach(([c, x, y, r], i) => {
+      radial(W * x + Math.sin(t * 0.3 + i * 1.7) * 60, H * y + Math.cos(t * 0.25 + i) * 40, W * r, [[0, c], [1, "rgba(0,0,0,0)"]]);
+    });
+    g.globalCompositeOperation = "source-over";
+    g.fillStyle = "rgba(255,255,255,0.05)";
+    for (let y = 9; y < H; y += 18) for (let x = 9; x < W; x += 18) g.fillRect(x, y, 1.2, 1.2);
+    radial(W / 2, H * 0.45, W * 0.7, [[0, "rgba(0,0,0,0)"], [1, "rgba(4,6,15,.7)"]]);
+  }
+}
+
 // ---------- grain ----------
 const grainCtx = $("#grain").getContext("2d");
 const grainImg = grainCtx.createImageData(960, 540);
@@ -1177,9 +1282,7 @@ window.seek = function (t) {
     s.el.style.display = on ? "block" : "none";
     if (on) s.render(t);
   }
-  const lightOn = scenes.some((s) => s.el.style.display === "block" && s.el.classList.contains("light"));
-  $("#vignette").style.opacity = lightOn ? 0.28 : 1;
-  $$(".bg").forEach((b) => (b.style.transform = `translate(${(Math.sin(t * 0.35) * 26).toFixed(1)}px,${(Math.cos(t * 0.28) * 18).toFixed(1)}px) scale(1.05)`));
+  for (const s of scenes) if (s.el.style.display === "block") $$(".bgc", s.el).forEach((c) => drawBg(c, t));
   grain(Math.round(t * TL.fps));
   $("#fade").style.opacity = inOut(prog(t, C.fadeOut, TL.duration - 0.05)).toFixed(3);
 };
@@ -1190,8 +1293,6 @@ window.ready = (async () => {
   await document.fonts.load('600 20px Inter');
   await document.fonts.load('700 20px Inter');
   await document.fonts.load('400 20px JBM');
-  await document.fonts.load('700 96px Bricolage');
-  await document.fonts.load('600 96px Bricolage');
   await document.fonts.load('400 20px Lato');
   await document.fonts.load('700 20px Lato');
   await document.fonts.load('900 20px Lato');
