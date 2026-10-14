@@ -42,8 +42,8 @@
     return { states, keys, end: t };
   }
 
-  const typed = typing(["Typing every word by hamd", { back: 2 }, "nd is slow."], 0.25, 19, 7);
-  const search = typing(["voice dictation app for windows"], 3.15, 30, 11);
+  const typed = typing(["Typing every word by hamd", { back: 2 }, "nd is slow."], 1.75, 19, 7);
+  const search = typing(["voice dictation app for windows"], 4.6, 38, 11);
 
   // Spoken words in the demo, with when each starts (seconds).
   const speechStart = 13.45;
@@ -72,8 +72,9 @@
     search,
     speech,
     scenes: {
-      typing: [0, 3.1],
-      search: [3.0, 8.05],
+      cold: [0, 1.5],
+      typing: [1.5, 4.6],
+      search: [4.5, 8.05],
       turn: [8.0, 9.1],
       reveal: [8.95, 12.75],
       demo: [12.4, 19.75],
@@ -82,11 +83,15 @@
     },
     // Cue times shared with the score.
     cues: {
-      searchEnter: 4.5,
-      cardsIn: 4.55,
-      clicks: [5.5, 6.0],
-      denied: [5.52, 6.02, 6.25, 6.5],
-      macOnly: 7.0,
+      // Cold open: 0–1.5 s replays the demo from coldFrom at coldRate, then rewinds.
+      coldFrom: 16.95,
+      coldRate: 0.8,
+      searchIn: 4.5,
+      searchEnter: 5.5,
+      cardsIn: 5.55,
+      clicks: [6.0],
+      denied: [6.0, 6.25, 6.5, 6.75],
+      verdict: 5.8,
       untilNow: 8.0,
       drop: 9.0,
       tileIn: 9.5,

@@ -23,7 +23,7 @@ const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
 // Buses: music is filtered and sidechained; kick and sfx sit on top untouched.
 const bus = () => ({ L: new Float32Array(N), R: new Float32Array(N) });
-const MUS = bus(), KICK = bus(), SFX = bus(), VERB = bus(), DLY = bus();
+const MUS = bus(), KICK = bus(), SFX = bus(), VERB = bus(), DLY = bus(), COLD = bus();
 function add(target, t0, len, fn, { gain = 1, pan = 0, verb = 0, delay = 0 } = {}) {
   const i0 = Math.max(0, Math.round(t0 * SR));
   const i1 = Math.min(N, Math.round((t0 + len) * SR));
@@ -120,10 +120,10 @@ function key(t, g = 1, heavy = false) {
 }
 
 // ---------- drums ----------
-function kick(t, g = 1) {
-  add(KICK, t, 0.55, (x) => {
+function kick(t, g = 1, target = KICK) {
+  add(target, t, 0.55, (x) => {
     const ph = 2 * Math.PI * (48 * x + (110 / 30) * (1 - Math.exp(-x * 30)));
-    return Math.tanh(1.6 * Math.sin(ph) * Math.exp(-x * 6.5)) + (x < 0.003 ? noise() * 0.5 * (1 - x / 0.003) : 0);
+    return Math.tanh(1.6 * Math.sin(ph) * Math.exp(-x * 6.5)) + 0.35 * Math.sin(2 * Math.PI * 175 * x) * Math.exp(-x * 40) + (x < 0.003 ? noise() * 0.6 * (1 - x / 0.003) : 0);
   }, { gain: 0.7 * g });
 }
 function clap(t, g = 1) {
@@ -175,9 +175,9 @@ function bass(t, m, len, g = 0.42, rel = 60) {
   const f = svf();
   const fq = mtof(m);
   mus(t, len + 5 / rel, (x) => {
-    const v = Math.sin(2 * Math.PI * fq * x) + 0.25 * Math.sin(4 * Math.PI * fq * x) + 0.12 * saw(fq * x);
+    const v = Math.sin(2 * Math.PI * fq * x) + 0.45 * Math.sin(4 * Math.PI * fq * x) + 0.2 * Math.sin(6 * Math.PI * fq * x) + 0.12 * saw(fq * x);
     const env = Math.min(1, x / 0.006) * (x > len ? Math.exp(-(x - len) * rel) : 1) * (0.75 + 0.25 * Math.exp(-x * 6));
-    return f(Math.tanh(v * 1.3), 500, 0.8).lp * env;
+    return f(Math.tanh(v * 1.3), 900, 0.8).lp * env;
   }, { gain: g });
 }
 // Lead: two detuned saws plus an octave sine, lowpass envelope, gentle vibrato, dotted-8th delay.
@@ -254,14 +254,33 @@ const DROP = C.drop, END = C.endCard;
 const LISTEN = [C.recStart, C.transcribing]; // the music closes down while Quill listens
 const listening = (t) => t >= LISTEN[0] && t < LISTEN[1];
 
-// Intro (0–8 s): electric piano under the typing, shaker and soft kick with the search.
+// Cold open (0–1.5 s): one bar of the groove with the hook's first notes, then a tape stop.
+const COLD_END = TL.scenes.cold[1];
+{
+  const cold = (...a) => add(COLD, ...a);
+  const c = CH[0];
+  [0, 0.5, 1.0].forEach((b) => kick(b, 0.9, COLD));
+  c.notes.slice(1).forEach((m, i) => cold(i * 0.02, 1.6, (x) => {
+    const f = mtof(m), idx = 1.8 * Math.exp(-x * 5) + 0.35;
+    return Math.sin(2 * Math.PI * f * x + idx * Math.sin(2 * Math.PI * f * x)) * Math.exp(-x * 0.9) * Math.min(1, x / 0.003);
+  }, { gain: 0.05, pan: i * 0.2 - 0.3, verb: 0.2 }));
+  cold(0, 1.6, (x) => { const fq = mtof(c.root); return Math.tanh(1.3 * (Math.sin(2 * Math.PI * fq * x) + 0.45 * Math.sin(4 * Math.PI * fq * x))) * Math.min(1, x / 0.006); }, { gain: 0.35 });
+  [[0, 76, 0.5], [0.5, 78, 0.5], [1, 81, 1]].forEach(([b, m, d]) => {
+    const fq = mtof(m);
+    cold(b * BEAT, d * BEAT + 0.2, (x) => (saw(fq * 1.004 * x) + saw(fq * 0.996 * x)) * 0.25 * Math.min(1, x / 0.012) * Math.exp(-x * 1.5), { gain: 0.08 });
+  });
+}
+bell(0.5, 85, 0.13, 0, sfx); bell(0.58, 92, 0.1, 0, sfx); // the paste chime, replayed
+reverse(COLD_END - 0.35, 0.35, 1.3);
+
+// Intro (1.5–8 s): electric piano under the typing, shaker and soft kick with the search.
 for (let bar = 0; bar < 4; bar++) {
-  const t0 = bar * BAR;
+  const t0 = COLD_END + bar * BAR;
   const c = CH[bar % 4];
   c.notes.slice(1).forEach((m, i) => ep(t0 + i * 0.03, m, BAR * 0.9, 0.055, i * 0.2 - 0.3));
-  if (t0 >= 2) bass(t0, c.root, BAR * 0.95, 0.22);
-  for (let s = 0; s < 8; s++) if (t0 + (s * BEAT) / 2 >= 3) shaker(t0 + (s * BEAT) / 2, s % 2 ? 0.6 : 1);
-  if (t0 >= 4) for (let b = 0; b < 4; b++) kick(t0 + b * BEAT, b === 0 ? 0.5 : 0.35);
+  if (t0 >= 3.5) bass(t0, c.root, BAR * 0.95, 0.22);
+  for (let s = 0; s < 8; s++) if (t0 + (s * BEAT) / 2 >= C.searchIn) shaker(t0 + (s * BEAT) / 2, s % 2 ? 0.6 : 1);
+  if (t0 >= 5.5) for (let b = 0; b < 4; b++) kick(t0 + b * BEAT, b === 0 ? 0.5 : 0.35);
 }
 riser(7.0, 1.0);
 
@@ -333,9 +352,19 @@ bell(C.learnClick + 0.15, 86, 0.1, 0, sfx); bell(C.learnClick + 0.24, 93, 0.08, 
 riser(C.features[2] + 0.15, 0.7, 0.4);
 bell(C.features[2] + 0.9, 88, 0.1, 0, sfx);
 
+// Your voice: save a recording of the demo line as sfx/voice.wav and it plays
+// from the first spoken word (timeline.js speech times can then be matched to it).
+const voiceFile = path.join(dir, "sfx", "voice.wav");
+if (existsSync(voiceFile)) {
+  const v = resample(readWav(voiceFile));
+  const pk = v.reduce((a, x) => Math.max(a, Math.abs(x)), 0) || 1;
+  sfx(TL.speech[0].t - 0.05, v.length / SR, (x) => v[Math.floor(x * SR)] * (0.7 / pk), { verb: 0.05 });
+  console.log("mixed sfx/voice.wav");
+}
+
 // ---------- mix ----------
 const kicks = [];
-for (let t = 4; t < 8; t += BEAT) kicks.push(t);
+for (let t = 5.5; t < 8; t += BEAT) kicks.push(t);
 for (let t = DROP; t <= END + 1e-6; t += BEAT) kicks.push(t);
 function reverb(inp, seed) {
   const out = new Float32Array(N);
@@ -375,12 +404,26 @@ const rl = reverb(VERB.L, 0), rr = reverb(VERB.R, 23);
 // Music filter automation: warm in the intro, open at the drop, closed while
 // Quill listens, sweeping back open from release to paste.
 function cutoff(t) {
-  if (t < 3) return 1600;
-  if (t < 8) return 1600 + (t - 3) * 900;
+  if (t < C.searchIn) return 1600;
+  if (t < 8) return 1600 + (t - C.searchIn) * 1300;
   if (t < LISTEN[0] - 0.3) return 18000;
   if (t < LISTEN[1]) return 18000 - 17200 * Math.min(1, (t - (LISTEN[0] - 0.3)) / 0.4);
   if (t < C.pasted + 0.3) return 800 * Math.pow(18000 / 800, (t - LISTEN[1]) / (C.pasted + 0.3 - LISTEN[1]));
   return 18000;
+}
+{
+  // read the cold bus at a rate that falls to zero over the last 0.3 s
+  let pos = 0;
+  const outCL = new Float32Array(N), outCR = new Float32Array(N);
+  for (let n = 0; n < Math.round(COLD_END * SR); n++) {
+    const t = n / SR;
+    const rate = t < COLD_END - 0.3 ? 1 : Math.max(0, (COLD_END - t) / 0.3) ** 1.5;
+    const j = Math.floor(pos), f = pos - j;
+    outCL[n] = COLD.L[j] * (1 - f) + COLD.L[j + 1] * f;
+    outCR[n] = COLD.R[j] * (1 - f) + COLD.R[j + 1] * f;
+    pos += rate;
+  }
+  COLD.L.set(outCL); COLD.R.set(outCR);
 }
 const fL = svf(), fR = svf();
 const outL = new Float32Array(N), outR = new Float32Array(N);
@@ -395,8 +438,8 @@ for (let n = 0; n < N; n++) {
   const mL = fL(MUS.L[n], fc, 0.8).lp * duck * open;
   const mR = fR(MUS.R[n], fc, 0.8).lp * duck * open;
   const fade = (t > DUR - 1.4 ? Math.max(0, (DUR - t) / 1.4) : 1) * Math.min(1, t / 0.03);
-  outL[n] = Math.tanh((mL + KICK.L[n] + SFX.L[n] + rl[n] * (open || 0.5)) * 1.1 * fade);
-  outR[n] = Math.tanh((mR + KICK.R[n] + SFX.R[n] + rr[n] * (open || 0.5)) * 1.1 * fade);
+  outL[n] = Math.tanh((mL + COLD.L[n] + KICK.L[n] + SFX.L[n] + rl[n] * (open || 0.5)) * 1.1 * fade);
+  outR[n] = Math.tanh((mR + COLD.R[n] + KICK.R[n] + SFX.R[n] + rr[n] * (open || 0.5)) * 1.1 * fade);
   peak = Math.max(peak, Math.abs(outL[n]), Math.abs(outR[n]));
 }
 const norm = 0.89 / peak;
