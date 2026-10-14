@@ -352,13 +352,13 @@ bell(C.learnClick + 0.15, 86, 0.1, 0, sfx); bell(C.learnClick + 0.24, 93, 0.08, 
 riser(C.features[2] + 0.15, 0.7, 0.4);
 bell(C.features[2] + 0.9, 88, 0.1, 0, sfx);
 
-// Your voice: save a recording of the demo line as sfx/voice.wav and it plays
-// from the first spoken word (timeline.js speech times can then be matched to it).
+// The spoken demo line (AI voice, Kokoro af_heart/af_nicole blend), placed at the
+// first word; timeline.js word times were measured from this file.
 const voiceFile = path.join(dir, "sfx", "voice.wav");
 if (existsSync(voiceFile)) {
   const v = resample(readWav(voiceFile));
   const pk = v.reduce((a, x) => Math.max(a, Math.abs(x)), 0) || 1;
-  sfx(TL.speech[0].t - 0.05, v.length / SR, (x) => v[Math.floor(x * SR)] * (0.7 / pk), { verb: 0.05 });
+  sfx(TL.speechStart, v.length / SR, (x) => v[Math.floor(x * SR)] * (0.7 / pk), { verb: 0.05 });
   console.log("mixed sfx/voice.wav");
 }
 

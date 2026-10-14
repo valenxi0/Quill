@@ -45,22 +45,22 @@
   const typed = typing(["Typing every word by hamd", { back: 2 }, "nd is slow."], 1.75, 19, 7);
   const search = typing(["voice dictation app for windows"], 4.6, 38, 11);
 
-  // Spoken words in the demo, with when each starts (seconds).
-  const speechStart = 13.45;
+  // Spoken words in the demo: start times measured from sfx/voice.wav (Whisper word alignment).
+  const speechStart = 13.05;
   const speech = [
     ["um", 0.0, "filler"],
-    ["so", 0.28, "filler"],
-    ["I", 0.62],
-    ["think", 0.74],
-    ["we", 0.98],
-    ["should", 1.1],
-    ["uh", 1.42, "filler"],
-    ["ship", 1.78],
-    ["the", 1.98],
-    ["windows", 2.08, "", "Windows"],
-    ["build", 2.42],
-    ["on", 2.62],
-    ["friday", 2.74, "", "Friday."],
+    ["so", 0.56, "filler"],
+    ["I", 0.66],
+    ["think", 0.9],
+    ["we", 1.06],
+    ["should", 1.2],
+    ["uh", 1.64, "filler"],
+    ["ship", 2.2],
+    ["the", 2.38],
+    ["windows", 2.58, "", "Windows"],
+    ["build", 2.78],
+    ["on", 3.16],
+    ["friday", 3.36, "", "Friday."],
   ].map(([w, at, kind = "", clean]) => ({ w, t: speechStart + at, kind, clean: clean ?? w }));
 
   const TL = {
@@ -71,6 +71,7 @@
     typed,
     search,
     speech,
+    speechStart,
     scenes: {
       cold: [0, 1.5],
       typing: [1.5, 4.6],
@@ -84,7 +85,7 @@
     // Cue times shared with the score.
     cues: {
       // Cold open: 0–1.5 s replays the demo from coldFrom at coldRate, then rewinds.
-      coldFrom: 16.95,
+      coldFrom: 17.2,
       coldRate: 0.8,
       searchIn: 4.5,
       searchEnter: 5.5,
@@ -98,11 +99,11 @@
       wordmark: 10.25,
       tagline: 11.0,
       toDemo: 12.5,
-      recStart: 13.3,
-      transcribing: 16.5,
-      cleaning: 16.85,
-      pasted: 17.35,
-      sent: 18.0,
+      recStart: 13.0,
+      transcribing: 16.75,
+      cleaning: 17.1,
+      pasted: 17.6,
+      sent: 18.25,
       features: [19.5, 22.0, 24.0],
       styleTabs: [19.8, 20.35, 20.9, 21.45],
       learnClick: 23.1,

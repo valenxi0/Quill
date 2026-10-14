@@ -173,7 +173,7 @@ body { font-family: Inter, sans-serif; color: var(--text); -webkit-font-smoothin
 .pill .bars { display: flex; align-items: center; }
 .pill .bars i { display: block; background: #fff; border-radius: 99px; }
 .pill .tm { text-align: center; font-weight: 400; color: rgba(255, 255, 255, 0.7); font-variant-numeric: tabular-nums; }
-.shimmer { background: linear-gradient(90deg, rgba(255, 255, 255, 0.5) 0%, rgba(255, 255, 255, 0.5) 35%, #fff 50%, rgba(255, 255, 255, 0.5) 65%, rgba(255, 255, 255, 0.5) 100%); background-size: 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; }
+.shimmer { --sp: calc(3ch + 40px); --base: rgba(255, 255, 255, 0.42); --glare: #fff; --mid: color-mix(in oklab, var(--glare), var(--base) 50%); background-image: linear-gradient(110deg, var(--base) calc(50% - var(--sp)), var(--mid) calc(50% - var(--sp) * 0.5), var(--glare) 50%, var(--mid) calc(50% + var(--sp) * 0.5), var(--base) calc(50% + var(--sp))); background-repeat: no-repeat; background-size: calc(200% + var(--sp) * 2) 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 .btn { border-radius: 99px; padding: 0.15em 0.75em; }
 .btn.blue { background: var(--accent); }
 .btn.ghost { color: rgba(255, 255, 255, 0.7); }
@@ -346,7 +346,6 @@ body { font-family: Inter, sans-serif; color: var(--text); -webkit-font-smoothin
       </div>
       <div class="abs" id="cap"></div>
       <div id="d-pillwrap"></div>
-      <div class="chip" id="d-chip" style="left:960px;top:932px"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#32d74b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="3"/><path d="M9 1.5v3M15 1.5v3M9 19.5v3M15 19.5v3M1.5 9h3M1.5 15h3M19.5 9h3M19.5 15h3"/></svg>Recognized and cleaned up on this PC</div>
     </div>
   </section>
 
@@ -409,6 +408,7 @@ body { font-family: Inter, sans-serif; color: var(--text); -webkit-font-smoothin
 
 <script src="motion.js"></script>
 <script src="timeline.js"></script>
+<script src="sfx/voice-env.js"></script>
 <script>
 const { clamp, lerp, prog, easeOut, inOut, easeIn, spring, S, track, noise } = M;
 const C = TL.cues;
@@ -575,13 +575,18 @@ function makePill(parent, k, extra = {}) {
         ck.setAttribute("stroke-dashoffset", (14 * (1 - easeOut(prog(t, okAt + 0.08, okAt + 0.45)))).toFixed(2));
       }
       const sh = $(".shimmer", el);
-      if (sh) sh.style.backgroundPosition = `${(100 - ((t * 1.4) % 1) * 150).toFixed(1)}% 0`;
+      if (sh) sh.style.backgroundPosition = `${((1 - ((t / 1.2) % 1)) * 100).toFixed(2)}% 0`;
     },
   };
 }
 
-// Speech level: words make bumps, fillers are quieter.
+// Speech level: the real voice envelope when there is one, else synthetic bumps.
 function speechLevel(words) {
+  if (window.VOICE_ENV) return (t) => {
+    const x = (t - TL.speechStart) * 100, i = Math.floor(x);
+    const v = lerp(VOICE_ENV[i] ?? 0, VOICE_ENV[i + 1] ?? 0, x - i);
+    return clamp(Math.pow(v, 0.8) * (0.85 + 0.15 * noise(t * 37)));
+  };
   return (t) => {
     let v = 0;
     words.forEach((w, i) => {
@@ -594,6 +599,92 @@ function speechLevel(words) {
     });
     return clamp(v);
   };
+}
+
+
+// ---------- text effects, ported from 21st.dev as pure functions of progress ----------
+// Text Animate by appica-dev (rise, flip, highlight), Rolling Text by hyperiux,
+// Text Shimmer by ibelick. Same math as the originals, driven by seek(t) instead of a clock.
+function unitLocal(gp, i, total, stagger) {
+  const start = (i / total) * stagger;
+  return clamp((gp - start) / Math.max(1 - stagger, 1e-4));
+}
+// Wrap each character in a clipping mask; words stay unbreakable so lines wrap normally.
+function maskChars(el) {
+  const words = el.textContent.split(" ");
+  el.textContent = "";
+  const units = [];
+  words.forEach((w, wi) => {
+    const word = document.createElement("span");
+    word.style.cssText = "display:inline-block;white-space:nowrap";
+    for (const ch of w) {
+      const outer = document.createElement("span");
+      outer.style.cssText = "display:inline-block;overflow:hidden;vertical-align:bottom;padding-bottom:0.12em;margin-bottom:-0.12em";
+      const inner = document.createElement("span");
+      inner.style.display = "inline-block";
+      inner.textContent = ch;
+      outer.append(inner);
+      word.append(outer);
+      units.push(inner);
+    }
+    el.append(word);
+    if (wi < words.length - 1) el.append(document.createTextNode(" "));
+  });
+  return units;
+}
+const fx = {
+  // "rise": each glyph slides up out of its mask (cubic ease-out, from 110%)
+  rise(units, gp, stagger = 0.7) {
+    units.forEach((u, i) => {
+      const e = 1 - Math.pow(1 - unitLocal(gp, i, units.length, stagger), 3);
+      u.style.transform = `translateY(${((1 - e) * 110).toFixed(2)}%)`;
+    });
+  },
+  // "flip": glyphs swing down from the top edge in perspective
+  flip(units, gp, stagger = 0.7) {
+    units.forEach((u, i) => {
+      const p = unitLocal(gp, i, units.length, stagger);
+      u.style.transformOrigin = "50% 0%";
+      u.style.transform = `perspective(600px) rotateX(${((1 - p) * -90).toFixed(2)}deg)`;
+      u.style.opacity = (p < 0.5 ? p * 2 : 1).toFixed(3);
+    });
+  },
+  // "highlight": words brighten in sequence, like text being transcribed
+  highlight(words, gp, stagger = 0.85) {
+    words.forEach((w, i) => (w.style.opacity = (0.18 + 0.82 * unitLocal(gp, i, words.length, stagger)).toFixed(3)));
+  },
+};
+// Rolling Text: every letter spins through a reel of copies and lands with expo-out.
+function makeReels(el, { minCycles = 3, cycleVariance = 3, duration = 1.1, durationVariance = 0.5 } = {}) {
+  const text = el.textContent;
+  el.textContent = "";
+  return [...text].map((ch, i) => {
+    const r = TL.rng(i * 1013 + 7);
+    const cycles = minCycles + Math.floor(r() * cycleVariance);
+    const outer = document.createElement("span");
+    outer.style.cssText = "display:inline-block;overflow:hidden;height:1.25em;line-height:1.25em;vertical-align:top";
+    const col = document.createElement("span");
+    col.style.cssText = "display:flex;flex-direction:column";
+    for (let c = 0; c <= cycles; c++) {
+      const g = document.createElement("span");
+      g.style.cssText = "display:block;height:1.25em";
+      g.textContent = ch;
+      col.append(g);
+    }
+    outer.append(col);
+    el.append(outer);
+    return { col, to: cycles, duration: duration + r() * durationVariance };
+  });
+}
+function rollReels(reels, t, t0) {
+  const expo = (x) => (x >= 1 ? 1 : 1 - Math.pow(2, -10 * x));
+  reels.forEach((rl, i) => {
+    const x = prog(t, t0, t0 + rl.duration);
+    const k = rl.to * expo(x);
+    const speed = rl.to * 10 * Math.LN2 * Math.pow(2, -10 * x) / rl.duration; // copies per second
+    rl.col.style.transform = `translateY(${(-k * 1.25).toFixed(4)}em)`;
+    rl.col.style.filter = x > 0 && x < 1 && speed > 2 ? `blur(${Math.min(10, speed * 0.6).toFixed(1)}px)` : "";
+  });
 }
 
 // ---------- scenes ----------
@@ -648,7 +739,8 @@ scene("search", () => {
       <div class="stars">${"<i></i>".repeat(5)}</div>
       <div class="dl"><span class="a">Download</span><span class="b">${CARD_WHY[i][2]}</span></div>
     </div>`).join("");
-  $("#v0")._w = words($("#v0"));
+  $("#v0")._u = maskChars($("#v0"));
+  ["#v1", "#v2", "#v3"].forEach((id) => ($(id)._u = maskChars($(id))));
 }, (t) => {
   // search bar
   const sb = $("#sb");
@@ -698,18 +790,17 @@ scene("search", () => {
   set(cur, { x: cx, y: cy, s: 1 - click * 0.15, o: t > 5.5 && t < 6.6 ? 1 : 0 });
 
   // verdict: each denied card lands one reason
-  stagger($("#v0")._w, t, C.verdict, { stagger: 0.05, dur: 0.45, dist: 26, blur: 12 });
-  ["#v1", "#v2", "#v3"].forEach((id, i) => rise($(id), t, C.denied[i] + 0.03, { dur: 0.4, dist: 30, blur: 14, s0: 1.12 }));
+  fx.rise($("#v0")._u, prog(t, C.verdict, C.verdict + 0.45), 0.6);
+  ["#v1", "#v2", "#v3"].forEach((id, i) => fx.flip($(id)._u, prog(t, C.denied[i] + 0.02, C.denied[i] + 0.36), 0.6));
   const v = $("#verdict");
   const vq = inOut(prog(t, 7.75, 8.0));
   set(v, { y: -dim * 250, s: 1 + dim * 0.25, o: 1 - vq, blur: vq * 16 });
 });
 
 // 3. Until now
-scene("turn", () => { $("#un")._w = words($("#un")); }, (t) => {
+scene("turn", () => { $("#un")._u = maskChars($("#un")); }, (t) => {
   const un = $("#un");
-  const ws = un._w;
-  stagger(ws, t, C.untilNow + 0.02, { stagger: 0.16, dur: 0.42, dist: 50, blur: 20 });
+  fx.rise(un._u, prog(t, C.untilNow + 0.02, C.untilNow + 0.62), 0.6);
   const q = easeIn(prog(t, 8.78, 9.02));
   set(un, { s: 1 + q * 0.25, o: 1 - q, blur: q * 30 });
 });
@@ -720,6 +811,7 @@ scene("reveal", () => {
   R_ICON = makeIcon($("#r-icon"), 300);
   wmChars = chars($("#wm"));
   tagWords = words($("#tag"));
+  tagWords.forEach((w) => (w.style.opacity = 0));
 }, (t) => {
   const icon = R_ICON;
   const size = 300;
@@ -752,7 +844,8 @@ scene("reveal", () => {
   wm.style.left = finalIconX + size + gap + "px";
   stagger(wmChars, t, C.wordmark + 0.12, { stagger: 0.05, dur: 0.6, dist: 60, blur: 20 });
   set(wm, { o: 1 - exit, blur: exit * 16, s: 1 - exit * 0.06 });
-  stagger(tagWords, t, C.tagline, { stagger: 0.06, dur: 0.6, dist: 26, blur: 12 });
+  if (t >= C.tagline) fx.highlight(tagWords, prog(t, C.tagline, C.tagline + 0.9));
+  rise($("#tag"), t, C.tagline, { dur: 0.35, dist: 14, blur: 6 });
   set($("#tag"), { o: 1 - exit, blur: exit * 16 });
 });
 
@@ -787,7 +880,7 @@ scene("demo", () => {
   const pin = easeOut(prog(t, 12.45, 13.1));
   const out = inOut(prog(t, 19.4, 19.75));
   const cam = $("#d-cam");
-  const push = lerp(1.06, 1.0, pin) + 0.025 * easeOut(prog(t, 17.4, 19.6));
+  const push = lerp(1.06, 1.0, pin) + 0.025 * easeOut(prog(t, C.pasted + 0.05, 19.6));
   set(cam, { s: push, o: pin * (1 - out), blur: (1 - pin) * 18 + out * 16, x: -out * 120 });
   const win = $("#d-win");
   const wp = spring(t - 12.55, S.def);
@@ -796,7 +889,7 @@ scene("demo", () => {
   // pill
   D_PILL.render(t, {
     seq: [[C.recStart, "rec"], [C.transcribing, "tr"], [C.cleaning, "cl"], [C.pasted, "ok"]],
-    show: [C.recStart, 18.45],
+    show: [C.recStart, C.sent + 0.45],
     cx: 960, cy: 960,
     level: speechLevel(TL.speech),
     recStart: C.recStart,
@@ -861,11 +954,6 @@ scene("demo", () => {
   nm.style.height = nm._h * clamp(pp) + "px";
   nm.style.paddingTop = nm.style.paddingBottom = 8 * clamp(pp) + "px";
   set(nm, { y: (1 - clamp(pp)) * 30, o: clamp((t - C.sent) * 5) });
-
-  // on-device chip after the pill leaves
-  const chip = $("#d-chip");
-  rise(chip, t, 18.75, { pre: "translateX(-50%)", dur: 0.45, dist: 20, blur: 8, s0: 0.92 });
-  if (t < 18.75) chip.style.visibility = "hidden";
 });
 
 // 6. Features
@@ -886,7 +974,7 @@ scene("feat", () => {
   for (const f of FEATS) {
     const el = $("#" + f.id);
     f.el = el;
-    f.h2 = words($("h2", el));
+    f.h2 = maskChars($("h2", el));
     f.p = $("p", el);
     f.num = $(".num", el);
     f.vis = $(".vis", el);
@@ -924,7 +1012,7 @@ scene("feat", () => {
     const pout = last ? inOut(prog(t, b - 0.1, b + 0.1)) : inOut(prog(t, b - 0.1, b + 0.1));
     set(f.el, { x: (1 - pin) * (first ? 140 : 110) - pout * 110, o: pin * (1 - pout), blur: (1 - pin) * 14 + pout * 14 });
     rise(f.num, t, a, { dur: 0.45, dist: 14, blur: 6 });
-    stagger(f.h2, t, a + 0.03, { stagger: 0.05, dur: 0.55, dist: 40, blur: 16 });
+    fx.rise(f.h2, prog(t, a + 0.03, a + 0.75), 0.65);
     rise(f.p, t, a + 0.2, { dur: 0.55, dist: 22, blur: 10 });
     const vp = spring(t - (a + 0.08), S.def);
     set(f.vis, { s: lerp(0.94, 1, clamp(vp)), o: clamp(vp * 1.4) });
@@ -985,8 +1073,9 @@ scene("feat", () => {
 let E_ICON, eChars, eTag;
 scene("end", () => {
   E_ICON = makeIcon($("#e-icon"), 200);
-  eChars = chars($("#e-wm"));
+  eChars = makeReels($("#e-wm"));
   eTag = words($("#e-tag"));
+  eTag.forEach((w) => (w.style.opacity = 0));
   const tick = `<svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="#0a84ff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>`;
   $("#e-chips").innerHTML = ["Open source", "Runs offline", "Free"].map((l) => `<div class="chip">${tick}${l}</div>`).join("");
   const wm = $("#e-wm");
@@ -1008,8 +1097,10 @@ scene("end", () => {
     set(bar, { sy: clamp(bp, 0, 1.3) });
   });
   wm.style.left = left + size + gap + "px";
-  stagger(eChars, t, a + 0.1, { stagger: 0.045, dur: 0.55, dist: 50, blur: 18 });
-  stagger(eTag, t, a + 0.5, { stagger: 0.05, dur: 0.55, dist: 24, blur: 12 });
+  rollReels(eChars, t, a + 0.08);
+  set(wm, { o: clamp((t - a - 0.08) * 8) });
+  if (t >= a + 0.5) fx.highlight(eTag, prog(t, a + 0.5, a + 1.3));
+  rise($("#e-tag"), t, a + 0.5, { dur: 0.35, dist: 14, blur: 6 });
   $$("#e-chips .chip").forEach((c, i) => rise(c, t, a + 1.0 + i * 0.08, { dur: 0.5, dist: 20, blur: 8, s0: 0.9 }));
   set($("#e-chips"), { pre: "translateX(-50%)" });
   const cp = spring(t - (a + 1.3), S.playful);
