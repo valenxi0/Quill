@@ -101,6 +101,13 @@ export async function installDevMock() {
   } catch {
     console.warn("Installed app icons are unavailable in this browser preview.");
   }
+  // Lead with apps people recognize; helper processes make odd sample rows.
+  const preferred = ["t3 code (nightly).exe", "chatgpt.exe", "brave.exe", "discord.exe", "claude.exe", "code.exe", "slack.exe", "notepad.exe"];
+  const rank = (exe: string) => {
+    const k = preferred.indexOf(exe.toLowerCase());
+    return k < 0 ? preferred.length : k;
+  };
+  apps = apps.filter((a) => !/\.|runtime|settings|host/i.test(a.name)).sort((a, b) => rank(a.exe) - rank(b.exe));
   insights.apps = apps.map((app, index) => ({ ...app, words: [5200, 3100, 1400, 960, 300, 156][index] ?? 78 }));
   mockIPC((cmd) => {
     switch (cmd) {
