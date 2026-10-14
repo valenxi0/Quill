@@ -3,6 +3,7 @@
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { emit } from "@tauri-apps/api/event";
 import type { Insights, KnownApp, Settings, UiState } from "./api";
+import pkg from "../../package.json";
 
 const settings: Settings = {
   enabled: true,
@@ -63,10 +64,10 @@ const state: UiState = {
   dictionaryHits: { a: 12, b: 3 },
   dictation: { phase: "idle", outcome: null, errorTitle: null, errorDetail: null, context: "general" },
   hasLastTranscript: true,
-  version: "0.2.1",
+  version: pkg.version,
   // ?update previews the banner with notes as GitHub sends them.
   update: new URLSearchParams(location.search).has("update")
-    ? { version: "0.3.0", current: "0.2.2", notes: "## [Download Quill-Setup.exe for Windows](https://github.com/valenxi0/Quill/releases/download/v0.3.0/Quill-Setup.exe)" }
+    ? { version: "0.4.0", current: pkg.version, notes: "## [Download Quill-Setup.exe for Windows](https://github.com/valenxi0/Quill/releases/download/v0.4.0/Quill-Setup.exe)" }
     : null,
   updating: false,
   updateError: null,

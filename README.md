@@ -10,7 +10,7 @@ Offline voice dictation for Windows 10 and 11. Hold a shortcut, speak, and relea
 
 The installer supports 64-bit Windows and installs without an admin prompt. Models download during setup. After that, dictation works offline.
 
-![Quill Home page with sample activity data](docs/screenshots/home.jpg)
+![Quill Home page with sample activity data](docs/screenshots/settings-home.jpg)
 
 ## How to use Quill
 
@@ -30,7 +30,7 @@ Quill fits each dictation to where it lands. In the middle of a sentence it star
 
 Add vocabulary for names and terms, or snippets for text you repeat. Choose All apps or a specific app in the entry editor. App entries override matching global entries, so "Rust" in your code editor can stay "rust" in chat. Quill suggests dictionary entries when you make the same correction twice in an app.
 
-![Quill Your voice page with sample vocabulary](docs/screenshots/your-voice-page.jpg)
+![Quill Your voice page with sample vocabulary](docs/screenshots/settings-your-voice.jpg)
 
 Screenshots use sample data.
 
