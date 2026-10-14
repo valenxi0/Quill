@@ -48,7 +48,7 @@ Release notes are in the [changelog](docs/CHANGELOG.md). The installer also incl
 
 ### Code signing policy
 
-Quill is applying to the SignPath Foundation for free code signing; until approved, releases are unsigned. Once approved, free code signing is provided by [SignPath.io](https://signpath.io), with a certificate by [SignPath Foundation](https://signpath.org). Releases are built from this repository by GitHub Actions, and each signing is approved by the maintainer. See the [code signing policy](docs/CODE-SIGNING.md) for what is signed, team roles, and privacy.
+Quill has applied to the SignPath Foundation for free code signing, and the application is under review. Until it is approved, releases are unsigned. Once approved, free code signing is provided by [SignPath.io](https://signpath.io), with a certificate by [SignPath Foundation](https://signpath.org). Releases are built from this repository by GitHub Actions, and each signing is approved by the maintainer. See the [code signing policy](docs/CODE-SIGNING.md) for what is signed, team roles, and privacy.
 
 ## Build and contribute
 

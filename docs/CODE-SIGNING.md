@@ -1,6 +1,6 @@
 # Code signing policy
 
-Quill applies to the [SignPath Foundation](https://signpath.org) for free code signing. Once approved, Windows releases are signed with a certificate issued to SignPath Foundation, and free code signing is provided by [SignPath.io](https://signpath.io). Until then, releases are not code-signed.
+Quill has applied to the [SignPath Foundation](https://signpath.org) for free code signing, and the application is under review. Once approved, Windows releases are signed with a certificate issued to SignPath Foundation, and free code signing is provided by [SignPath.io](https://signpath.io). Until then, releases are not code-signed.
 
 ## What gets signed
 

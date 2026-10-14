@@ -63,6 +63,8 @@ To hear about new versions, open [the repo](https://github.com/valenxi0/Quill) a
 
 Smart App Control is a Windows 11 security feature that only allows apps from verified publishers.
 
+Quill's releases aren't code-signed yet. Quill has applied to the SignPath Foundation for free signing; see the [code signing policy](CODE-SIGNING.md).
+
 - **If the release is signed** (the release notes say so), Quill installs normally.
 - **If it isn't signed yet**, Smart App Control blocks it with no "run anyway" option. You can check whether yours is on under **Windows Security → App & browser control → Smart App Control**.
 
