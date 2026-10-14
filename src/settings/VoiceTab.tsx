@@ -4,6 +4,7 @@ import { AppPicker, AppScope, scopeName, useKnownApps } from "./AppScope";
 import { compact } from "../lib/format";
 import type { Ctx } from "./App";
 import { HistoryCard } from "./History";
+import { BookOpenText, PencilSimpleLine } from "@phosphor-icons/react";
 import { Button, Capsule, Card, CardHeader, Divider, Icon, IconButton, Segmented, Sheet, Switch, TextField } from "./ui";
 
 export function useInsights(dep: unknown): Insights | null {
@@ -16,11 +17,11 @@ export function useInsights(dep: unknown): Insights | null {
 
 function Stat({ title, value, detail }: { title: string; value: string; detail: string }) {
   return (
-    <Card className="flex-1">
+    <div className="flex-1 px-4 py-3.5 [&+&]:border-l [&+&]:border-hairline">
       <p className="text-[12px] text-text-2">{title}</p>
-      <p className="mt-1 text-[24px] font-semibold tabular-nums">{value}</p>
+      <p className="mt-0.5 text-[22px] font-semibold tabular-nums">{value}</p>
       <p className="text-[11.5px] text-text-3">{detail}</p>
-    </Card>
+    </div>
   );
 }
 
@@ -29,8 +30,8 @@ export function VoiceTab({ ctx }: { ctx: Ctx }) {
   const vocab = ctx.state.settings.voiceDictation.vocabulary;
   const median = insights?.medianLatency;
   return (
-    <div className="flex flex-col gap-[10px]">
-      <div className="flex gap-[10px]">
+    <>
+      <Card className="flex p-0">
         <Stat title="Filler words removed" value={compact(insights?.fillersRemoved ?? 0)} detail="Um, uh, and erm cut by cleanup" />
         <Stat
           title="Dictionary expansions"
@@ -38,11 +39,11 @@ export function VoiceTab({ ctx }: { ctx: Ctx }) {
           detail={`From ${vocab.length} ${vocab.length === 1 ? "entry" : "entries"}`}
         />
         <Stat title="Release to paste" value={median != null ? `${median.toFixed(2)}s` : "--"} detail="Median of your last 200 dictations" />
-      </div>
+      </Card>
       <VocabularyCard ctx={ctx} />
       <CorrectionsCard ctx={ctx} />
       <HistoryCard ctx={ctx} />
-    </div>
+    </>
   );
 }
 
@@ -53,6 +54,7 @@ function CorrectionsCard({ ctx }: { ctx: Ctx }) {
   return (
     <Card>
       <CardHeader
+        icon={<PencilSimpleLine size={19} />}
         title="Learn from corrections"
         detail="After a paste, Quill rereads the field. A word you fix the same way twice shows up here to add to your dictionary. Only word pairs and their app are kept, on this PC."
         right={
@@ -64,7 +66,7 @@ function CorrectionsCard({ ctx }: { ctx: Ctx }) {
         }
       />
       {suggestions.length > 0 && (
-        <div className="mt-3 flex flex-col gap-1.5">
+        <div className="mt-3 ml-8 flex flex-col gap-1.5">
           {suggestions.map((s) => (
             <div key={`${s.appExe ?? "global"}:${s.from}→${s.to}`} className="flex items-center gap-2 rounded-[8px] bg-fill px-3 py-2">
               <span className="text-[12.5px]">
@@ -90,7 +92,7 @@ function CorrectionsCard({ ctx }: { ctx: Ctx }) {
           api.dismissSuggestion(adding.from, adding.to, adding.appExe ?? null);
           setAdding(null);
         }} />}
-      <div className="mt-3 flex items-center justify-between">
+      <div className="mt-3 ml-8 flex items-center justify-between">
         <span className="text-[12px] text-text-3">
           {correctionsSeen} {correctionsSeen === 1 ? "correction" : "corrections"} seen
         </span>
@@ -120,7 +122,8 @@ function VocabularyCard({ ctx }: { ctx: Ctx }) {
   return (
     <Card>
       <CardHeader
-        title="Vocabulary & snippets"
+        icon={<BookOpenText size={19} />}
+        title="Vocabulary and snippets"
         detail={'Teach Quill a spelling, such as "mac island" written as "Nano", or a phrase like "my sign off" that expands to a full closing.'}
         right={
           <>
@@ -136,7 +139,7 @@ function VocabularyCard({ ctx }: { ctx: Ctx }) {
           </>
         }
       />
-      <div className="mt-3 max-w-[300px]">
+      <div className="mt-3 ml-8 max-w-[300px]">
         <AppPicker label="Show vocabulary for" value={filter} onChange={setFilter} options={[
           { value: "*", label: "All entries" },
           { value: "", label: "All apps" },
@@ -146,7 +149,7 @@ function VocabularyCard({ ctx }: { ctx: Ctx }) {
         ]} />
       </div>
       {vd.vocabulary.length > 0 && (
-        <div className="mt-3 flex flex-col">
+        <div className="mt-3 ml-8 flex flex-col">
           {vd.vocabulary.filter((e) => filter === "*" || (e.appExe ?? "") === filter).map((e) => (
             <div key={e.id} className="flex items-center gap-2 border-t border-hairline py-1.5 first:border-t-0">
               <div className="min-w-0 flex-1 truncate text-[12.5px]">
@@ -169,7 +172,7 @@ function VocabularyCard({ ctx }: { ctx: Ctx }) {
       )}
       <Divider />
       {engine?.recognizer === "parakeet" && (
-        <p className="text-[12px] text-text-3">
+        <p className="ml-8 text-[12px] text-text-3">
           Quill writes these terms into Parakeet's transcript right after it recognizes.
           {booster && booster.available && booster.state.state !== "downloaded" && (
             <>
@@ -183,10 +186,10 @@ function VocabularyCard({ ctx }: { ctx: Ctx }) {
         </p>
       )}
       {engine?.recognizer === "whisper" && (
-        <p className="text-[12px] text-text-3">Whisper is primed with these terms before it listens.</p>
+        <p className="ml-8 text-[12px] text-text-3">Whisper is primed with these terms before it listens.</p>
       )}
       {engine?.recognizer === "cohere" && (
-        <p className="text-[12px] text-text-3">Entries are applied to Cohere's transcript after it recognizes.</p>
+        <p className="ml-8 text-[12px] text-text-3">Entries are applied to Cohere's transcript after it recognizes.</p>
       )}
       {editing && <EntrySheet entry={editing} onClose={() => setEditing(null)} onSave={(e) => (upsert(e), setEditing(null))} />}
       {pasting && (

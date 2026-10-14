@@ -1,5 +1,16 @@
 // Small shared building blocks for the Settings window.
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  CaretRight,
+  Check,
+  Copy,
+  Fire,
+  Microphone,
+  Plus,
+  Trash,
+  Warning as WarningIcon,
+  Waveform,
+} from "@phosphor-icons/react";
 
 export function cx(...parts: (string | false | null | undefined)[]): string {
   return parts.filter(Boolean).join(" ");
@@ -9,7 +20,7 @@ export function Card({ children, className, dim }: { children: ReactNode; classN
   return (
     <section
       className={cx(
-        "rounded-[12px] border border-card-border bg-card px-4 py-3.5 transition-opacity",
+        "rounded-[10px] bg-card px-4 py-3.5 shadow-panel transition-opacity",
         dim && "opacity-60",
         className,
       )}
@@ -19,15 +30,26 @@ export function Card({ children, className, dim }: { children: ReactNode; classN
   );
 }
 
-export function CardHeader({ title, detail, right }: { title: ReactNode; detail?: ReactNode; right?: ReactNode }) {
+export function CardHeader({ title, detail, right, icon }: { title: ReactNode; detail?: ReactNode; right?: ReactNode; icon?: ReactNode }) {
   return (
     <div className="flex items-start gap-3">
+      {icon && <span className="mt-[1px] flex h-[20px] w-[20px] shrink-0 items-center justify-center text-text-2">{icon}</span>}
       <div className="min-w-0 flex-1">
         <h3 className="text-[13.5px] font-semibold">{title}</h3>
         {detail && <p className="mt-0.5 text-[12px] leading-[1.45] text-text-2">{detail}</p>}
       </div>
       {right && <div className="flex shrink-0 items-center gap-2">{right}</div>}
     </div>
+  );
+}
+
+/** A labelled group of cards, like a section in Windows Settings. */
+export function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="flex flex-col gap-[6px]">
+      <h2 className="px-0.5 pt-1 text-[12px] font-semibold text-text-2">{title}</h2>
+      {children}
+    </section>
   );
 }
 
@@ -59,13 +81,13 @@ export function Switch({
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cx(
-        "relative shrink-0 rounded-full border transition-colors duration-150 disabled:opacity-40",
+        "relative shrink-0 rounded-full border transition-[background-color,border-color] duration-150 disabled:opacity-40",
         checked ? "border-accent bg-accent" : "border-text-3 bg-transparent",
       )}
       style={{ width: w, height: h }}
     >
       <span
-        className={cx("absolute top-[2px] rounded-full transition-all duration-150", checked ? "bg-white" : "bg-text-2")}
+        className={cx("absolute top-[2px] rounded-full transition-[left,background-color] duration-150 ease-out", checked ? "bg-white" : "bg-text-2")}
         style={{ width: knob, height: knob, left: checked ? w - knob - 4 : 2 }}
       />
     </button>
@@ -93,7 +115,7 @@ export function Segmented<T extends string>({
       role="radiogroup"
     >
       <span
-        className="absolute top-[3px] bottom-[3px] rounded-[6px] bg-card shadow-sm ring-1 ring-card-border transition-all duration-200"
+        className="absolute top-[3px] bottom-[3px] rounded-[6px] shadow-sm transition-[left] duration-200 ease-out"
         style={{
           left: `calc(${(index / options.length) * 100}% + 3px)`,
           width: `calc(${100 / options.length}% - 6px)`,
@@ -144,11 +166,11 @@ export function Button({
       disabled={disabled}
       title={title}
       className={cx(
-        "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-[6px] font-medium transition-colors disabled:opacity-40",
+        "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-[6px] font-medium transition-[background-color,scale,filter] duration-100 active:scale-[0.96] disabled:opacity-40 disabled:active:scale-100",
         small ? "h-[24px] px-2.5 text-[12px]" : "h-[28px] px-3 text-[12.5px]",
-        kind === "default" && "border border-card-border bg-fill hover:bg-fill-strong",
+        kind === "default" && "bg-fill shadow-[0_0_0_1px_var(--card-border)] hover:bg-fill-strong",
         kind === "primary" && "bg-accent text-white hover:brightness-110",
-        kind === "destructive" && "border border-card-border bg-fill text-danger hover:bg-fill-strong",
+        kind === "destructive" && "bg-fill text-danger shadow-[0_0_0_1px_var(--card-border)] hover:bg-fill-strong",
         kind === "plain" && "text-accent hover:bg-fill",
         className,
       )}
@@ -295,54 +317,16 @@ export function useCopied(): [boolean, () => void] {
   return [copied, () => setCopied(true)];
 }
 
-const stroke = { fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round" } as const;
-
 export const Icon = {
-  Waveform: ({ size = 16 }: { size?: number }) => (
-    <svg width={size} height={size} viewBox="0 0 16 16" {...stroke}>
-      <path d="M2 7v2M5 4.5v7M8 2v12M11 4.5v7M14 7v2" />
-    </svg>
-  ),
-  Mic: ({ size = 16 }: { size?: number }) => (
-    <svg width={size} height={size} viewBox="0 0 16 16" {...stroke}>
-      <rect x="5.5" y="1.5" width="5" height="8.5" rx="2.5" />
-      <path d="M3 8a5 5 0 0 0 10 0M8 13v1.8" />
-    </svg>
-  ),
-  Check: ({ size = 16 }: { size?: number }) => (
-    <svg width={size} height={size} viewBox="0 0 16 16" {...stroke} strokeWidth={2}>
-      <path d="M3.5 8.5l3 3 6-7" />
-    </svg>
-  ),
+  Waveform: ({ size = 16 }: { size?: number }) => <Waveform size={size} weight="bold" />,
+  Mic: ({ size = 16 }: { size?: number }) => <Microphone size={size} />,
+  Check: ({ size = 16 }: { size?: number }) => <Check size={size} weight="bold" />,
   Chevron: ({ open }: { open: boolean }) => (
-    <svg width={14} height={14} viewBox="0 0 16 16" {...stroke} style={{ transform: open ? "rotate(90deg)" : undefined, transition: "transform 0.15s" }}>
-      <path d="M6 3.5l4.5 4.5L6 12.5" />
-    </svg>
+    <CaretRight size={14} weight="bold" style={{ transform: open ? "rotate(90deg)" : undefined, transition: "transform 0.15s ease-out" }} />
   ),
-  Copy: () => (
-    <svg width={14} height={14} viewBox="0 0 16 16" {...stroke}>
-      <rect x="5" y="5" width="8.5" height="8.5" rx="1.5" />
-      <path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5" />
-    </svg>
-  ),
-  Trash: () => (
-    <svg width={14} height={14} viewBox="0 0 16 16" {...stroke}>
-      <path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4" />
-    </svg>
-  ),
-  Plus: () => (
-    <svg width={13} height={13} viewBox="0 0 16 16" {...stroke} strokeWidth={1.9}>
-      <path d="M8 3v10M3 8h10" />
-    </svg>
-  ),
-  Warning: () => (
-    <svg width={14} height={14} viewBox="0 0 16 16" {...stroke} className="mt-[1px] shrink-0">
-      <path d="M8 1.8l6.5 11.7h-13L8 1.8zM8 6.5v3.2M8 11.6v.1" />
-    </svg>
-  ),
-  Flame: () => (
-    <svg width={16} height={16} viewBox="0 0 16 16" {...stroke}>
-      <path d="M8 14.5c2.8 0 4.5-1.8 4.5-4.3 0-3.2-3-4.3-3.4-8.2C6.6 3.6 5.8 5.6 6.2 7.4 5.3 7 4.9 6.1 4.8 5.3 3.9 6.3 3.5 7.5 3.5 10.2c0 2.5 1.7 4.3 4.5 4.3z" />
-    </svg>
-  ),
+  Copy: () => <Copy size={15} />,
+  Trash: () => <Trash size={15} />,
+  Plus: () => <Plus size={13} weight="bold" />,
+  Warning: () => <WarningIcon size={15} className="mt-[1px] shrink-0" />,
+  Flame: () => <Fire size={16} weight="fill" />,
 };

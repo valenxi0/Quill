@@ -19,6 +19,8 @@
 - A built-in voice activity detector (Silero VAD) skips silence. A recording with no speech ends without running the recognizer, and the end of a recording is trimmed to the speech.
 - Apps that aren't open, Microsoft Store apps such as Claude, and apps recorded before 0.2.2 now show their icons.
 - Clearer Settings copy, sentence-case buttons, and no "All apps" tag on every global vocabulary entry.
+- Settings has a new layout: a sidebar with Home, Your voice, Setup, Typing into apps, and Privacy and data, grouped settings with icons, and a Home page that leads with your week. The shortcut shows as keys.
+- The overlay shows a breathing light while Quill transcribes and cleans up, and its pills rise in without bouncing.
 - The update banner no longer shows raw release-note markdown. It says which version you have, with a What's new link to the release notes.
 - The README opens with the launch video.
 - The release workflow can sign Quill for Smart App Control once a signing account is set up. Releases stay unsigned until then.

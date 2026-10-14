@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { House, Keyboard, Microphone, ShieldCheck, SlidersHorizontal, type Icon as PhosphorIcon } from "@phosphor-icons/react";
 import { api, on, type Settings, type UiState, type VoiceDictation } from "../lib/api";
 import { Button, Card, cx, Icon, Switch } from "./ui";
-import { StatusCard, SetupTab } from "./SetupTab";
+import { StatusCard, SetupTab, TypingTab } from "./SetupTab";
 import { VoiceTab } from "./VoiceTab";
 import { InsightsTab } from "./InsightsTab";
+import { PrivacyTab } from "./PrivacyTab";
 import { Onboarding } from "./Onboarding";
 
-export type Tab = "insights" | "voice" | "setup";
+export type Tab = "home" | "voice" | "setup" | "typing" | "privacy";
 
 export interface Ctx {
   state: UiState;
@@ -37,10 +39,12 @@ function useQuill() {
   return { state, save };
 }
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: "insights", label: "Insights" },
-  { id: "voice", label: "Your voice" },
-  { id: "setup", label: "Setup" },
+const PAGES: { id: Tab; label: string; icon: PhosphorIcon }[] = [
+  { id: "home", label: "Home", icon: House },
+  { id: "voice", label: "Your voice", icon: Microphone },
+  { id: "setup", label: "Setup", icon: SlidersHorizontal },
+  { id: "typing", label: "Typing into apps", icon: Keyboard },
+  { id: "privacy", label: "Privacy and data", icon: ShieldCheck },
 ];
 
 export default function App() {
@@ -51,9 +55,9 @@ export default function App() {
     api.animationsEnabled().then((on) => document.documentElement.classList.toggle("reduced-motion", !on));
   }, []);
 
-  // Open on Setup until the first dictation, then on Insights.
+  // Open on Setup until the first dictation, then on Home.
   useEffect(() => {
-    if (state && tab === null) setTab(state.hasDictated ? "insights" : "setup");
+    if (state && tab === null) setTab(state.hasDictated ? "home" : "setup");
   }, [state, tab]);
 
   if (!state || !tab) return <div className="h-screen bg-bg" />;
@@ -63,101 +67,108 @@ export default function App() {
   const ctx: Ctx = { state, save, saveVd };
   if (!state.settings.onboarded) return <Onboarding ctx={ctx} />;
   const enabled = state.settings.enabled;
-  const pinStatus =
-    enabled && tab !== "setup" && (state.status.kind !== "ready" || state.status.hotkeyProblem !== null);
+  const page = PAGES.find((p) => p.id === tab)!;
+  const pinStatus = enabled && tab !== "setup" && (state.status.kind !== "ready" || state.status.hotkeyProblem !== null);
 
   return (
-    <div className="flex h-screen flex-col bg-bg">
-      <header className="flex items-center gap-3 px-6 pt-5 pb-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-accent text-white">
-          <Icon.Waveform size={22} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <h1 className="text-[20px] font-semibold leading-tight">Quill</h1>
-          <p className="text-[12.5px] text-text-2">Hold a shortcut, speak, and it pastes. Everything runs on this PC.</p>
-        </div>
-        <Switch large label="Quill" checked={enabled} onChange={(v) => save({ ...state.settings, enabled: v })} />
-      </header>
-
-      {state.update && <UpdateBanner state={state} />}
-      {!enabled ? (
-        <div className="px-6 pt-2">
+    <div className="flex h-screen bg-bg">
+      <Sidebar ctx={ctx} tab={tab} onChange={setTab} />
+      <main className="flex min-w-0 flex-1 flex-col overflow-y-auto px-7 pt-5 pb-7">
+        <h1 className="mb-4 text-[22px] font-semibold tracking-[-0.01em]">{page.label}</h1>
+        {!enabled ? (
           <Card>
             <h3 className="text-[13.5px] font-semibold">Quill is off</h3>
             <p className="mt-0.5 text-[12px] text-text-2">
-              The shortcut does nothing and no model stays loaded. Turn Quill on to dictate again.
+              The shortcut does nothing and no model stays loaded. Turn Quill on with the switch in the sidebar to dictate again.
             </p>
           </Card>
-        </div>
-      ) : (
-        <>
-          {pinStatus && (
-            <div className="px-6 pb-2">
-              <StatusCard ctx={ctx} />
-            </div>
-          )}
-          <TabBar tab={tab} onChange={setTab} />
-          <main className="flex-1 overflow-y-auto px-6 pt-3 pb-6">
-            {tab === "setup" && <SetupTab ctx={ctx} />}
-            {tab === "voice" && <VoiceTab ctx={ctx} />}
-            {tab === "insights" && <InsightsTab ctx={ctx} />}
-          </main>
-        </>
-      )}
+        ) : (
+          <div className="flex flex-col gap-[10px]">
+            {pinStatus && <StatusCard ctx={ctx} />}
+            <Page tab={tab} ctx={ctx} />
+          </div>
+        )}
+      </main>
     </div>
   );
 }
 
-function TabBar({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void }) {
-  const refs = useRef<Record<string, HTMLButtonElement | null>>({});
-  const [bar, setBar] = useState({ left: 0, width: 0 });
-  useLayoutEffect(() => {
-    const el = refs.current[tab];
-    if (el) setBar({ left: el.offsetLeft, width: el.offsetWidth });
-  }, [tab]);
+function Page({ tab, ctx }: { tab: Tab; ctx: Ctx }): ReactNode {
+  switch (tab) {
+    case "home":
+      return <InsightsTab ctx={ctx} />;
+    case "voice":
+      return <VoiceTab ctx={ctx} />;
+    case "setup":
+      return <SetupTab ctx={ctx} />;
+    case "typing":
+      return <TypingTab ctx={ctx} />;
+    case "privacy":
+      return <PrivacyTab ctx={ctx} />;
+  }
+}
+
+function Sidebar({ ctx, tab, onChange }: { ctx: Ctx; tab: Tab; onChange: (t: Tab) => void }) {
+  const { state, save } = ctx;
+  const enabled = state.settings.enabled;
+  const ready = enabled && state.status.kind === "ready";
+  const statusLine = !enabled ? "Off" : ready ? `Ready, ${state.hotkeyDisplay}` : state.status.title;
   return (
-    <nav className="relative mx-6 flex gap-5 border-b border-hairline" role="tablist">
-      {TABS.map((t) => (
-        <button
-          key={t.id}
-          ref={(el) => {
-            refs.current[t.id] = el;
-          }}
-          role="tab"
-          aria-selected={t.id === tab}
-          onClick={() => onChange(t.id)}
-          className={cx("pb-2 text-[13px]", t.id === tab ? "font-semibold text-text" : "text-text-2 hover:text-text")}
-        >
-          {t.label}
-        </button>
-      ))}
-      <span
-        className="absolute -bottom-px h-[2px] rounded-full bg-accent transition-all duration-200"
-        style={{ left: bar.left, width: bar.width }}
-      />
+    <nav className="flex w-[216px] shrink-0 flex-col gap-0.5 bg-sidebar px-2.5 pt-4 pb-3" aria-label="Settings pages">
+      <div className="mb-4 flex items-center gap-2.5 px-2">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-accent text-white">
+          <Icon.Waveform size={18} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[15px] leading-tight font-semibold">Quill</p>
+          <p className={cx("flex items-center gap-1.5 truncate text-[11.5px]", ready ? "text-ok" : enabled ? "text-alert" : "text-text-3")}>
+            <span className={cx("h-1.5 w-1.5 shrink-0 rounded-full", ready ? "bg-ok" : enabled ? "bg-alert" : "bg-text-3")} />
+            <span className="truncate">{statusLine}</span>
+          </p>
+        </div>
+        <Switch label="Quill" checked={enabled} onChange={(v) => save({ ...state.settings, enabled: v })} />
+      </div>
+      {PAGES.map(({ id, label, icon: PageIcon }) => {
+        const selected = id === tab;
+        return (
+          <button
+            key={id}
+            aria-current={selected ? "page" : undefined}
+            onClick={() => onChange(id)}
+            className={cx(
+              "relative flex h-9 items-center gap-3 rounded-[6px] px-2.5 text-left text-[13px] transition-[background-color,color] duration-100",
+              selected ? "bg-fill text-text" : "text-text-2 hover:bg-fill hover:text-text",
+            )}
+          >
+            {selected && <span className="absolute top-2.5 bottom-2.5 left-0 w-[3px] rounded-full bg-accent" />}
+            <PageIcon size={18} weight={selected ? "fill" : "regular"} />
+            {label}
+          </button>
+        );
+      })}
+      <div className="mt-auto">
+        {state.update ? <UpdateCard state={state} /> : <p className="px-2.5 text-[11.5px] text-text-3">Quill {state.version}</p>}
+      </div>
     </nav>
   );
 }
 
-function UpdateBanner({ state }: { state: UiState }) {
+function UpdateCard({ state }: { state: UiState }) {
   const u = state.update!;
   return (
-    <div className="mx-6 mb-3 flex items-center gap-3 rounded-[12px] bg-accent-soft px-4 py-2.5">
-      <span className="text-accent">
-        <Icon.Waveform />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="text-[13px] font-semibold">Quill {u.version} is available</p>
-        <p className={cx("truncate text-[12px]", state.updateError ? "text-alert" : "text-text-2")}>
-          {state.updateError ?? `You have ${u.current}. Updating keeps your settings and models.`}
-        </p>
+    <div className="flex flex-col gap-1.5 rounded-[8px] bg-accent-soft p-3">
+      <p className="text-[12.5px] font-semibold">Quill {u.version} is ready</p>
+      <p className={cx("text-[12px]", state.updateError ? "text-alert" : "text-text-2")}>
+        {state.updateError ?? `You have ${u.current}. Updating keeps your settings and models.`}
+      </p>
+      <div className="mt-1 flex items-center gap-1">
+        <Button kind="primary" small disabled={state.updating} onClick={() => api.installUpdate().catch(() => {})}>
+          {state.updating ? "Updating…" : "Update"}
+        </Button>
+        <Button kind="plain" small onClick={() => api.openReleases()}>
+          What's new
+        </Button>
       </div>
-      <Button kind="plain" onClick={() => api.openReleases()}>
-        What's new
-      </Button>
-      <Button kind="primary" disabled={state.updating} onClick={() => api.installUpdate().catch(() => {})}>
-        {state.updating ? "Updating…" : "Update now"}
-      </Button>
     </div>
   );
 }

@@ -44,7 +44,10 @@ export default function Overlay({ preview }: { preview?: DictationView }) {
       <Pill recording={phase === "recording"}>
         {phase === "recording" && <Listening context={view.context} />}
         {(phase === "transcribing" || phase === "cleaning") && (
-          <span>{phase === "transcribing" ? "Transcribing" : "Cleaning up"}</span>
+          <>
+            <Orb />
+            <span>{phase === "transcribing" ? "Transcribing" : "Cleaning up"}</span>
+          </>
         )}
         {phase === "completed" && (
           <>
@@ -78,7 +81,7 @@ function Pill({ children, recording }: { children: React.ReactNode; recording?: 
       style={{
         background: "rgba(10, 10, 10, 0.92)",
         border: recording ? "1px solid #ff453a" : "1px solid rgba(255,255,255,0.12)",
-        animation: "pop-in 0.14s ease-out",
+        animation: "rise-in 0.16s ease-out",
       }}
     >
       {children}
@@ -92,11 +95,26 @@ function Caption({ text }: { text: string }) {
   const shown = text.length > MAX ? `…${text.slice(text.length - MAX).replace(/^\S*\s/, "")}` : text;
   return (
     <p
-      className="max-w-[340px] rounded-[12px] px-3 py-1.5 text-center text-[12px] leading-[1.4] text-white/85"
-      style={{ background: "rgba(10, 10, 10, 0.92)", border: "1px solid rgba(255,255,255,0.12)" }}
+      className="max-w-[350px] rounded-[12px] px-3 py-1.5 text-center text-[12px] leading-[1.4] text-white/85"
+      style={{ background: "rgba(10, 10, 10, 0.92)", border: "1px solid rgba(255,255,255,0.12)", textWrap: "balance", animation: "rise-in 0.16s ease-out" }}
     >
       {shown}
     </p>
+  );
+}
+
+/** Shown while Quill transcribes and cleans up: a small breathing light. */
+function Orb() {
+  return (
+    <span
+      aria-hidden="true"
+      className="h-[16px] w-[16px] shrink-0 rounded-full"
+      style={{
+        background: "radial-gradient(circle at 35% 30%, #ffffff 0%, #7cc0ff 22%, #0a84ff 55%, #063c80 100%)",
+        boxShadow: "0 0 10px rgb(10 132 255 / 0.6)",
+        animation: "orb-breathe 1.6s ease-in-out infinite",
+      }}
+    />
   );
 }
 

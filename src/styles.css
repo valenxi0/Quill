@@ -2,9 +2,11 @@
 
 :root {
   color-scheme: dark;
-  --bg: #1f1f1f;
-  --card: rgb(255 255 255 / 0.045);
-  --card-border: rgb(255 255 255 / 0.07);
+  --bg: #1c1c1e;
+  --sidebar: #19191b;
+  --card: #242426;
+  --card-border: rgb(255 255 255 / 0.08);
+  --panel-shadow: 0 0 0 1px rgb(255 255 255 / 0.06), 0 1px 2px rgb(0 0 0 / 0.35), 0 6px 20px rgb(0 0 0 / 0.18);
   --fill: rgb(255 255 255 / 0.06);
   --fill-strong: rgb(255 255 255 / 0.1);
   --text: #f2f2f7;
@@ -25,6 +27,8 @@
   --color-bg: var(--bg);
   --color-card: var(--card);
   --color-card-border: var(--card-border);
+  --color-sidebar: var(--sidebar);
+  --shadow-panel: var(--panel-shadow);
   --color-fill: var(--fill);
   --color-fill-strong: var(--fill-strong);
   --color-text: var(--text);
@@ -52,6 +56,16 @@ body {
 
 body:not(.overlay) {
   background: var(--bg);
+}
+
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
 }
 
 body.overlay {
@@ -132,6 +146,31 @@ button {
   }
   40% {
     opacity: 1;
+  }
+}
+
+/* Overlay pills: a 160 ms fade with a 6 px rise, no bounce. */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The cleanup orb breathes while S1-mini works. */
+@keyframes orb-breathe {
+  0%,
+  100% {
+    transform: scale(0.92);
+    filter: brightness(0.95);
+  }
+  50% {
+    transform: scale(1.04);
+    filter: brightness(1.15);
   }
 }
 

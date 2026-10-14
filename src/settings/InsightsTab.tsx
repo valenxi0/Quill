@@ -1,57 +1,22 @@
-import { useState } from "react";
-import { api, type Insights } from "../lib/api";
+import { type Insights } from "../lib/api";
 import { compact, duration, monthDay } from "../lib/format";
 import type { Ctx } from "./App";
-import { Button, Card, cx, Icon, Sheet, Switch } from "./ui";
+import { Card, cx, Icon } from "./ui";
 import { useInsights } from "./VoiceTab";
 import { AppIcon } from "./AppScope";
 
 export function InsightsTab({ ctx }: { ctx: Ctx }) {
   const insights = useInsights(ctx.state);
-  const [confirmReset, setConfirmReset] = useState(false);
   if (!insights) return null;
-  return (
-    <div className="flex flex-col gap-[10px]">
-      {insights.isEmpty ? <Empty hotkey={ctx.state.hotkeyDisplay} /> : <Filled insights={insights} />}
-      <div className="mt-1 flex items-center gap-3 px-1">
-        <p className="flex-1 text-[11.5px] text-text-3">
-          Insights keep counts on this PC: words, seconds, and the app you dictated into. They never keep your words.
-        </p>
-        <span className="text-[12px] text-text-2">Keep insights</span>
-        <Switch
-          label="Keep insights"
-          checked={ctx.state.settings.voiceDictation.insightsEnabled}
-          onChange={(v) => ctx.saveVd({ insightsEnabled: v })}
-        />
-        <Button small onClick={() => setConfirmReset(true)}>
-          Reset…
-        </Button>
-      </div>
-      {confirmReset && (
-        <Sheet
-          title="Reset voice insights?"
-          width={380}
-          onClose={() => setConfirmReset(false)}
-          footer={
-            <>
-              <Button onClick={() => setConfirmReset(false)}>Cancel</Button>
-              <Button
-                kind="destructive"
-                onClick={() => {
-                  api.resetInsights();
-                  setConfirmReset(false);
-                }}
-              >
-                Reset
-              </Button>
-            </>
-          }
-        >
-          <p className="text-[12.5px] text-text-2">Totals, streaks, and app counts are cleared. Your dictionary and settings stay.</p>
-        </Sheet>
-      )}
-    </div>
-  );
+  if (!ctx.state.settings.voiceDictation.insightsEnabled && insights.isEmpty) {
+    return (
+      <Card className="py-10 text-center">
+        <h3 className="text-[15px] font-semibold">Insights are off</h3>
+        <p className="mt-1 text-[12.5px] text-text-2">Turn them on under Privacy and data to count words and time saved.</p>
+      </Card>
+    );
+  }
+  return insights.isEmpty ? <Empty hotkey={ctx.state.hotkeyDisplay} /> : <Filled insights={insights} />;
 }
 
 function Empty({ hotkey }: { hotkey: string }) {
@@ -60,101 +25,114 @@ function Empty({ hotkey }: { hotkey: string }) {
       <div className="mb-3 text-accent">
         <Icon.Waveform size={36} />
       </div>
-      <h3 className="text-[15px] font-semibold">Insights start with your first dictation</h3>
+      <h3 className="text-[15px] font-semibold">Your first dictation starts the count</h3>
       <p className="mt-1 max-w-[360px] text-[12.5px] text-text-2">
-        Hold {hotkey} and speak. Quill counts words and time, never the words themselves.
+        Hold {hotkey}, speak, and release. Quill counts words and time saved, never the words themselves.
       </p>
     </Card>
   );
 }
 
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
 function Filled({ insights: i }: { insights: Insights }) {
+  const days = i.heatmap.filter((c) => !c.future).slice(-7);
   return (
     <>
-      <p className="px-1 text-[14px]">
-        This week you spoke <b className="text-accent">{compact(i.weekWords)} words</b> and saved{" "}
-        <b className="text-accent">{duration(i.weekSavedSeconds)}</b> of typing.
-      </p>
-      <div className="grid grid-cols-3 gap-[10px]">
-        <div
-          className="rounded-[12px] px-4 py-3.5 text-white"
-          style={{ background: "linear-gradient(135deg, #3d9bff 0%, #0a60e0 100%)" }}
-        >
-          <p className="text-[12px] opacity-85">Speaking speed</p>
-          <p className="mt-1 text-[26px] font-semibold tabular-nums">
-            {Math.round(i.wpm)} <span className="text-[13px] font-medium opacity-85">wpm</span>
+      <div className="grid grid-cols-[1.35fr_1fr] gap-[10px]">
+        <Card className="flex flex-col px-5 py-4">
+          <p className="text-[12px] text-text-2">This week</p>
+          <p className="mt-0.5 flex items-baseline gap-2">
+            <span className="text-[34px] leading-none font-semibold tracking-[-0.02em] tabular-nums">{compact(i.weekWords)}</span>
+            <span className="text-[14px] font-medium text-text-2">words, {duration(i.weekSavedSeconds)} of typing saved</span>
           </p>
-          <Sparkline values={i.sparkline} />
-        </div>
-        <Card>
-          <p className="text-[12px] text-text-2">Time saved</p>
-          <p className="mt-1 text-[26px] font-semibold tabular-nums">{duration(i.monthSavedSeconds)}</p>
-          <p className="text-[11.5px] text-text-3">This month, against 40 wpm typing</p>
+          <WeekChart days={days} />
         </Card>
-        <Card>
-          <p className="text-[12px] text-text-2">Words dictated</p>
-          <p className="mt-1 text-[26px] font-semibold tabular-nums">{compact(i.totalWords)}</p>
-          <p className="text-[11.5px] text-text-3">{i.since ? `Since ${monthDay(i.since)}` : ""}</p>
+        <Card className="flex flex-col p-0">
+          <div className="flex flex-1 flex-col justify-center px-[18px] py-3">
+            <p className="text-[12px] text-text-2">Speaking speed</p>
+            <p className="text-[22px] font-semibold tabular-nums">
+              {Math.round(i.wpm)} <span className="text-[13px] font-medium text-text-2">wpm</span>
+            </p>
+          </div>
+          <div className="flex flex-1 flex-col justify-center border-t border-hairline px-[18px] py-3">
+            <p className="text-[12px] text-text-2">Saved this month</p>
+            <p className="text-[22px] font-semibold tabular-nums">{duration(i.monthSavedSeconds)}</p>
+            <p className="text-[11.5px] text-text-3 tabular-nums" title="Compared with typing at 40 wpm">
+              {compact(i.totalWords)} words{i.since ? ` since ${monthDay(i.since)}` : ""}
+            </p>
+          </div>
         </Card>
       </div>
-      <div className="grid grid-cols-[1fr_1.25fr] gap-[10px]">
+      <div className="grid grid-cols-2 gap-[10px]">
         <Card>
-          <p className="mb-2 text-[13px] font-semibold">Where you dictate</p>
+          <h2 className="mb-3 text-[13px] font-semibold">Where you dictate</h2>
           {i.apps.length === 0 ? (
-            <p className="text-[12px] text-text-3">Nothing this month yet.</p>
+            <p className="text-[12px] text-text-3">No dictations this month yet.</p>
           ) : (
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2.5">
               {i.apps.slice(0, 6).map((a) => (
-                <div key={a.exe} className="flex items-center gap-2">
+                <div key={a.exe} className="flex items-center gap-2.5">
                   <AppIcon app={a} />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex justify-between text-[12px]">
-                      <span className="truncate">{a.name}</span>
-                      <span className="text-text-3 tabular-nums">{compact(a.words)}</span>
-                    </div>
-                    <div className="mt-1 h-[4px] rounded-full bg-fill-strong">
-                      <div className="h-full rounded-full bg-accent" style={{ width: `${(a.words / i.apps[0]!.words) * 100}%` }} />
-                    </div>
+                  <span className="min-w-0 flex-1 truncate text-[12.5px]">{a.name}</span>
+                  <div className="h-[4px] w-[84px] shrink-0 overflow-hidden rounded-full bg-fill-strong">
+                    <div className="h-full rounded-full bg-accent" style={{ width: `${Math.max(3, (a.words / i.apps[0]!.words) * 100)}%` }} />
                   </div>
+                  <span className="w-11 text-right text-[12px] text-text-2 tabular-nums">{compact(a.words)}</span>
                 </div>
               ))}
             </div>
           )}
         </Card>
         <Card>
-          <div className="mb-2 flex items-baseline gap-2">
-            <span className="text-alert">
-              <Icon.Flame />
-            </span>
-            <span className="text-[20px] font-semibold tabular-nums">{i.currentStreak}</span>
-            <span className="text-[12px] text-text-2">day streak</span>
-            <span className="flex-1" />
-            <span className="text-[12px] text-text-3">Longest {i.longestStreak}</span>
+          <div className="mb-3 flex items-baseline gap-2">
+            <h2 className="flex-1 text-[13px] font-semibold tabular-nums">
+              {i.currentStreak} day streak
+            </h2>
+            <span className="text-[12px] text-text-3 tabular-nums">Longest {i.longestStreak}</span>
           </div>
           <Heatmap cells={i.heatmap} />
         </Card>
       </div>
+      <p className="px-0.5 text-[11.5px] text-text-3">Counts only, stored on this PC. Change this under Privacy and data.</p>
     </>
   );
 }
 
-function Sparkline({ values }: { values: number[] }) {
-  if (values.length < 2) return <div className="mt-2 h-[28px]" />;
-  const max = Math.max(...values);
-  const min = Math.min(...values);
-  const span = max - min || 1;
-  const pts = values.map((v, k) => `${(k / (values.length - 1)) * 100},${26 - ((v - min) / span) * 22}`).join(" ");
+/** Words per day for the last seven days, as a filled line. */
+function WeekChart({ days }: { days: Insights["heatmap"] }) {
+  if (days.length < 2) return <div className="mt-4 h-[74px]" />;
+  const max = Math.max(1, ...days.map((d) => d.words));
+  const x = (k: number) => (k / (days.length - 1)) * 300;
+  const y = (w: number) => 52 - (w / max) * 46;
+  const line = days.map((d, k) => `${k ? "L" : "M"}${x(k)} ${y(d.words)}`).join(" ");
   return (
-    <svg viewBox="0 0 100 28" preserveAspectRatio="none" className="mt-2 h-[28px] w-full">
-      <polyline points={pts} fill="none" stroke="white" strokeOpacity={0.9} strokeWidth={1.6} vectorEffect="non-scaling-stroke" />
-    </svg>
+    <div className="mt-auto pt-4">
+      <svg viewBox="0 0 300 56" preserveAspectRatio="none" className="h-[56px] w-full" aria-hidden="true">
+        <defs>
+          <linearGradient id="week-fill" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0" stopColor="var(--accent)" stopOpacity="0.28" />
+            <stop offset="1" stopColor="var(--accent)" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d={`${line} L300 56 L0 56Z`} fill="url(#week-fill)" />
+        <path d={line} fill="none" stroke="var(--accent)" strokeWidth={2} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+      </svg>
+      <div className="mt-1 flex justify-between text-[11.5px] text-text-3">
+        {days.map((d) => (
+          <span key={d.date} title={`${monthDay(d.date)}: ${d.words} words`}>
+            {WEEKDAYS[new Date(`${d.date}T12:00:00`).getDay()]}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
 function Heatmap({ cells }: { cells: Insights["heatmap"] }) {
   const max = Math.max(1, ...cells.map((c) => c.words));
   const level = (w: number) => (w === 0 ? 0 : Math.min(4, Math.ceil((w / max) * 4)));
-  const weeks = Array.from({ length: 15 }, (_, w) => cells.slice(w * 7, w * 7 + 7));
+  const weeks = Array.from({ length: Math.ceil(cells.length / 7) }, (_, w) => cells.slice(w * 7, w * 7 + 7));
   const shades = ["var(--fill-strong)", "rgb(10 132 255 / 0.3)", "rgb(10 132 255 / 0.5)", "rgb(10 132 255 / 0.75)", "var(--accent)"];
   return (
     <div>
@@ -165,7 +143,7 @@ function Heatmap({ cells }: { cells: Insights["heatmap"] }) {
               <div
                 key={c.date}
                 title={c.future ? undefined : `${monthDay(c.date)}: ${c.words} words`}
-                className={cx("aspect-square rounded-[3px]", c.future && "opacity-0")}
+                className={cx("aspect-square rounded-[2px]", c.future && "opacity-0")}
                 style={{ background: shades[level(c.words)] }}
               />
             ))}
@@ -175,7 +153,7 @@ function Heatmap({ cells }: { cells: Insights["heatmap"] }) {
       <div className="mt-2 flex items-center justify-end gap-1 text-[11px] text-text-3">
         Less
         {shades.map((s) => (
-          <span key={s} className="h-[10px] w-[10px] rounded-[2px]" style={{ background: s }} />
+          <span key={s} className="h-[9px] w-[9px] rounded-[2px]" style={{ background: s }} />
         ))}
         More
       </div>

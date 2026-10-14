@@ -4,6 +4,25 @@ import { bytes } from "../lib/format";
 import type { Ctx } from "./App";
 import { AppIcon, AppScope, scopeName, useKnownApps } from "./AppScope";
 import {
+  AppWindow,
+  ArrowsClockwise,
+  Browsers,
+  Command,
+  Cpu,
+  CursorText,
+  HandTap,
+  Hash,
+  KeyReturn,
+  Link,
+  MagicWand,
+  Power,
+  Smiley,
+  Subtitles,
+  TerminalWindow,
+  TextAa,
+  Translate,
+} from "@phosphor-icons/react";
+import {
   Button,
   Capsule,
   Card,
@@ -14,6 +33,7 @@ import {
   Icon,
   IconButton,
   Progress,
+  Section,
   Segmented,
   Sheet,
   Spinner,
@@ -59,49 +79,40 @@ const EXAMPLES: [string, string][] = [
 ];
 
 export function SetupTab({ ctx }: { ctx: Ctx }) {
-  const [advancedOpen, setAdvancedOpen] = useState(false);
   return (
-    <div className="flex flex-col gap-[10px]">
-      <Card>
-        <CardHeader title="Start at login" detail="Quill waits in the tray, ready for your shortcut." right={
-          <Switch label="Start at login" checked={ctx.state.settings.launchAtLogin} onChange={(v) => ctx.save({ ...ctx.state.settings, launchAtLogin: v })} />
-        } />
-      </Card>
+    <>
       <StatusCard ctx={ctx} />
-      <ActivationCard ctx={ctx} />
-      <EngineCard ctx={ctx} />
-      <CleanupCard ctx={ctx} />
-      <UpdatesCard ctx={ctx} />
-      <Card>
-        <button
-          type="button"
-          aria-expanded={advancedOpen}
-          aria-controls="advanced-settings"
-          onClick={() => setAdvancedOpen(!advancedOpen)}
-          className="flex w-full items-center gap-3 text-left"
-        >
-          <Icon.Chevron open={advancedOpen} />
-          <span>
-            <span className="block text-[13.5px] font-semibold">Advanced</span>
-            <span className="block mt-0.5 text-[12px] text-text-2">Typing into apps, launchers, and privacy.</span>
-          </span>
-        </button>
-      </Card>
-      <div id="advanced-settings" hidden={!advancedOpen}>
-        {advancedOpen && (
-          <div className="flex flex-col gap-[10px]">
-            <FormattingCard ctx={ctx} />
-            <LaunchersCard />
-            <Card>
-              <CardHeader title="Privacy" />
-              <p className="mt-1.5 text-[12px] text-text-2">Quill keeps audio in memory and discards it once the transcript is ready.</p>
-              <p className="mt-1 text-[12px] text-text-2">Recognition and cleanup run on this PC. No audio or text is sent anywhere.</p>
-            </Card>
-          </div>
-        )}
-      </div>
-      <LicensesCard />
-    </div>
+      <Section title="Dictation">
+        <ActivationCard ctx={ctx} />
+      </Section>
+      <Section title="Engine and cleanup">
+        <EngineCard ctx={ctx} />
+        <CleanupCard ctx={ctx} />
+      </Section>
+      <Section title="General">
+        <Card>
+          <CardHeader
+            icon={<Power size={19} />}
+            title="Start at login"
+            detail="Quill waits in the tray, ready for your shortcut."
+            right={<Switch label="Start at login" checked={ctx.state.settings.launchAtLogin} onChange={(v) => ctx.save({ ...ctx.state.settings, launchAtLogin: v })} />}
+          />
+        </Card>
+        <UpdatesCard ctx={ctx} />
+      </Section>
+    </>
+  );
+}
+
+/** The "Typing into apps" page. */
+export function TypingTab({ ctx }: { ctx: Ctx }) {
+  return (
+    <>
+      <FormattingCard ctx={ctx} />
+      <Section title="Launchers">
+        <LaunchersCard />
+      </Section>
+    </>
   );
 }
 
@@ -152,8 +163,9 @@ function ActivationCard({ ctx }: { ctx: Ctx }) {
   return (
     <Card>
       <CardHeader
+        icon={<HandTap size={19} />}
         title="Activation"
-        detail="Push-to-talk records while the shortcut is held. Toggle starts on one press and stops on the next."
+        detail={ACTIVATION_DETAIL[vd.activationMode]}
         right={
           <Segmented
             width={240}
@@ -166,9 +178,9 @@ function ActivationCard({ ctx }: { ctx: Ctx }) {
           />
         }
       />
-      <p className="mt-2 text-[12px] text-text-3">{ACTIVATION_DETAIL[vd.activationMode]}</p>
       <Divider />
       <CardHeader
+        icon={<Command size={19} />}
         title="Shortcut"
         detail={capturingHotkey ? "Hold Ctrl, Alt, Shift or Win, then press another key. Esc cancels." : "Use Ctrl, Alt, Shift or Win plus another key, such as Ctrl+Shift+Space."}
         right={<ShortcutButton ctx={ctx} />}
@@ -176,6 +188,7 @@ function ActivationCard({ ctx }: { ctx: Ctx }) {
       {captureError && <Warning>{captureError}</Warning>}
       <Divider />
       <CardHeader
+        icon={<Subtitles size={19} />}
         title="Live preview"
         detail="Shows the words Quill hears above the overlay while you speak. The pasted text still comes from the whole recording. Uses more CPU while you record."
         right={<Switch label="Live preview" checked={vd.livePreview} onChange={(v) => ctx.saveVd({ livePreview: v })} />}
@@ -195,13 +208,23 @@ export function ShortcutButton({ ctx }: { ctx: Ctx }) {
         </Button>
       )}
       <button
+        aria-label={capturingHotkey ? "Recording a shortcut. Press Esc to cancel." : `Shortcut ${hotkeyDisplay}. Change shortcut`}
         onClick={() => (capturingHotkey ? api.cancelHotkeyCapture() : api.beginHotkeyCapture())}
         className={cx(
-          "h-[28px] min-w-[120px] rounded-[6px] border px-3 font-mono text-[12.5px]",
-          capturingHotkey ? "border-accent bg-accent-soft text-accent" : "border-card-border bg-fill hover:bg-fill-strong",
+          "flex h-[30px] min-w-[120px] items-center justify-center gap-1 rounded-[7px] px-1 transition-[background-color] duration-100",
+          capturingHotkey ? "bg-accent-soft px-3 text-[12.5px] text-accent shadow-[0_0_0_1px_var(--accent)]" : "hover:bg-fill",
         )}
       >
-        {capturingHotkey ? "Recording…" : hotkeyDisplay}
+        {capturingHotkey
+          ? "Press a shortcut…"
+          : hotkeyDisplay.split("+").map((key) => (
+              <kbd
+                key={key}
+                className="inline-flex h-[26px] min-w-[26px] items-center justify-center rounded-[6px] bg-fill-strong px-2 font-sans text-[12.5px] font-semibold shadow-[inset_0_-2px_0_rgb(0_0_0/0.35),0_0_0_1px_var(--card-border)]"
+              >
+                {key}
+              </kbd>
+            ))}
       </button>
     </>
   );
@@ -260,15 +283,16 @@ function EngineCard({ ctx }: { ctx: Ctx }) {
         onClick={() => setOpen(!open)}
         className="flex w-full items-center gap-3 text-left"
       >
-        <Icon.Chevron open={open} />
+        <span className="flex h-[20px] w-[20px] shrink-0 items-center justify-center text-text-2"><Cpu size={19} /></span>
         <span className="min-w-0 flex-1">
           <span className="block text-[13.5px] font-semibold">Engine</span>
           <span className="block mt-0.5 text-[12px] text-text-2">{selected?.title ?? "Choose an engine"}</span>
         </span>
         {selected && <Capsule accent={selected.ready}>{selected.ready ? "Ready" : selected.busy ? "Preparing…" : "Download needed"}</Capsule>}
+        <span className="text-text-3"><Icon.Chevron open={open} /></span>
       </button>
       {error && <Warning>{error}</Warning>}
-      <div id="engine-options" hidden={!open}>
+      <div id="engine-options" hidden={!open} className="ml-8">
         <p className="mt-3 text-[12px] text-text-2">Models download only when you choose them and are verified against pinned checksums.</p>
         {ctx.state.engines.map((e) => (
           <div key={e.id}>
@@ -446,7 +470,8 @@ function LanguageRow({ ctx, engine }: { ctx: Ctx; engine: EngineView }) {
   const auto = engine.id === "cohereTranscribe" ? `Automatic (${ctx.state.cohereAutoLanguage})` : "Automatic";
   return (
     <CardHeader
-      title="Language"
+      icon={<Translate size={19} />}
+        title="Language"
       detail={engine.languageNote}
       right={
         <select
@@ -475,6 +500,7 @@ function CleanupCard({ ctx }: { ctx: Ctx }) {
   return (
     <Card dim={!hasCleanup}>
       <CardHeader
+        icon={<MagicWand size={19} />}
         title="Cleanup"
         detail={
           hasCleanup
@@ -482,7 +508,7 @@ function CleanupCard({ ctx }: { ctx: Ctx }) {
             : `${engine?.title ?? "This engine"} has no cleanup stage; transcripts are delivered as recognized. Choose Parakeet + S1-mini to adjust this.`
         }
       />
-      <div className="mt-3">
+      <div className="mt-3 ml-8">
         <Segmented
           disabled={!hasCleanup}
           value={vd.cleanupLevel}
@@ -495,6 +521,7 @@ function CleanupCard({ ctx }: { ctx: Ctx }) {
       <AppStyles ctx={ctx} disabled={!hasCleanup} />
       <Divider />
       <CardHeader
+        icon={<TextAa size={19} />}
         title="Formal wording"
         detail={'Polished and Compose write contractions out, so "I don\'t think so" becomes "I do not think so".'}
         right={<Switch label="Formal wording" disabled={!hasCleanup} checked={vd.formalRegister} onChange={(v) => ctx.saveVd({ formalRegister: v })} />}
@@ -515,6 +542,7 @@ function AppStyles({ ctx, disabled }: { ctx: Ctx; disabled: boolean }) {
   return (
     <div>
       <CardHeader
+        icon={<AppWindow size={19} />}
         title="Styles for specific apps"
         detail="Pick a different style for the apps you choose, such as Casual in Discord. Other apps use the style above."
         right={
@@ -524,7 +552,7 @@ function AppStyles({ ctx, disabled }: { ctx: Ctx; disabled: boolean }) {
         }
       />
       {vd.appStyles.length > 0 && (
-        <div className="mt-2 flex flex-col">
+        <div className="mt-2 ml-8 flex flex-col">
           {vd.appStyles.map((s) => {
             const app = apps.find((a) => a.exe.toLowerCase() === s.appExe.toLowerCase());
             return (
@@ -603,12 +631,13 @@ function FormattingCard({ ctx }: { ctx: Ctx }) {
   return (
     <Card>
       <CardHeader
+        icon={<Browsers size={19} />}
         title="Adapt to the app"
         detail="In a terminal, or a terminal pane in VS Code or Cursor, spoken commands are written as commands. In Slack, Teams, Discord and other chat apps, a one-line message drops its full stop. In Outlook and other mail apps, the greeting and sign-off get their own lines."
         right={<Switch label="Adapt to the app" checked={vd.adaptsToApp} onChange={(v) => ctx.saveVd({ adaptsToApp: v })} />}
       />
       {vd.adaptsToApp && (
-        <div className="mt-3 flex flex-col gap-1.5 rounded-[8px] bg-accent-soft px-3 py-2.5">
+        <div className="mt-3 ml-8 flex flex-col gap-1.5 rounded-[8px] bg-accent-soft px-3 py-2.5">
           {EXAMPLES.map(([said, typed]) => (
             <div key={said} className="flex flex-wrap items-baseline gap-x-2 text-[12px]">
               <span className="text-text-2">"{said}"</span>
@@ -620,30 +649,35 @@ function FormattingCard({ ctx }: { ctx: Ctx }) {
       )}
       <Divider />
       <CardHeader
+        icon={<CursorText size={19} />}
         title="Match the text around the cursor"
         detail="Dictating into the middle of a sentence starts the text in lowercase, adds a missing space, and drops a full stop the sentence doesn't need. Names and your vocabulary keep their capitals."
         right={<Switch label="Match the text around the cursor" checked={vd.fitsToCursor} onChange={(v) => ctx.saveVd({ fitsToCursor: v })} />}
       />
       <Divider />
       <CardHeader
+        icon={<Smiley size={19} />}
         title="Spoken line breaks and emoji"
         detail={'Say "new line" or "new paragraph" to break the text, or an emoji name followed by "emoji", such as "thumbs up emoji". Words inside a sentence, as in "add a new line", are typed as words. Off in terminals.'}
         right={<Switch label="Spoken line breaks and emoji" checked={vd.layoutCues} onChange={(v) => ctx.saveVd({ layoutCues: v })} />}
       />
       <Divider />
       <CardHeader
+        icon={<KeyReturn size={19} />}
         title={'Say "press enter" to send'}
         detail={'End a dictation with "press enter" and Quill presses Enter after the paste. Handy in chat apps and coding tools.'}
         right={<Switch label="Press Enter on command" checked={vd.spokenEnter} onChange={(v) => ctx.saveVd({ spokenEnter: v })} />}
       />
       <Divider />
       <CardHeader
+        icon={<TerminalWindow size={19} />}
         title="Split long pastes in terminals"
         detail="Claude Code, Codex and similar tools fold a long paste into a placeholder. Quill pastes text over 600 characters or with more than 2 line breaks in pieces, so you can read it before you send it."
         right={<Switch label="Split long pastes in terminals" checked={vd.splitsTerminalPastes} onChange={(v) => ctx.saveVd({ splitsTerminalPastes: v })} />}
       />
       <Divider />
       <CardHeader
+        icon={<Hash size={19} />}
         title="Write numbers as figures"
         detail={
           ctx.state.itnAvailable
@@ -685,6 +719,7 @@ function LaunchersCard() {
   return (
     <Card>
       <CardHeader
+        icon={<Link size={19} />}
         title="Start from anywhere"
         detail="Stream Deck, AutoHotkey, PowerToys or any launcher can open these links or run Quill with --start, --stop, --toggle or --cancel."
       />
@@ -708,7 +743,7 @@ const LICENSES: [string, string, string][] = [
   ["Silero VAD", "MIT", "By Silero. Built into Quill to skip silence."],
 ];
 
-function LicensesCard() {
+export function LicensesCard() {
   const [open, setOpen] = useState(false);
   return (
     <Card>
@@ -751,6 +786,7 @@ function UpdatesCard({ ctx }: { ctx: Ctx }) {
   return (
     <Card>
       <CardHeader
+        icon={<ArrowsClockwise size={19} />}
         title="Updates"
         detail={
           update

@@ -49,8 +49,8 @@ pub fn open_settings(app: &AppHandle) {
     let built = WebviewWindowBuilder::new(app, SETTINGS_LABEL, WebviewUrl::App("index.html".into()))
         .title("Quill")
         .theme(Some(tauri::Theme::Dark))
-        .inner_size(760.0, 640.0)
-        .min_inner_size(600.0, 480.0)
+        .inner_size(900.0, 660.0)
+        .min_inner_size(740.0, 520.0)
         .resizable(true)
         .center()
         .build();
