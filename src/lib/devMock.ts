@@ -64,7 +64,10 @@ const state: UiState = {
   dictation: { phase: "idle", outcome: null, errorTitle: null, errorDetail: null, context: "general" },
   hasLastTranscript: true,
   version: "0.2.1",
-  update: null,
+  // ?update previews the banner with notes as GitHub sends them.
+  update: new URLSearchParams(location.search).has("update")
+    ? { version: "0.3.0", current: "0.2.2", notes: "## [Download Quill-Setup.exe for Windows](https://github.com/valenxi0/Quill/releases/download/v0.3.0/Quill-Setup.exe)" }
+    : null,
   updating: false,
   updateError: null,
 };

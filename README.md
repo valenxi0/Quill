@@ -4,6 +4,8 @@
 
 Offline voice dictation for Windows 10 and 11. Hold a shortcut, speak, and release to paste text into the app you are using. Recognition and cleanup run on your PC.
 
+[![Watch the 31-second Quill launch video](docs/media/launch-poster.jpg)](docs/media/quill-launch.mp4)
+
 [Download Quill-Setup.exe](https://github.com/valenxi0/Quill/releases/latest/download/Quill-Setup.exe)
 
 The installer supports 64-bit Windows and installs without an admin prompt. Models download during setup. After that, dictation works offline.

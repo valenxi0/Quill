@@ -148,10 +148,13 @@ function UpdateBanner({ state }: { state: UiState }) {
       </span>
       <div className="min-w-0 flex-1">
         <p className="text-[13px] font-semibold">Quill {u.version} is available</p>
-        <p className="truncate text-[12px] text-text-2">
-          {state.updateError ?? u.notes ?? `You have ${u.current}. Updating keeps your settings and models.`}
+        <p className={cx("truncate text-[12px]", state.updateError ? "text-alert" : "text-text-2")}>
+          {state.updateError ?? `You have ${u.current}. Updating keeps your settings and models.`}
         </p>
       </div>
+      <Button kind="plain" onClick={() => api.openReleases()}>
+        What's new
+      </Button>
       <Button kind="primary" disabled={state.updating} onClick={() => api.installUpdate().catch(() => {})}>
         {state.updating ? "Updating…" : "Update now"}
       </Button>
