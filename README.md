@@ -30,7 +30,7 @@ Quill fits each dictation to where it lands. In the middle of a sentence it star
 
 Add vocabulary for names and terms, or snippets for text you repeat. Choose All apps or a specific app in the entry editor. App entries override matching global entries, so "Rust" in your code editor can stay "rust" in chat. Quill suggests dictionary entries when you make the same correction twice in an app.
 
-![Quill Your voice page with sample vocabulary](docs/screenshots/your-voice.jpg)
+![Quill Your voice page with sample vocabulary](docs/screenshots/your-voice-page.jpg)
 
 Screenshots use sample data.
 
