@@ -4,7 +4,9 @@ pub mod chunker;
 pub mod command;
 pub mod finish;
 pub mod guard;
+pub mod insertion;
 pub mod numbers;
+pub mod spoken;
 pub mod tokens;
 pub mod vocabulary;
 

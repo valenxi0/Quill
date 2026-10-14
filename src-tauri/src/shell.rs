@@ -8,6 +8,8 @@ use crate::controller::DictationView;
 pub trait Shell: Send + Sync {
     fn dictation_changed(&self, view: &DictationView);
     fn level(&self, level: f32);
+    /// The provisional transcript while recording, when live preview is on.
+    fn preview(&self, text: &str);
     fn state_changed(&self);
     fn history_changed(&self);
     fn suggest(&self, pair: &CorrectionPair);

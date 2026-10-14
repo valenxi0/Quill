@@ -26,6 +26,11 @@ const settings: Settings = {
       { id: "a", phrase: "mac island", replacement: "Nano", kind: "vocabulary", isEnabled: true },
       { id: "b", phrase: "my sign off", replacement: "Best,\nAlex", kind: "snippet", isEnabled: true },
     ],
+    appStyles: [{ appExe: "discord.exe", level: "light" }],
+    fitsToCursor: true,
+    spokenEnter: false,
+    splitsTerminalPastes: true,
+    livePreview: false,
   },
 };
 
@@ -100,12 +105,13 @@ export async function installDevMock() {
       case "get_insights": return insights;
       case "get_known_apps": return insights.apps;
       case "get_history": return [
-        { id: "1", text: "Can we move the meeting to Thursday afternoon instead?", engine: "parakeetS1", appName: "Slack", appExe: "slack.exe", secondsSpoken: 3.1, releaseToPasteMs: 410, createdAt: new Date().toISOString() },
-        { id: "2", text: "git commit -m \"fix the build\"", engine: "parakeetS1", appName: "Windows Terminal", appExe: "WindowsTerminal.exe", secondsSpoken: 2.2, releaseToPasteMs: 180, createdAt: new Date().toISOString() },
+        { id: "1", text: "Can we move the meeting to Thursday afternoon instead?", raw: "Um, can we move the meeting to, uh, Thursday afternoon instead?", level: "full", context: "chat", engine: "parakeetS1", appName: "Slack", appExe: "slack.exe", secondsSpoken: 3.1, releaseToPasteMs: 410, createdAt: new Date().toISOString() },
+        { id: "2", text: "git commit -m \"fix the build\"", raw: "git commit dash m quote fix the build quote", level: "full", context: "terminal", engine: "parakeetS1", appName: "Windows Terminal", appExe: "WindowsTerminal.exe", secondsSpoken: 2.2, releaseToPasteMs: 180, createdAt: new Date().toISOString() },
       ];
       case "animations_enabled": return true;
       case "parse_vocabulary_list": return [];
       case "test_vocabulary_entry": return "";
+      case "redo_history": return "Could we move the meeting to Thursday afternoon?";
       default: return null;
     }
   }, { shouldMockEvents: true });

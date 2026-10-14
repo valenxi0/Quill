@@ -10,7 +10,9 @@ use crate::text::chunker::{chunk, WORD_BUDGET};
 use crate::text::command::format_command;
 use crate::text::finish::{chat_style, is_hallucination, join, join_segment};
 use crate::text::guard::guard_with_itn;
+use crate::text::insertion::{fit, Surroundings};
 use crate::text::numbers::{format_numbers, Itn};
+use crate::text::spoken::{emoji_names, strip_press_enter};
 use crate::text::vocabulary::{apply, protect_layout, EntryKind, Piece, VocabEntry};
 
 /// Rewrites a chunk of English speech (S1-mini).
@@ -106,6 +108,9 @@ pub fn process_segment(
                 text = format_numbers(&text, terminal, itn);
             }
         }
+        if recipe.layout_cues && !terminal {
+            text = emoji_names(&text);
+        }
         if capitalize_next && !text.is_empty() {
             text = crate::text::layout::capitalize(&text);
             capitalize_next = false;
@@ -121,10 +126,48 @@ pub fn process_segment(
 
 /// Final checks over the whole dictation. Returns the text to deliver.
 pub fn finish(raw: &str, text: &str, context: AppContext, rms_dbfs: f32) -> Result<String, DictationError> {
+    prepare(raw, text, context, rms_dbfs, &DeliveryOptions::default()).map(|d| d.text)
+}
+
+/// What to deliver: the text, and whether to press Enter after it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Delivery {
+    pub text: String,
+    pub press_enter: bool,
+}
+
+/// How the finished text meets the field.
+#[derive(Debug, Clone, Default)]
+pub struct DeliveryOptions<'a> {
+    pub spoken_enter: bool,
+    /// The caret's neighbours, when fitting to the cursor is on and they could be read.
+    pub around: Option<&'a Surroundings>,
+    /// Vocabulary and snippet output whose casing must survive.
+    pub protected: &'a [String],
+}
+
+/// `finish`, then the spoken "press enter" and fitting to the cursor.
+pub fn prepare(raw: &str, text: &str, context: AppContext, rms_dbfs: f32, options: &DeliveryOptions) -> Result<Delivery, DictationError> {
     if raw.trim().is_empty() || text.trim().is_empty() || is_hallucination(raw, rms_dbfs) {
         return Err(DictationError::NoSpeech);
     }
-    Ok(if context == AppContext::Chat { chat_style(text) } else { text.to_string() })
+    let (body, press_enter) = match options.spoken_enter.then(|| strip_press_enter(text)).flatten() {
+        Some(rest) => (rest, true),
+        None => (text.to_string(), false),
+    };
+    if body.trim().is_empty() {
+        return Ok(Delivery { text: String::new(), press_enter });
+    }
+    let mut out = if context == AppContext::Chat { chat_style(&body) } else { body };
+    if let Some(around) = options.around.filter(|_| context != AppContext::Terminal) {
+        out = fit(&out, around, options.protected);
+    }
+    Ok(Delivery { text: out, press_enter })
+}
+
+/// Output words of enabled vocabulary and snippets, for `DeliveryOptions::protected`.
+pub fn protected_terms(vocabulary: &[VocabEntry]) -> Vec<String> {
+    vocabulary.iter().filter(|e| e.is_enabled && !e.replacement.trim().is_empty()).map(|e| e.replacement.clone()).collect()
 }
 
 #[cfg(all(test, feature = "itn"))]
@@ -224,6 +267,35 @@ mod tests {
         let r = recipe(CleanupLevel::Verbatim, AppContext::Terminal);
         let out = process_segment("Head dash n fifty readme dot md.", None, &r, None, Some(&NemoItn));
         assert_eq!(out.text, "head -n 50 readme.md");
+    }
+
+    #[test]
+    fn emoji_names_follow_layout_cues() {
+        let r = recipe(CleanupLevel::Verbatim, AppContext::General);
+        assert_eq!(process_segment("nice work fire emoji", None, &r, None, None).text, "nice work 🔥");
+        let mut off = r.clone();
+        off.layout_cues = false;
+        assert_eq!(process_segment("nice work fire emoji", None, &off, None, None).text, "nice work fire emoji");
+        let t = recipe(CleanupLevel::Verbatim, AppContext::Terminal);
+        assert!(!process_segment("fire emoji", None, &t, None, None).text.contains('🔥'));
+    }
+
+    #[test]
+    fn preparing_delivery() {
+        let plain = DeliveryOptions::default();
+        assert_eq!(prepare("x", "Run it, press enter.", AppContext::General, -20.0, &plain).unwrap().text, "Run it, press enter.");
+        let enter = DeliveryOptions { spoken_enter: true, ..Default::default() };
+        assert_eq!(
+            prepare("x", "Run it, press enter.", AppContext::Terminal, -20.0, &enter).unwrap(),
+            Delivery { text: "Run it".into(), press_enter: true }
+        );
+        assert_eq!(prepare("x", "Press enter.", AppContext::General, -20.0, &enter).unwrap(), Delivery { text: String::new(), press_enter: true });
+        let around = Surroundings { before: "We could ".into(), after: String::new(), selection: String::new() };
+        let fitted = DeliveryOptions { around: Some(&around), ..Default::default() };
+        assert_eq!(prepare("x", "Ship it today.", AppContext::General, -20.0, &fitted).unwrap().text, "ship it today.");
+        assert_eq!(prepare("x", "Ship it today.", AppContext::Chat, -20.0, &fitted).unwrap().text, "ship it today");
+        assert_eq!(prepare("x", "Ship it today.", AppContext::Terminal, -20.0, &fitted).unwrap().text, "Ship it today.");
+        assert_eq!(prepare("", "", AppContext::General, -20.0, &plain), Err(DictationError::NoSpeech));
     }
 
     #[test]

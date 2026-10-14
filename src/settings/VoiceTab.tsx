@@ -3,6 +3,7 @@ import { api, type EntryKind, type Insights, type VocabEntry } from "../lib/api"
 import { AppPicker, AppScope, scopeName, useKnownApps } from "./AppScope";
 import { compact } from "../lib/format";
 import type { Ctx } from "./App";
+import { HistoryCard } from "./History";
 import { Button, Capsule, Card, CardHeader, Divider, Icon, IconButton, Segmented, Sheet, Switch, TextField } from "./ui";
 
 export function useInsights(dep: unknown): Insights | null {
@@ -36,10 +37,11 @@ export function VoiceTab({ ctx }: { ctx: Ctx }) {
           value={compact(insights?.dictionaryExpansions ?? 0)}
           detail={`From ${vocab.length} ${vocab.length === 1 ? "entry" : "entries"}`}
         />
-        <Stat title="Release to paste" value={median != null ? `${median.toFixed(2)}s` : "--"} detail="Median, fully on this PC" />
+        <Stat title="Release to paste" value={median != null ? `${median.toFixed(2)}s` : "--"} detail="Median of your last 200 dictations" />
       </div>
-      <CorrectionsCard ctx={ctx} />
       <VocabularyCard ctx={ctx} />
+      <CorrectionsCard ctx={ctx} />
+      <HistoryCard ctx={ctx} />
     </div>
   );
 }
@@ -93,7 +95,7 @@ function CorrectionsCard({ ctx }: { ctx: Ctx }) {
           {correctionsSeen} {correctionsSeen === 1 ? "correction" : "corrections"} seen
         </span>
         <Button small kind="destructive" disabled={correctionsSeen === 0} onClick={() => api.forgetCorrections()}>
-          Forget All
+          Forget all
         </Button>
       </div>
     </Card>
@@ -119,10 +121,10 @@ function VocabularyCard({ ctx }: { ctx: Ctx }) {
     <Card>
       <CardHeader
         title="Vocabulary & snippets"
-        detail="Examples: “mac island” → “Nano”, or “my sign off” → a full closing line."
+        detail={'Teach Quill a spelling, such as "mac island" written as "Nano", or a phrase like "my sign off" that expands to a full closing.'}
         right={
           <>
-            <Button onClick={() => setPasting(true)}>Paste List</Button>
+            <Button onClick={() => setPasting(true)}>Paste list</Button>
             <Button
               kind="primary"
               onClick={() =>
@@ -151,7 +153,7 @@ function VocabularyCard({ ctx }: { ctx: Ctx }) {
                 <span className="text-text-2">{e.phrase}</span> <span className="text-text-3">→</span>{" "}
                 <span className="font-medium">{e.replacement.replace(/\n/g, " ⏎ ")}</span>
               </div>
-              <Capsule>{scopeName(e.appExe, apps)}</Capsule>
+              {e.appExe && <Capsule>{scopeName(e.appExe, apps)}</Capsule>}
               <Capsule>{e.kind === "snippet" ? "Snippet" : "Vocabulary"}</Capsule>
               <span className="w-8 text-right text-[11.5px] text-text-3 tabular-nums">{ctx.state.dictionaryHits[e.id] ?? 0}×</span>
               <Switch label={`Enable ${e.phrase}`} checked={e.isEnabled} onChange={(v) => upsert({ ...e, isEnabled: v })} />
@@ -243,7 +245,7 @@ function EntrySheet({ entry, onClose, onSave }: { entry: VocabEntry; onClose: ()
         placeholder={draft.kind === "snippet" ? "Best,\nJorge" : "Nano"}
         multiline={draft.kind === "snippet"}
       />
-      <TextField label="Test" value={sample} onChange={setSample} placeholder={`Try a sentence with “${draft.phrase || "the phrase"}”`} />
+      <TextField label="Test" value={sample} onChange={setSample} placeholder={`Try a sentence with "${draft.phrase || "the phrase"}"`} />
       {preview && (
         <div className="selectable rounded-[6px] bg-accent-soft px-2.5 py-1.5 text-[12.5px] whitespace-pre-wrap">{preview}</div>
       )}

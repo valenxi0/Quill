@@ -7,10 +7,16 @@ use std::sync::OnceLock;
 
 use windows::core::{Interface, BSTR};
 use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED};
+use quill_core::text::insertion::Surroundings;
 use windows::Win32::UI::Accessibility::{
-    CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern,
-    IUIAutomationValuePattern, UIA_TextPatternId, UIA_ValuePatternId,
+    CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern, IUIAutomationTextRange,
+    IUIAutomationValuePattern, TextPatternRangeEndpoint_End, TextPatternRangeEndpoint_Start, TextUnit_Character,
+    UIA_TextPatternId, UIA_ValuePatternId,
 };
+
+/// Characters read before and after the caret.
+const BEFORE_CHARS: i32 = 300;
+const AFTER_CHARS: i32 = 40;
 
 type Job = Box<dyn FnOnce(&mut Uia) + Send>;
 
@@ -60,11 +66,57 @@ pub struct FocusInfo {
     pub name: String,
     pub is_password: bool,
     pub pid: u32,
+    /// The text around the caret, when asked for and readable.
+    pub surroundings: Option<Surroundings>,
+}
+
+/// Text from a range, without the object placeholders and carriage returns
+/// some apps put in.
+unsafe fn range_text(range: &IUIAutomationTextRange, max: i32) -> Option<String> {
+    let text = unsafe { range.GetText(max) }.ok()?.to_string();
+    Some(text.replace("\r\n", "\n").replace('\r', "\n").replace('\u{FFFC}', ""))
+}
+
+/// Before, after, and the selection, through the element's TextPattern.
+/// `None` when the app doesn't say where the caret is.
+unsafe fn surroundings(element: &IUIAutomationElement) -> Option<Surroundings> {
+    unsafe {
+        let pattern = element.GetCurrentPattern(UIA_TextPatternId).ok()?.cast::<IUIAutomationTextPattern>().ok()?;
+        let ranges = pattern.GetSelection().ok()?;
+        if ranges.Length().ok()? < 1 {
+            return None;
+        }
+        let selection = ranges.GetElement(0).ok()?;
+        let before = selection.Clone().ok()?;
+        before.MoveEndpointByRange(TextPatternRangeEndpoint_End, &selection, TextPatternRangeEndpoint_Start).ok()?;
+        before.MoveEndpointByUnit(TextPatternRangeEndpoint_Start, TextUnit_Character, -BEFORE_CHARS).ok()?;
+        let after = selection.Clone().ok()?;
+        after.MoveEndpointByRange(TextPatternRangeEndpoint_Start, &selection, TextPatternRangeEndpoint_End).ok()?;
+        after.MoveEndpointByUnit(TextPatternRangeEndpoint_End, TextUnit_Character, AFTER_CHARS).ok()?;
+        let around = Surroundings {
+            before: range_text(&before, BEFORE_CHARS)?,
+            after: range_text(&after, AFTER_CHARS)?,
+            selection: range_text(&selection, 4000)?,
+        };
+        // An empty field can report its placeholder ("Message #general") as
+        // its text. Text equal to the field's name or help text counts as an
+        // empty field.
+        let whole = format!("{}{}{}", around.before, around.selection, around.after);
+        let whole = whole.trim();
+        let label = |b: windows::core::Result<BSTR>| b.map(|b| b.to_string()).unwrap_or_default();
+        if !whole.is_empty()
+            && [label(element.CurrentName()), label(element.CurrentHelpText())].iter().any(|l| l.trim() == whole)
+        {
+            return Some(Surroundings::default());
+        }
+        Some(around)
+    }
 }
 
 impl Uia {
-    /// The focused element, remembered under a new id.
-    pub fn focused(&mut self) -> FocusInfo {
+    /// The focused element, remembered under a new id. With `around`, also
+    /// the text around its caret.
+    pub fn focused(&mut self, around: bool) -> FocusInfo {
         let Some(automation) = &self.automation else { return FocusInfo::default() };
         unsafe {
             let Ok(element) = automation.GetFocusedElement() else { return FocusInfo::default() };
@@ -78,8 +130,9 @@ impl Uia {
                 let oldest = *self.elements.keys().min().unwrap();
                 self.elements.remove(&oldest);
             }
+            let surroundings = if around && !is_password { surroundings(&element) } else { None };
             self.elements.insert(id, element);
-            FocusInfo { element_id: Some(id), name, is_password, pid }
+            FocusInfo { element_id: Some(id), name, is_password, pid, surroundings }
         }
     }
 

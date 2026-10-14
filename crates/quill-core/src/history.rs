@@ -1,11 +1,13 @@
-//! Transcript history (section 4.10): final text only, deleted 24 hours
-//! after it was written. Stored in `history.json`.
+//! Transcript history (section 4.10): the raw and final text, deleted 24
+//! hours after it was written. Stored in `history.json`.
 
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::context::AppContext;
 use crate::engines::EngineId;
+use crate::settings::CleanupLevel;
 
 pub const TTL_HOURS: i64 = 24;
 
@@ -14,6 +16,14 @@ pub const TTL_HOURS: i64 = 24;
 pub struct HistoryEntry {
     pub id: Uuid,
     pub text: String,
+    /// What the recognizer heard, before cleanup. Empty in older records.
+    #[serde(default)]
+    pub raw: String,
+    /// The cleanup style used; `None` in older records.
+    #[serde(default)]
+    pub level: Option<CleanupLevel>,
+    #[serde(default)]
+    pub context: AppContext,
     pub engine: EngineId,
     pub app_name: String,
     pub app_exe: String,
@@ -68,6 +78,9 @@ mod tests {
         HistoryEntry {
             id: Uuid::new_v4(),
             text: text.into(),
+            raw: text.to_lowercase(),
+            level: Some(CleanupLevel::Full),
+            context: AppContext::General,
             engine: EngineId::WhisperTiny,
             app_name: "Notepad".into(),
             app_exe: "notepad.exe".into(),

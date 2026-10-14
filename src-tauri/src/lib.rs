@@ -15,6 +15,7 @@ mod shell;
 mod stores;
 mod tray;
 mod updates;
+mod vad;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -165,6 +166,8 @@ pub fn run() {
             commands::open_sound_settings,
             commands::copy_text,
             commands::copy_last,
+            commands::paste_last,
+            commands::redo_history,
             commands::get_history,
             commands::clear_history,
             commands::get_insights,

@@ -29,6 +29,8 @@ pub struct Target {
     pub editable: bool,
     /// The target runs elevated and Quill doesn't (UIPI blocks paste).
     pub elevated: bool,
+    /// The text around the caret at recording start, when read.
+    pub surroundings: Option<quill_core::text::insertion::Surroundings>,
 }
 
 impl Target {
@@ -124,7 +126,13 @@ pub fn file_description(path: &str) -> Option<String> {
     }
 }
 
-fn display_name(exe_path: &str, exe: &str) -> String {
+/// The full image path of a running process.
+pub(crate) fn process_path(pid: u32) -> Option<String> {
+    let h = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }.ok()?;
+    exe_path(&Process(h))
+}
+
+pub(crate) fn display_name(exe_path: &str, exe: &str) -> String {
     file_description(exe_path)
         .unwrap_or_else(|| exe.trim_end_matches(".exe").trim_end_matches(".EXE").to_string())
 }
@@ -159,8 +167,9 @@ pub fn open_apps() -> Vec<KnownApp> {
     apps
 }
 
-/// Capture the foreground window and its focused element.
-pub fn capture() -> Target {
+/// Capture the foreground window and its focused element. With `around`,
+/// also read the text around the caret.
+pub fn capture(around: bool) -> Target {
     let hwnd = unsafe { GetForegroundWindow() };
     if hwnd.0.is_null() {
         return Target::default();
@@ -185,12 +194,13 @@ pub fn capture() -> Target {
         }
         Err(_) => t.elevated = !self_elevated(),
     }
-    if let Some(focus) = uia::run(400, |u| u.focused()) {
+    if let Some(focus) = uia::run(if around { 600 } else { 400 }, move |u| u.focused(around)) {
         // Only trust the focused element if it belongs to the foreground app.
         if focus.pid == pid || focus.pid == 0 {
             t.focused_name = focus.name;
             t.is_password = focus.is_password;
             t.element_id = focus.element_id;
+            t.surroundings = focus.surroundings;
         }
     }
     t

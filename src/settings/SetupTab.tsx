@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
-import { api, LINKS, on, type AssetView, type CleanupLevel, type EngineView, type HistoryEntry } from "../lib/api";
-import { bytes, timeAgo } from "../lib/format";
+import { useState } from "react";
+import { api, LINKS, type AppStyle, type AssetView, type CleanupLevel, type EngineView } from "../lib/api";
+import { bytes } from "../lib/format";
 import type { Ctx } from "./App";
+import { AppIcon, AppScope, scopeName, useKnownApps } from "./AppScope";
 import {
   Button,
   Capsule,
@@ -82,7 +83,7 @@ export function SetupTab({ ctx }: { ctx: Ctx }) {
           <Icon.Chevron open={advancedOpen} />
           <span>
             <span className="block text-[13.5px] font-semibold">Advanced</span>
-            <span className="block mt-0.5 text-[12px] text-text-2">App formatting, launchers, history, and privacy.</span>
+            <span className="block mt-0.5 text-[12px] text-text-2">Typing into apps, launchers, and privacy.</span>
           </span>
         </button>
       </Card>
@@ -91,10 +92,9 @@ export function SetupTab({ ctx }: { ctx: Ctx }) {
           <div className="flex flex-col gap-[10px]">
             <FormattingCard ctx={ctx} />
             <LaunchersCard />
-            <HistoryCard ctx={ctx} />
             <Card>
               <CardHeader title="Privacy" />
-              <p className="mt-1.5 text-[12px] text-text-2">Audio is processed in memory and discarded when the transcript is ready.</p>
+              <p className="mt-1.5 text-[12px] text-text-2">Quill keeps audio in memory and discards it once the transcript is ready.</p>
               <p className="mt-1 text-[12px] text-text-2">Recognition and cleanup run on this PC. No audio or text is sent anywhere.</p>
             </Card>
           </div>
@@ -115,10 +115,10 @@ export function StatusCard({ ctx }: { ctx: Ctx }) {
       </span>
     ) : status.engineLoading ? (
       <span className="flex max-w-[260px] items-center gap-2 text-[12px] text-text-2">
-        <Spinner /> Loading engine… the first load can take a while.
+        <Spinner /> Loading the engine. The first load takes longest.
       </span>
     ) : (
-      <Button onClick={() => api.loadEngine()}>Load Engine</Button>
+      <Button onClick={() => api.loadEngine()}>Load engine</Button>
     );
   } else if (status.kind === "micDenied") {
     right = <Button onClick={() => api.openMicrophoneSettings()}>Open Windows Settings</Button>;
@@ -174,6 +174,12 @@ function ActivationCard({ ctx }: { ctx: Ctx }) {
         right={<ShortcutButton ctx={ctx} />}
       />
       {captureError && <Warning>{captureError}</Warning>}
+      <Divider />
+      <CardHeader
+        title="Live preview"
+        detail="Shows the words Quill hears above the overlay while you speak. The pasted text still comes from the whole recording. Uses more CPU while you record."
+        right={<Switch label="Live preview" checked={vd.livePreview} onChange={(v) => ctx.saveVd({ livePreview: v })} />}
+      />
     </Card>
   );
 }
@@ -218,7 +224,7 @@ function assetStateLine(a: AssetView) {
     case "downloaded":
       return (
         <span className="text-[11.5px] text-text-2">
-          Ready · {a.license} · {a.runtime}
+          Ready, {a.license}, runs on {a.runtime}
         </span>
       );
     case "failed":
@@ -353,7 +359,7 @@ function EngineRow(props: {
   } else if (e.ready && !e.updateAvailable) {
     actions = (
       <Button kind="destructive" disabled={e.busy} onClick={props.onRemove}>
-        Remove Engine
+        Remove engine
       </Button>
     );
   } else {
@@ -361,7 +367,7 @@ function EngineRow(props: {
       <>
         {e.hasData && (
           <Button kind="destructive" onClick={props.onRemove}>
-            Remove Engine
+            Remove engine
           </Button>
         )}
         <Button kind="primary" onClick={props.onDownload} disabled={required.some((a) => !a.available)}>
@@ -486,12 +492,109 @@ function CleanupCard({ ctx }: { ctx: Ctx }) {
         <p className="mt-2 text-[12px] text-text-2">{level.detail}</p>
       </div>
       <Divider />
+      <AppStyles ctx={ctx} disabled={!hasCleanup} />
+      <Divider />
       <CardHeader
         title="Formal wording"
-        detail="Polished and Compose write contractions out: “I do not think so” for “I don't think so”."
+        detail={'Polished and Compose write contractions out, so "I don\'t think so" becomes "I do not think so".'}
         right={<Switch label="Formal wording" disabled={!hasCleanup} checked={vd.formalRegister} onChange={(v) => ctx.saveVd({ formalRegister: v })} />}
       />
     </Card>
+  );
+}
+
+const STYLE_SELECT =
+  "h-[28px] rounded-[6px] border border-card-border bg-fill px-2 text-[12.5px] outline-none focus-visible:border-accent disabled:opacity-50";
+
+/** Cleanup styles for chosen apps; every other app uses the main style. */
+function AppStyles({ ctx, disabled }: { ctx: Ctx; disabled: boolean }) {
+  const vd = ctx.state.settings.voiceDictation;
+  const apps = useKnownApps();
+  const [adding, setAdding] = useState(false);
+  const setStyles = (appStyles: AppStyle[]) => ctx.saveVd({ appStyles });
+  return (
+    <div>
+      <CardHeader
+        title="Styles for specific apps"
+        detail="Pick a different style for the apps you choose, such as Casual in Discord. Other apps use the style above."
+        right={
+          <Button small disabled={disabled} onClick={() => setAdding(true)}>
+            <Icon.Plus /> Add app
+          </Button>
+        }
+      />
+      {vd.appStyles.length > 0 && (
+        <div className="mt-2 flex flex-col">
+          {vd.appStyles.map((s) => {
+            const app = apps.find((a) => a.exe.toLowerCase() === s.appExe.toLowerCase());
+            return (
+              <div key={s.appExe} className="flex items-center gap-2 border-t border-hairline py-1.5 first:border-t-0">
+                <AppIcon app={app ?? { exe: s.appExe, name: s.appExe }} />
+                <span className="min-w-0 flex-1 truncate text-[12.5px]">{scopeName(s.appExe, apps)}</span>
+                <select
+                  aria-label={`Style in ${scopeName(s.appExe, apps)}`}
+                  disabled={disabled}
+                  value={s.level}
+                  onChange={(e) => setStyles(vd.appStyles.map((x) => (x.appExe === s.appExe ? { ...x, level: e.target.value as CleanupLevel } : x)))}
+                  className={cx(STYLE_SELECT, "w-[120px]")}
+                >
+                  {CLEANUP.map((c) => (
+                    <option key={c.value} value={c.value}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+                <IconButton label={`Remove ${scopeName(s.appExe, apps)}`} onClick={() => setStyles(vd.appStyles.filter((x) => x.appExe !== s.appExe))}>
+                  <Icon.Trash />
+                </IconButton>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {adding && (
+        <AppStyleSheet
+          taken={vd.appStyles.map((s) => s.appExe.toLowerCase())}
+          initial={vd.cleanupLevel === "light" ? "full" : "light"}
+          onClose={() => setAdding(false)}
+          onSave={(style) => {
+            setStyles([...vd.appStyles, style]);
+            setAdding(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function AppStyleSheet({ taken, initial, onClose, onSave }: {
+  taken: string[];
+  initial: CleanupLevel;
+  onClose: () => void;
+  onSave: (style: AppStyle) => void;
+}) {
+  const [appExe, setAppExe] = useState<string | null>(null);
+  const [level, setLevel] = useState<CleanupLevel>(initial);
+  const valid = appExe != null && /^[^\\/]+\.exe$/i.test(appExe) && !taken.includes(appExe.toLowerCase());
+  return (
+    <Sheet
+      title="Style for an app"
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button kind="primary" disabled={!valid} onClick={() => appExe && onSave({ appExe, level })}>
+            Save
+          </Button>
+        </>
+      }
+    >
+      <AppScope value={appExe} onChange={setAppExe} anyApp={false} />
+      <span className="mb-1 block text-[12px] text-text-2">Style</span>
+      <Segmented value={level} onChange={setLevel} options={CLEANUP.map((c) => ({ value: c.value, label: c.label }))} />
+      <p className="mt-2 text-[12px] text-text-2">{CLEANUP.find((c) => c.value === level)?.detail}</p>
+      {appExe && taken.includes(appExe.toLowerCase()) && <Warning>This app already has a style. Change it in the list.</Warning>}
+    </Sheet>
   );
 }
 
@@ -501,14 +604,14 @@ function FormattingCard({ ctx }: { ctx: Ctx }) {
     <Card>
       <CardHeader
         title="Adapt to the app"
-        detail="In a terminal, or a terminal pane in VS Code or Cursor, Developer Mode writes spoken commands as commands. In Slack, Teams, Discord and other chat apps, a one-line message drops its full stop. In Outlook and other mail apps, a greeting and a sign-off get their own lines."
+        detail="In a terminal, or a terminal pane in VS Code or Cursor, spoken commands are written as commands. In Slack, Teams, Discord and other chat apps, a one-line message drops its full stop. In Outlook and other mail apps, the greeting and sign-off get their own lines."
         right={<Switch label="Adapt to the app" checked={vd.adaptsToApp} onChange={(v) => ctx.saveVd({ adaptsToApp: v })} />}
       />
       {vd.adaptsToApp && (
         <div className="mt-3 flex flex-col gap-1.5 rounded-[8px] bg-accent-soft px-3 py-2.5">
           {EXAMPLES.map(([said, typed]) => (
             <div key={said} className="flex flex-wrap items-baseline gap-x-2 text-[12px]">
-              <span className="text-text-2">“{said}”</span>
+              <span className="text-text-2">"{said}"</span>
               <span className="text-text-3">→</span>
               <code className="font-mono text-[12px]">{typed}</code>
             </div>
@@ -517,17 +620,35 @@ function FormattingCard({ ctx }: { ctx: Ctx }) {
       )}
       <Divider />
       <CardHeader
-        title="Spoken line breaks"
-        detail="Say “new line” or “new paragraph” to break the text. Said as part of a sentence, as in “add a new line”, the words are typed. Off in terminals."
-        right={<Switch label="Spoken line breaks" checked={vd.layoutCues} onChange={(v) => ctx.saveVd({ layoutCues: v })} />}
+        title="Match the text around the cursor"
+        detail="Dictating into the middle of a sentence starts the text in lowercase, adds a missing space, and drops a full stop the sentence doesn't need. Names and your vocabulary keep their capitals."
+        right={<Switch label="Match the text around the cursor" checked={vd.fitsToCursor} onChange={(v) => ctx.saveVd({ fitsToCursor: v })} />}
+      />
+      <Divider />
+      <CardHeader
+        title="Spoken line breaks and emoji"
+        detail={'Say "new line" or "new paragraph" to break the text, or an emoji name followed by "emoji", such as "thumbs up emoji". Words inside a sentence, as in "add a new line", are typed as words. Off in terminals.'}
+        right={<Switch label="Spoken line breaks and emoji" checked={vd.layoutCues} onChange={(v) => ctx.saveVd({ layoutCues: v })} />}
+      />
+      <Divider />
+      <CardHeader
+        title={'Say "press enter" to send'}
+        detail={'End a dictation with "press enter" and Quill presses Enter after the paste. Handy in chat apps and coding tools.'}
+        right={<Switch label="Press Enter on command" checked={vd.spokenEnter} onChange={(v) => ctx.saveVd({ spokenEnter: v })} />}
+      />
+      <Divider />
+      <CardHeader
+        title="Split long pastes in terminals"
+        detail="Claude Code, Codex and similar tools fold a long paste into a placeholder. Quill pastes text over 600 characters or with more than 2 line breaks in pieces, so you can read it before you send it."
+        right={<Switch label="Split long pastes in terminals" checked={vd.splitsTerminalPastes} onChange={(v) => ctx.saveVd({ splitsTerminalPastes: v })} />}
       />
       <Divider />
       <CardHeader
         title="Write numbers as figures"
         detail={
           ctx.state.itnAvailable
-            ? "“Twenty five dollars on March third” becomes “$25 on March 3”. Applies to English when S1-mini is not already doing it: Verbatim, the Whisper and Cohere engines, and terminals."
-            : "The number formatter is not available in this build."
+            ? '"Twenty five dollars on March third" becomes "$25 on March 3". Applies to English when S1-mini isn\'t already doing it: in Verbatim, with the Whisper and Cohere engines, and in terminals.'
+            : "The number formatter isn't in this build."
         }
         right={
           <Switch
@@ -576,91 +697,6 @@ function LaunchersCard() {
   );
 }
 
-function HistoryCard({ ctx }: { ctx: Ctx }) {
-  const { settings, historyCount } = ctx.state;
-  const enabled = settings.voiceDictation.historyEnabled;
-  const expanded = enabled && settings.historyExpanded;
-  const [entries, setEntries] = useState<HistoryEntry[]>([]);
-  useEffect(() => {
-    if (!expanded) return;
-    const load = () => api.getHistory().then(setEntries);
-    load();
-    const un = on("history-changed", load);
-    return () => {
-      un.then((f) => f());
-    };
-  }, [expanded, historyCount]);
-  return (
-    <Card>
-      <div className="flex items-start gap-2">
-        <button
-          aria-label={expanded ? "Collapse" : "Expand"}
-          disabled={!enabled}
-          onClick={() => ctx.save({ ...settings, historyExpanded: !settings.historyExpanded })}
-          className="mt-[2px] text-text-2 disabled:opacity-30"
-        >
-          <Icon.Chevron open={expanded} />
-        </button>
-        <div className="flex-1">
-          <CardHeader
-            title={historyCount > 0 ? `Transcript history · ${historyCount}` : "Transcript history"}
-            detail="Off by default. When on, final text is kept on this PC for 24 hours, then deleted. Audio is never stored."
-            right={
-              <Switch
-                label="Transcript history"
-                checked={enabled}
-                onChange={(v) => ctx.saveVd({ historyEnabled: v })}
-              />
-            }
-          />
-        </div>
-      </div>
-      {expanded && (
-        <div className="mt-3">
-          {entries.length === 0 ? (
-            <p className="py-2 text-[12px] text-text-3">Nothing yet. Transcripts appear here as you dictate.</p>
-          ) : (
-            <div className="flex flex-col">
-              {entries.map((e) => (
-                <HistoryRow key={e.id} entry={e} />
-              ))}
-            </div>
-          )}
-          <div className="mt-2 flex items-center justify-between">
-            <span className="text-[12px] text-text-3">{historyCount} kept</span>
-            <Button kind="destructive" small disabled={historyCount === 0} onClick={() => api.clearHistory()}>
-              Clear History
-            </Button>
-          </div>
-        </div>
-      )}
-    </Card>
-  );
-}
-
-function HistoryRow({ entry }: { entry: HistoryEntry }) {
-  const [copied, setCopied] = useCopied();
-  return (
-    <div className="flex items-start gap-2 border-t border-hairline py-2 first:border-t-0">
-      <div className="min-w-0 flex-1">
-        <p className="selectable text-[12.5px] whitespace-pre-wrap">{entry.text}</p>
-        <p className="mt-0.5 text-[11px] text-text-3">
-          {entry.appName} · {timeAgo(entry.createdAt)}
-        </p>
-      </div>
-      <IconButton
-        label={copied ? "Copied" : "Copy"}
-        onClick={() => {
-          api.copyText(entry.text);
-          setCopied();
-        }}
-      >
-        {copied ? <Icon.Check size={14} /> : <Icon.Copy />}
-      </IconButton>
-    </div>
-  );
-}
-
 const LICENSES: [string, string, string][] = [
   ["whisper.cpp, llama.cpp", "MIT", "Notices kept."],
   ["ONNX Runtime, sherpa-onnx", "MIT, Apache 2.0", "Notices kept."],
@@ -669,6 +705,7 @@ const LICENSES: [string, string, string][] = [
   ["S1-mini by Superwhisper", "Apache 2.0", "Derived from Qwen3-0.6B. LICENSE and NOTICE are kept with the model."],
   ["Whisper tiny.en, base.en, large-v3-turbo", "MIT", "By OpenAI. Notice kept."],
   ["Cohere Transcribe 03-2026", "Apache 2.0", "By Cohere Labs. README kept with the weights."],
+  ["Silero VAD", "MIT", "By Silero. Built into Quill to skip silence."],
 ];
 
 function LicensesCard() {

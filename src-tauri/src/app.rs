@@ -393,6 +393,10 @@ impl Shell for TauriShell {
         let _ = self.app.emit_to(overlay::LABEL, "level", level);
     }
 
+    fn preview(&self, text: &str) {
+        let _ = self.app.emit_to(overlay::LABEL, "preview", text);
+    }
+
     fn state_changed(&self) {
         notify(&self.app);
     }

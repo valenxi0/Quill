@@ -115,11 +115,9 @@ fn bring_to_front(hwnd: HWND) -> bool {
     }
 }
 
-/// Send Ctrl+V to the captured target, or the current foreground window if
-/// the target is gone. Returns whether a paste was sent.
-/// `still_current` is checked right before the keystroke, so a dictation
-/// cancelled while we waited never pastes.
-pub fn paste(target: &Target, own_windows: &[isize], still_current: impl Fn() -> bool) -> bool {
+/// Bring the captured target forward, or check the foreground window if the
+/// target is gone. False when it can't take a paste.
+pub fn focus(target: &Target, own_windows: &[isize]) -> bool {
     if target.elevated {
         return false;
     }
@@ -135,7 +133,15 @@ pub fn paste(target: &Target, own_windows: &[isize], still_current: impl Fn() ->
     if !target.editable && target.is_alive() {
         return false;
     }
-    if !bring_to_front(hwnd) {
+    bring_to_front(hwnd)
+}
+
+/// Send Ctrl+V to the captured target, or the current foreground window if
+/// the target is gone. Returns whether a paste was sent.
+/// `still_current` is checked right before the keystroke, so a dictation
+/// cancelled while we waited never pastes.
+pub fn paste(target: &Target, own_windows: &[isize], still_current: impl Fn() -> bool) -> bool {
+    if !focus(target, own_windows) {
         return false;
     }
     wait_for_modifiers_up(Duration::from_millis(600));
@@ -145,6 +151,15 @@ pub fn paste(target: &Target, own_windows: &[isize], still_current: impl Fn() ->
     // Anything still held is released first.
     let mut inputs: Vec<INPUT> = MODIFIERS.iter().filter(|m| is_down(**m)).map(|m| key(*m, true)).collect();
     inputs.extend([key(VK_CONTROL, false), key(VK_V, false), key(VK_V, true), key(VK_CONTROL, true)]);
+    let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+    sent as usize == inputs.len()
+}
+
+/// Press Enter in the foreground window, after a paste has landed.
+pub fn press_enter() -> bool {
+    use windows::Win32::UI::Input::KeyboardAndMouse::VK_RETURN;
+    wait_for_modifiers_up(Duration::from_millis(600));
+    let inputs = [key(VK_RETURN, false), key(VK_RETURN, true)];
     let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
     sent as usize == inputs.len()
 }

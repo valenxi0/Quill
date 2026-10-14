@@ -35,6 +35,8 @@ Release builds need two extra settings on Windows:
 
 Cargo features: `whisper`, `sherpa`, `llama`, `vulkan` (all on by default). CPU is always the fallback when the GPU backend can't start.
 
+The voice activity detector tests need the bundled ONNX Runtime beside the test binary. Otherwise Windows loads the older `System32\onnxruntime.dll` and the test process crashes. Copy `target\debug\onnxruntime*.dll` and `target\debug\sherpa-onnx-*.dll` into `target\debug\deps` once; without them, those tests skip.
+
 ## Releasing and updates
 
 Release builds check GitHub shortly after launch and once a day. The update feed must be publicly accessible; while the repository is private, install updates manually from GitHub Releases. When an update is available, Quill offers it:
@@ -67,13 +69,21 @@ Updates only reach copies that already have the updater (0.1.0 builds from after
 
 ### Code signing (Smart App Control)
 
-Windows 11's Smart App Control blocks unsigned installers outright. The update signature above only proves an update came from you; it doesn't satisfy Windows. For that, sign with a certificate Windows trusts. One option is Microsoft's Azure **Trusted Signing**.
+Windows 11's Smart App Control blocks unsigned installers with no way to run them anyway. The update signature above only proves an update came from you; it doesn't satisfy Windows. Signing with a certificate Windows trusts is the only fix that works for new users. Asking them to turn Smart App Control off works, but it lowers their protection for every app.
 
-Once you have an account, add a `signCommand` under `bundle.windows` in `src-tauri/tauri.conf.json` that calls the Trusted Signing tool, and add its credentials as repository secrets. The release workflow then signs `Quill.exe`, the installer, and the updater artifacts. The bundled DLLs need signing too: sign them in `scripts/stage-dlls.mjs` before they're packed.
+Options, cheapest first:
+
+- **SignPath Foundation** signs open-source projects for free. Quill qualifies with its MIT license. Apply at signpath.org; their signing runs as a GitHub Actions step.
+- **Azure Artifact Signing** (formerly Trusted Signing) costs about $10 a month. Individual developers must be in the USA or Canada; organizations can also be in the EU or UK. Identity checks take a few business days.
+- **Microsoft Store.** Microsoft signs Store packages, which Smart App Control trusts. This needs an MSIX package instead of the NSIS installer.
+
+Quill's release workflow is ready for Azure Artifact Signing. Add these repository secrets and the next tag is signed: `ARTIFACT_SIGNING_ENDPOINT`, `ARTIFACT_SIGNING_ACCOUNT`, `ARTIFACT_SIGNING_PROFILE`, `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`. The app registration needs the Artifact Signing Certificate Profile Signer role. `scripts/sign.ps1` signs `Quill.exe` and the installer through Tauri's `signCommand`, and `scripts/stage-dlls.mjs` signs the sherpa-onnx DLLs. Without the secrets, both skip signing. This path hasn't run against a real account yet, so check the first signed release with `signtool verify /pa`.
+
+Smart App Control also weighs reputation. A newly signed publisher can still see warnings for its first releases. Keep signing every release with the same identity.
 
 ## Launchers
 
-`quill://start`, `quill://stop`, `quill://toggle`, `quill://cancel`, or the same as flags: `Quill.exe --toggle`. They work with Stream Deck, AutoHotkey, PowerToys, and similar tools.
+`quill://start`, `quill://stop`, `quill://toggle`, `quill://cancel`, `quill://paste-last`, or the same as flags: `Quill.exe --toggle`. `paste-last` pastes the last transcript again into the app it went to. They work with Stream Deck, AutoHotkey, PowerToys, and similar tools.
 
 ## Benchmark
 
@@ -100,3 +110,4 @@ Quill ships the runtimes; you download the weights. Always written as "S1-mini" 
 | S1-mini by Superwhisper (from Qwen3-0.6B) | Apache 2.0 with a naming term |
 | Whisper tiny.en, base.en, large-v3-turbo | MIT |
 | Cohere Transcribe 03-2026 | Apache 2.0 |
+| Silero VAD (built in) | MIT |

@@ -14,7 +14,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 pub const LABEL: &str = "overlay";
 /// Logical size of the overlay window; the pill is drawn inside it.
 const WIDTH: f64 = 360.0;
-const HEIGHT: f64 = 96.0;
+/// Tall enough for the live preview caption above the pill.
+const HEIGHT: f64 = 150.0;
 /// Gap above the taskbar, in logical pixels.
 const MARGIN: f64 = 24.0;
 

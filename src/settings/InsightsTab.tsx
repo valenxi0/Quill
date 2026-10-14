@@ -15,7 +15,7 @@ export function InsightsTab({ ctx }: { ctx: Ctx }) {
       {insights.isEmpty ? <Empty hotkey={ctx.state.hotkeyDisplay} /> : <Filled insights={insights} />}
       <div className="mt-1 flex items-center gap-3 px-1">
         <p className="flex-1 text-[11.5px] text-text-3">
-          Insights keep counts only: words, seconds, and the app you dictated into. Never your words. Stored on this PC.
+          Insights keep counts on this PC: words, seconds, and the app you dictated into. They never keep your words.
         </p>
         <span className="text-[12px] text-text-2">Keep insights</span>
         <Switch

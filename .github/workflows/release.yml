@@ -19,6 +19,14 @@ jobs:
       # Signs the update so installed copies accept it (see docs/DEVELOPMENT.md).
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      # Windows code signing for Smart App Control (see docs/DEVELOPMENT.md).
+      # Without these secrets the build is unsigned, as before.
+      ARTIFACT_SIGNING_ENDPOINT: ${{ secrets.ARTIFACT_SIGNING_ENDPOINT }}
+      ARTIFACT_SIGNING_ACCOUNT: ${{ secrets.ARTIFACT_SIGNING_ACCOUNT }}
+      ARTIFACT_SIGNING_PROFILE: ${{ secrets.ARTIFACT_SIGNING_PROFILE }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
     steps:
       - uses: actions/checkout@v4
 
@@ -57,6 +65,7 @@ jobs:
           $entry = [regex]::Match((Get-Content docs/CHANGELOG.md -Raw -Encoding utf8), $pattern)
           if (!$entry.Success) { throw "Missing changelog for $version" }
           $changes = $entry.Groups[1].Value.Trim()
+          $unsigned = if ($env:ARTIFACT_SIGNING_ENDPOINT) { "" } else { " This build is not code-signed, so Smart App Control may block the installer." }
           @"
           ## [Download Quill-Setup.exe for Windows](https://github.com/valenxi0/Quill/releases/download/${env:RELEASE_TAG}/Quill-Setup.exe)
 
@@ -66,12 +75,23 @@ jobs:
 
           $changes
 
-          See the [setup guide](https://github.com/valenxi0/Quill/blob/${env:RELEASE_TAG}/docs/SETUP-GUIDE.md) for installation and troubleshooting. The updater signature does not provide Windows code signing; Smart App Control may block this unsigned installer.
+          See the [setup guide](https://github.com/valenxi0/Quill/blob/${env:RELEASE_TAG}/docs/SETUP-GUIDE.md) for installation and troubleshooting.$unsigned
           "@ | Set-Content "$env:RUNNER_TEMP/release-notes.md" -Encoding utf8
           $delimiter = "release_notes_$([guid]::NewGuid().ToString('N'))"
           "body<<$delimiter" >> $env:GITHUB_OUTPUT
           Get-Content "$env:RUNNER_TEMP/release-notes.md" -Raw -Encoding utf8 >> $env:GITHUB_OUTPUT
           $delimiter >> $env:GITHUB_OUTPUT
+
+      - name: Code signing config
+        id: signing
+        shell: pwsh
+        run: |
+          if (-not $env:ARTIFACT_SIGNING_ENDPOINT) { "args=" >> $env:GITHUB_OUTPUT; exit 0 }
+          $config = @{ bundle = @{ windows = @{ signCommand = @{
+            cmd = "pwsh"; args = @("-NoProfile", "-File", (Resolve-Path scripts/sign.ps1).Path, "%1") } } } }
+          $path = Join-Path $env:RUNNER_TEMP "signing.json"
+          $config | ConvertTo-Json -Depth 6 | Set-Content $path -Encoding utf8
+          "args=--config $path" >> $env:GITHUB_OUTPUT
 
       - name: Build, sign, and publish
         uses: tauri-apps/tauri-action@v0
@@ -84,6 +104,7 @@ jobs:
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
+          args: ${{ steps.signing.outputs.args }}
 
       # A stable, easy-to-spot name, so releases/latest/download/Quill-Setup.exe
       # always gets the newest installer.

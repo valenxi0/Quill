@@ -1,10 +1,10 @@
 //! App context: terminal, chat, or general prose (section 4.3).
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::settings::CleanupLevel;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum AppContext {
     #[default]

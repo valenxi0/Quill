@@ -12,6 +12,7 @@ pub mod pipeline;
 pub mod resample;
 pub mod segments;
 pub mod settings;
+pub mod speech;
 pub mod state;
 pub mod stats;
 pub mod store;

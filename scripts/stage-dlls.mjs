@@ -35,6 +35,13 @@ function vcRuntimeDir() {
 }
 
 const target = resolve(process.env.CARGO_TARGET_DIR ?? "target", "release");
+// With a signing account configured, sign the sherpa DLLs too, so Smart App
+// Control trusts everything Quill installs. The VC++ DLLs are signed by Microsoft.
+if (process.env.ARTIFACT_SIGNING_ENDPOINT) {
+  for (const d of SHERPA) {
+    execFileSync("pwsh", ["-NoProfile", "-File", resolve("scripts", "sign.ps1"), join(target, d)], { stdio: "inherit" });
+  }
+}
 const vc = vcRuntimeDir();
 const files = [...SHERPA.map((d) => join(target, d)), ...VC_RUNTIME.map((d) => join(vc, d))];
 for (const f of files) {

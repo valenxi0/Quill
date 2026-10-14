@@ -170,6 +170,29 @@ pub struct VoiceDictation {
     pub history_enabled: bool,
     pub insights_enabled: bool,
     pub vocabulary: Vec<VocabEntry>,
+    /// Cleanup styles for specific apps, overriding `cleanup_level`.
+    pub app_styles: Vec<AppStyle>,
+    /// Match casing, spaces, and the full stop to the text around the caret.
+    pub fits_to_cursor: bool,
+    /// A dictation ending in "press enter" pastes, then presses Enter.
+    pub spoken_enter: bool,
+    /// Paste long text into terminals in pieces, so TUIs don't collapse it.
+    pub splits_terminal_pastes: bool,
+    /// Show a provisional transcript while recording.
+    pub live_preview: bool,
+}
+
+/// A cleanup style for one app, by executable name.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStyle {
+    pub app_exe: String,
+    pub level: CleanupLevel,
+}
+
+/// The style for a dictation into `exe`: its app style, or the default.
+pub fn level_for_app(default: CleanupLevel, styles: &[AppStyle], exe: &str) -> CleanupLevel {
+    styles.iter().find(|s| !exe.is_empty() && s.app_exe.eq_ignore_ascii_case(exe)).map_or(default, |s| s.level)
 }
 
 impl Default for VoiceDictation {
@@ -188,6 +211,11 @@ impl Default for VoiceDictation {
             history_enabled: false,
             insights_enabled: true,
             vocabulary: Vec::new(),
+            app_styles: Vec::new(),
+            fits_to_cursor: true,
+            spoken_enter: false,
+            splits_terminal_pastes: true,
+            live_preview: false,
         }
     }
 }
@@ -233,6 +261,17 @@ mod tests {
         assert_eq!(vd["language"], "auto");
         assert_eq!(vd["historyEnabled"], false);
         assert_eq!(vd["hotkey"]["vk"], 0x4D);
+    }
+
+    #[test]
+    fn app_styles_override_the_default() {
+        let styles = vec![AppStyle { app_exe: "Discord.exe".into(), level: CleanupLevel::Light }];
+        assert_eq!(level_for_app(CleanupLevel::Full, &styles, "discord.EXE"), CleanupLevel::Light);
+        assert_eq!(level_for_app(CleanupLevel::Full, &styles, "OUTLOOK.EXE"), CleanupLevel::Full);
+        assert_eq!(level_for_app(CleanupLevel::Full, &styles, ""), CleanupLevel::Full);
+        let s: Settings = serde_json::from_str(r#"{"voiceDictation":{"appStyles":[{"appExe":"slack.exe","level":"verbatim"}]}}"#).unwrap();
+        assert_eq!(s.voice_dictation.app_styles[0].level, CleanupLevel::Verbatim);
+        assert!(s.voice_dictation.fits_to_cursor && !s.voice_dictation.live_preview && !s.voice_dictation.spoken_enter);
     }
 
     #[test]

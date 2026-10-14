@@ -4,7 +4,7 @@
 //! stale session never delivers text, updates the phase, records stats, or
 //! learns anything.
 
-use std::sync::atomic::{AtomicU64, Ordering::SeqCst};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::SeqCst};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -15,13 +15,15 @@ use quill_core::corrections::{diff, Anchor, CorrectionPair};
 use quill_core::engines::{recognition_language, EngineId, Recognizer};
 use quill_core::errors::DictationError;
 use quill_core::history::HistoryEntry;
-use quill_core::pipeline::{finish, process_segment, Cleaner, Recipe, SegmentResult};
+use quill_core::pipeline::{prepare, process_segment, protected_terms, Cleaner, DeliveryOptions, Recipe, SegmentResult};
 use quill_core::segments::{pad, split, EarlySegmenter, SAMPLE_RATE};
 use quill_core::text::directive::Directive;
+use quill_core::settings::{level_for_app, CleanupLevel};
 use quill_core::state::{action, Action, HotkeyEvent, Phase};
 use quill_core::stats::Session as StatSession;
 use quill_core::text::finish::{has_speech, join, peak, rms_dbfs, MIN_SPEECH_PEAK};
 use quill_core::text::numbers::Itn;
+use quill_core::text::spoken::paste_chunks;
 use quill_core::text::vocabulary::{for_app, vocabulary_terms};
 use serde::Serialize;
 
@@ -32,6 +34,7 @@ use crate::platform::system::{microphone_permission, MicPermission};
 use crate::platform::{paste, target, uia};
 use crate::shell::Shell;
 use crate::stores::Stores;
+use crate::vad::Vad;
 
 /// What the overlay and tray show.
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -71,7 +74,25 @@ struct Session {
     recording: Option<Recording>,
     segmenter: EarlySegmenter,
     worker: Sender<Job>,
+    /// Fed by the monitor; `None` until it loads, or if it can't.
+    vad: Option<Vad>,
+    preview: Option<Preview>,
 }
+
+/// Live preview state for one recording.
+struct Preview {
+    engine: EngineId,
+    request: TranscribeRequest,
+    /// Raw text of early segments, appended by the worker.
+    committed: Arc<Mutex<Vec<String>>>,
+    busy: Arc<AtomicBool>,
+    next_at: Instant,
+    /// Audio already covered by the last preview.
+    covered: usize,
+}
+
+/// The longest stretch of audio a preview decodes.
+const PREVIEW_WINDOW: usize = SAMPLE_RATE * 15;
 
 enum Job {
     Segment(Vec<f32>),
@@ -84,8 +105,14 @@ struct SessionConfig {
     language: Option<String>,
     vocabulary_terms: Vec<String>,
     recipe: Recipe,
+    level: CleanupLevel,
     target: target::Target,
     history_at_start: bool,
+    spoken_enter: bool,
+    splits_terminal_pastes: bool,
+    /// Vocabulary output whose casing survives fitting to the cursor.
+    protected: Vec<String>,
+    preview_committed: Option<Arc<Mutex<Vec<String>>>>,
 }
 
 pub struct Controller {
@@ -104,6 +131,8 @@ pub struct Controller {
     watch_generation: AtomicU64,
     starting: std::sync::atomic::AtomicBool,
     pub last_transcript: Mutex<Option<String>>,
+    /// Where the last transcript went, for "Paste last transcript".
+    last_target: Mutex<Option<target::Target>>,
     pub last_metrics: Mutex<Option<Metrics>>,
     pub warm_error: Mutex<Option<String>>,
 }
@@ -133,6 +162,7 @@ impl Controller {
             watch_generation: AtomicU64::new(0),
             starting: std::sync::atomic::AtomicBool::new(false),
             last_transcript: Mutex::new(None),
+            last_target: Mutex::new(None),
             last_metrics: Mutex::new(None),
             warm_error: Mutex::new(None),
         })
@@ -260,6 +290,7 @@ impl Controller {
                 }
             }
             "cancel" if phase.is_busy() => self.cancel(),
+            "paste-last" if !phase.is_busy() => self.paste_last(),
             _ => {}
         }
     }
@@ -308,7 +339,8 @@ impl Controller {
 
         // Capture the target while the microphone opens, so a slow UI
         // Automation lookup doesn't clip the first word.
-        let capture = std::thread::spawn(target::capture);
+        let fits_to_cursor = vd.fits_to_cursor;
+        let capture = std::thread::spawn(move || target::capture(fits_to_cursor));
         let recording = match Recording::start() {
             Ok(r) => r,
             Err(e) => {
@@ -324,8 +356,10 @@ impl Controller {
         let info = vd.engine.info();
         let vocabulary = for_app(&vd.vocabulary, &target.exe);
         let terms = vocabulary_terms(&vocabulary);
+        let protected = protected_terms(&vocabulary);
+        let level = level_for_app(vd.cleanup_level, &vd.app_styles, &target.exe);
         let recipe = Recipe {
-            directive: Directive::for_recording(vd.cleanup_level, context, vd.formal_register),
+            directive: Directive::for_recording(level, context, vd.formal_register),
             layout_cues: vd.layout_cues,
             context,
             writes_numbers: vd.writes_numbers,
@@ -346,14 +380,28 @@ impl Controller {
             return;
         }
 
+        let language = recognition_language(vd.engine, &vd.language, &self.preferred_languages);
+        let preview = vd.live_preview.then(|| Preview {
+            engine: vd.engine,
+            request: TranscribeRequest { vocabulary_terms: terms.clone(), language: language.clone() },
+            committed: Arc::new(Mutex::new(Vec::new())),
+            busy: Arc::new(AtomicBool::new(false)),
+            next_at: Instant::now() + Duration::from_millis(900),
+            covered: 0,
+        });
         let config = SessionConfig {
             generation,
             engine: vd.engine,
-            language: recognition_language(vd.engine, &vd.language, &self.preferred_languages),
+            language,
             vocabulary_terms: terms,
             recipe,
+            level: quill_core::context::effective_level(level, context),
             target,
             history_at_start: vd.history_enabled,
+            spoken_enter: vd.spoken_enter,
+            splits_terminal_pastes: vd.splits_terminal_pastes,
+            protected,
+            preview_committed: preview.as_ref().map(|p| p.committed.clone()),
         };
         let worker = self.spawn_worker(config);
         *self.session.lock() = Some(Session {
@@ -361,6 +409,8 @@ impl Controller {
             recording: Some(recording),
             segmenter: EarlySegmenter::default(),
             worker,
+            vad: None,
+            preview,
         });
 
         // Warm the engine so the load overlaps the speech. A failure is kept
@@ -377,11 +427,17 @@ impl Controller {
         self.spawn_monitor(generation);
     }
 
-    /// Publishes the level ~12 times a second, cuts early segments once a
-    /// second, and stops at the 10-minute cap.
+    /// Publishes the level ~12 times a second, feeds the voice activity
+    /// detector, cuts early segments once a second, runs the live preview,
+    /// and stops at the 10-minute cap.
     fn spawn_monitor(self: &Arc<Self>, generation: u64) {
         let me = self.clone();
         std::thread::spawn(move || {
+            // Loaded here, so a slow load never delays the recording.
+            let vad = Vad::new();
+            if let Some(s) = me.session.lock().as_mut().filter(|s| s.generation == generation) {
+                s.vad = vad;
+            }
             let mut last_segment_check = Instant::now();
             loop {
                 std::thread::sleep(Duration::from_millis(83));
@@ -395,14 +451,23 @@ impl Controller {
                     let Some(rec) = s.recording.as_ref() else { return };
                     me.shell.level(rec.level());
                     full = full || rec.is_full();
+                    if let Some(vad) = s.vad.as_mut() {
+                        let fed = vad.fed();
+                        let new = rec.with_samples(|samples| samples[fed.min(samples.len())..].to_vec());
+                        vad.accept(&new);
+                    }
                     if last_segment_check.elapsed() >= Duration::from_secs(1) {
                         last_segment_check = Instant::now();
                         let segmenter = &mut s.segmenter;
-                        let piece = rec.with_samples(|samples| segmenter.poll(samples).map(|r| samples[r].to_vec()));
-                        if let Some(piece) = piece {
-                            let _ = s.worker.send(Job::Segment(piece));
+                        let piece = rec.with_samples(|samples| segmenter.poll(samples).map(|r| (samples[r.clone()].to_vec(), r)));
+                        if let Some((piece, range)) = piece {
+                            // A stretch with no speech is never recognized.
+                            if s.vad.as_ref().is_none_or(|v| v.map.has_speech(&range)) {
+                                let _ = s.worker.send(Job::Segment(piece));
+                            }
                         }
                     }
+                    me.poll_preview(generation, s);
                 }
                 if full {
                     me.stop();
@@ -425,12 +490,29 @@ impl Controller {
             self.fail_session(s.generation, DictationError::NoSpeech);
             return;
         }
+        let speech = s.vad.as_mut().map(|v| v.finish(&samples).clone());
+        if speech.as_ref().is_some_and(|m| !m.has_speech(&(0..samples.len()))) {
+            self.fail_session(s.generation, DictationError::NoSpeech);
+            return;
+        }
         self.advance(s.generation, Phase::Recording, Phase::Transcribing);
         let early = s.segmenter.committed() > 0;
-        let tail = s.segmenter.tail(&samples);
-        let tail_has_speech = tail.len() >= SAMPLE_RATE / 4 && peak(tail) >= MIN_SPEECH_PEAK;
-        if tail_has_speech || !early {
-            let _ = s.worker.send(Job::Segment(tail.to_vec()));
+        let whole_tail = s.segmenter.tail(&samples);
+        let tail_range = samples.len() - whole_tail.len()..samples.len();
+        // The detector trims silence at both ends of the tail. Without it, a
+        // quiet tail after early segments is dropped.
+        let tail = match &speech {
+            Some(map) => map.crop(&tail_range).map(|r| &samples[r]),
+            None => (whole_tail.len() >= SAMPLE_RATE / 4 && peak(whole_tail) >= MIN_SPEECH_PEAK).then_some(whole_tail),
+        };
+        match tail {
+            Some(t) => {
+                let _ = s.worker.send(Job::Segment(t.to_vec()));
+            }
+            None if !early => {
+                let _ = s.worker.send(Job::Segment(whole_tail.to_vec()));
+            }
+            None => {}
         }
         let _ = s.worker.send(Job::Finish { stopped, audio_seconds, rms_dbfs: rms_dbfs(&samples) });
     }
@@ -490,7 +572,12 @@ impl Controller {
                                 continue;
                             }
                             match me.process(&cfg, &samples, &mut metrics) {
-                                Ok(r) => results.push(r),
+                                Ok(r) => {
+                                    if let Some(c) = &cfg.preview_committed {
+                                        c.lock().push(r.raw.clone());
+                                    }
+                                    results.push(r)
+                                }
                                 Err(e) => failure = Some(e),
                             }
                         }
@@ -576,31 +663,76 @@ impl Controller {
         }
         let raw = join(&results.iter().map(|r| r.raw.clone()).collect::<Vec<_>>());
         let text = join(&results.iter().map(|r| r.text.clone()).collect::<Vec<_>>());
-        let text = match finish(&raw, &text, cfg.recipe.context, rms) {
-            Ok(t) => t,
+        let options = DeliveryOptions {
+            spoken_enter: cfg.spoken_enter,
+            around: cfg.target.surroundings.as_ref(),
+            protected: &cfg.protected,
+        };
+        let delivery = match prepare(&raw, &text, cfg.recipe.context, rms, &options) {
+            Ok(d) => d,
             Err(e) => return self.fail_session(cfg.generation, e),
         };
-
-        // The clipboard is authoritative: write it first.
         if !self.is_current(cfg.generation) {
             return;
         }
+        let own = self.shell.own_windows();
+        let still_current = || self.is_current(cfg.generation);
+
+        // Only "press enter" was said: press it and deliver no text.
+        if delivery.text.is_empty() {
+            let pressed = paste::focus(&cfg.target, &own) && still_current() && paste::press_enter();
+            self.outcome(
+                Some(cfg.generation),
+                DictationView {
+                    phase: Phase::Completed,
+                    outcome: Some(if pressed { "Enter pressed" } else { "Nothing to paste" }.into()),
+                    context: cfg.recipe.context,
+                    ..Default::default()
+                },
+            );
+            return;
+        }
+
+        // The clipboard is authoritative: write it first.
+        let text = delivery.text.trim().to_string();
         *self.last_transcript.lock() = Some(text.clone());
-        if !paste::set_clipboard_text(&text) {
+        *self.last_target.lock() = Some(cfg.target.clone());
+        if !paste::set_clipboard_text(&delivery.text) {
             self.fail_session(cfg.generation, DictationError::ClipboardFailed);
             return;
         }
         metrics.stop_to_clipboard_ms = stopped.elapsed().as_millis() as u64;
-        // Checked again right before the keystroke: Esc can land while the
+        let chunks = if cfg.recipe.context == AppContext::Terminal && cfg.splits_terminal_pastes {
+            paste_chunks(&delivery.text)
+        } else {
+            vec![delivery.text.clone()]
+        };
+        // Checked again right before each keystroke: Esc can land while the
         // paste waits for the shortcut's modifiers to come up.
-        let pasted = paste::paste(&cfg.target, &self.shell.own_windows(), || self.is_current(cfg.generation));
+        let pasted = if chunks.len() > 1 {
+            let sent = paste_in_pieces(&cfg.target, &own, &chunks, still_current);
+            // Leave the whole text on the clipboard, not the last piece.
+            paste::set_clipboard_text(&delivery.text);
+            sent
+        } else {
+            paste::paste(&cfg.target, &own, still_current)
+        };
+        let entered = pasted && delivery.press_enter && still_current() && {
+            std::thread::sleep(Duration::from_millis(120));
+            paste::press_enter()
+        };
         let release_to_paste = stopped.elapsed();
 
+        let outcome = match (pasted, entered) {
+            (true, true) => "Pasted and sent",
+            (true, false) => "Paste sent",
+            _ => "Copied only",
+        };
         let shown = self.outcome(
             Some(cfg.generation),
             DictationView {
                 phase: Phase::Completed,
-                outcome: Some(if pasted { "Paste sent" } else { "Copied only" }.into()),
+                outcome: Some(outcome.into()),
                 error_title: None,
                 error_detail: None,
                 context: cfg.recipe.context,
@@ -614,6 +746,93 @@ impl Controller {
         *self.last_metrics.lock() = Some(metrics);
         self.shell.state_changed();
         self.schedule_idle_unload();
+    }
+
+    /// Paste the last transcript again, into the app it went to.
+    pub fn paste_last(self: &Arc<Self>) {
+        let Some(text) = self.last_transcript.lock().clone() else { return };
+        let target = self.last_target.lock().clone().unwrap_or_default();
+        let own = self.shell.own_windows();
+        std::thread::spawn(move || {
+            if paste::set_clipboard_text(&text) {
+                paste::paste(&target, &own, || true);
+            }
+        });
+    }
+
+    /// Run a history entry's raw transcript through cleanup again at
+    /// `level`. Uses S1-mini when it is installed, whatever the engine.
+    pub fn redo(self: &Arc<Self>, raw: &str, level: CleanupLevel, app_exe: &str, context: AppContext) -> Result<String, String> {
+        if raw.trim().is_empty() {
+            return Err("This entry has no raw transcript to redo.".into());
+        }
+        let has_cleanup = self.models.is_ready(quill_core::engines::AssetId::S1Mini);
+        if level != CleanupLevel::Verbatim && !has_cleanup {
+            return Err("Download Parakeet + S1-mini to redo with cleanup.".into());
+        }
+        let vd = self.stores.settings.get().voice_dictation;
+        let recipe = Recipe {
+            directive: Directive::for_recording(level, context, vd.formal_register),
+            layout_cues: vd.layout_cues,
+            context,
+            writes_numbers: vd.writes_numbers,
+            has_cleanup,
+            vocabulary: for_app(&vd.vocabulary, app_exe),
+        };
+        let mut cleaner = EngineCleaner { engines: &self.engines };
+        let cleaner = has_cleanup.then_some(&mut cleaner as &mut dyn Cleaner);
+        let result = process_segment(raw, None, &recipe, cleaner, self.itn.as_deref());
+        let text = prepare(raw, &result.text, context, 0.0, &DeliveryOptions::default()).map_err(|e| e.to_string())?.text;
+        self.schedule_idle_unload();
+        Ok(text)
+    }
+
+    /// Start a preview decode of the audio not yet committed, if one is due.
+    fn poll_preview(self: &Arc<Self>, generation: u64, s: &mut Session) {
+        let Some(p) = s.preview.as_mut() else { return };
+        let Some(rec) = s.recording.as_ref() else { return };
+        if Instant::now() < p.next_at || p.busy.load(SeqCst) || !self.engines.recognizer_loaded(p.engine) {
+            return;
+        }
+        let committed = s.segmenter.committed();
+        let (audio, len) = rec.with_samples(|samples| {
+            let start = committed.max(samples.len().saturating_sub(PREVIEW_WINDOW));
+            (samples[start.min(samples.len())..].to_vec(), samples.len())
+        });
+        // Skip when nothing new was said since the last preview.
+        let fresh = p.covered.max(committed)..len;
+        if fresh.is_empty() || s.vad.as_ref().is_some_and(|v| !v.map.has_speech(&fresh)) {
+            p.next_at = Instant::now() + Duration::from_millis(300);
+            return;
+        }
+        p.covered = len;
+        p.busy.store(true, SeqCst);
+        let me = self.clone();
+        let (engine, request, earlier, busy) = (p.engine, p.request.clone(), p.committed.clone(), p.busy.clone());
+        let started = Instant::now();
+        std::thread::spawn(move || {
+            let heard = me
+                .engines
+                .with_recognizer(engine, |e| e.transcribe(&pad(&audio, 1.0), &request))
+                .ok()
+                .and_then(|(r, _)| r.ok())
+                .map(|t| t.text);
+            // Wait at least as long as this decode took before the next one.
+            let spent = started.elapsed();
+            if let Some(s) = me.session.lock().as_mut().filter(|s| s.generation == generation) {
+                if let Some(p) = s.preview.as_mut() {
+                    p.next_at = Instant::now() + spent.max(Duration::from_millis(700));
+                }
+            }
+            busy.store(false, SeqCst);
+            if let Some(heard) = heard {
+                if me.is_current(generation) && me.phase() == Phase::Recording {
+                    let mut parts = earlier.lock().clone();
+                    parts.push(heard);
+                    me.shell.preview(&join(&parts));
+                }
+            }
+        });
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -635,6 +854,9 @@ impl Controller {
                 h.add(HistoryEntry {
                     id: uuid::Uuid::new_v4(),
                     text: text.to_string(),
+                    raw: raw.to_string(),
+                    level: Some(cfg.level),
+                    context: cfg.recipe.context,
                     engine: cfg.engine,
                     app_name: app_name.clone(),
                     app_exe: cfg.target.exe.clone(),
@@ -747,6 +969,32 @@ impl Controller {
             me.shell.state_changed();
             me.schedule_idle_unload();
         });
+    }
+}
+
+/// Pieces of a long terminal paste, one after another. Returns whether all
+/// were sent.
+fn paste_in_pieces(target: &target::Target, own: &[isize], chunks: &[String], still_current: impl Fn() -> bool) -> bool {
+    for (i, chunk) in chunks.iter().enumerate() {
+        if i > 0 {
+            // Let the app read the clipboard before it changes.
+            std::thread::sleep(Duration::from_millis(150));
+        }
+        if !still_current() || !paste::set_clipboard_text(chunk) || !paste::paste(target, own, &still_current) {
+            return false;
+        }
+    }
+    true
+}
+
+/// S1-mini for a redo, outside any dictation.
+struct EngineCleaner<'a> {
+    engines: &'a EngineHost,
+}
+
+impl Cleaner for EngineCleaner<'_> {
+    fn clean(&mut self, text: &str, directive: Directive) -> Result<String, String> {
+        self.engines.with_cleaner(|c| c.clean(text, directive)).and_then(|(r, _)| r)
     }
 }
 

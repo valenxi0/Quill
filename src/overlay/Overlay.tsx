@@ -7,12 +7,14 @@ export default function Overlay({ preview }: { preview?: DictationView }) {
   const [suggestion, setSuggestion] = useState<CorrectionPair | null>(null);
   const [reduced, setReduced] = useState(false);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [heard, setHeard] = useState("");
 
   useEffect(() => {
     const subs = [
       on<DictationView>("dictation", (v) => {
         setView(v);
         if (v.phase !== "idle") setSuggestion(null);
+        if (v.phase !== "recording") setHeard("");
         if (v.phase === "recording") api.animationsEnabled().then((a) => setReduced(!a));
       }),
       on<CorrectionPair>("suggestion", (p) => {
@@ -22,6 +24,7 @@ export default function Overlay({ preview }: { preview?: DictationView }) {
       on("suggestion-dismissed", () => setSuggestion(null)),
       on<UpdateInfo>("update-available", setUpdate),
       on("update-dismissed", () => setUpdate(null)),
+      on<string>("preview", setHeard),
     ];
     return () => subs.forEach((p) => p.then((f) => f()));
   }, []);
@@ -36,7 +39,8 @@ export default function Overlay({ preview }: { preview?: DictationView }) {
   if (!view || phase === "idle") return null;
 
   return (
-    <div className="flex h-screen items-end justify-center pb-2">
+    <div className="flex h-screen flex-col items-center justify-end gap-1.5 pb-2">
+      {phase === "recording" && heard && <Caption text={heard} />}
       <Pill recording={phase === "recording"}>
         {phase === "recording" && <Listening context={view.context} />}
         {(phase === "transcribing" || phase === "cleaning") && (
@@ -79,6 +83,20 @@ function Pill({ children, recording }: { children: React.ReactNode; recording?: 
     >
       {children}
     </div>
+  );
+}
+
+/** The end of the live preview: the words just spoken matter most. */
+function Caption({ text }: { text: string }) {
+  const MAX = 140;
+  const shown = text.length > MAX ? `…${text.slice(text.length - MAX).replace(/^\S*\s/, "")}` : text;
+  return (
+    <p
+      className="max-w-[340px] rounded-[12px] px-3 py-1.5 text-center text-[12px] leading-[1.4] text-white/85"
+      style={{ background: "rgba(10, 10, 10, 0.92)", border: "1px solid rgba(255,255,255,0.12)" }}
+    >
+      {shown}
+    </p>
   );
 }
 

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use quill_core::corrections::CorrectionPair;
 use quill_core::engines::{AssetId, EngineId};
 use quill_core::history::HistoryEntry;
-use quill_core::settings::{Hotkey, Settings};
+use quill_core::settings::{CleanupLevel, Hotkey, Settings};
 use quill_core::stats::{Insights, Stats};
 use quill_core::text::vocabulary::{apply, parse_list_for_app, protect_snippets, EntryKind, Piece, VocabEntry};
 use tauri::{AppHandle, State};
@@ -147,6 +147,27 @@ pub fn copy_last(q: Q) -> bool {
 }
 
 #[tauri::command]
+pub fn paste_last(q: Q) {
+    q.controller.paste_last();
+}
+
+/// Clean a history entry's raw transcript again in another style, and copy
+/// the result.
+#[tauri::command(async)]
+pub fn redo_history(q: Q, id: uuid::Uuid, level: CleanupLevel) -> Result<String, String> {
+    let entry = q
+        .stores
+        .history
+        .read(|h| h.entries.iter().find(|e| e.id == id).cloned())
+        .ok_or("This entry has expired.")?;
+    let text = q.controller.redo(&entry.raw, level, &entry.app_exe, entry.context)?;
+    if !crate::platform::paste::set_clipboard_text(&text) {
+        return Err("The clipboard is busy. Try again.".into());
+    }
+    Ok(text)
+}
+
+#[tauri::command]
 pub fn get_history(q: Q) -> Vec<HistoryEntry> {
     app::purge_history(&q);
     q.stores.history.read(|h| h.latest(20))
@@ -158,27 +179,46 @@ pub fn clear_history(app: AppHandle, q: Q) {
     notify(&app);
 }
 
+/// An icon for an app Quill only knows by file name: from an open window,
+/// else from wherever the app is installed.
+fn icon_for(exe: &str, open: &[crate::platform::target::KnownApp]) -> Option<String> {
+    open.iter()
+        .find(|a| a.exe.eq_ignore_ascii_case(exe))
+        .and_then(|a| a.icon.clone())
+        .or_else(|| crate::platform::apps::find_exe(exe).and_then(|path| crate::platform::icons::file_icon(&path)))
+}
+
+/// Keep found icons in the stats, so they are looked up once.
+fn save_icons(q: &Q, found: &[(String, String)]) {
+    if found.is_empty() {
+        return;
+    }
+    q.stores.stats.update(|s| {
+        for month in s.months.values_mut() {
+            for (exe, icon) in found {
+                if let Some(app) = month.get_mut(&exe.to_lowercase()) {
+                    app.icon = Some(icon.clone());
+                }
+            }
+        }
+    });
+}
+
 #[tauri::command(async)]
 pub fn get_insights(q: Q) -> Insights {
     let mut insights = q.stores.stats.read(|s| s.insights(chrono::Local::now().date_naive()));
-    if insights.apps.iter().all(|a| a.icon.is_some()) { return insights; }
+    if insights.apps.iter().all(|a| a.icon.is_some()) {
+        return insights;
+    }
     let open = crate::platform::target::open_apps();
-    let mut resolved = Vec::new();
-    for app in &mut insights.apps {
-        if app.icon.is_none() {
-            app.icon = open.iter().find(|a| a.exe.eq_ignore_ascii_case(&app.exe)).and_then(|a| a.icon.clone());
-            if let Some(icon) = &app.icon { resolved.push((app.exe.clone(), icon.clone())); }
+    let mut found = Vec::new();
+    for app in insights.apps.iter_mut().filter(|a| a.icon.is_none()) {
+        app.icon = icon_for(&app.exe, &open);
+        if let Some(icon) = &app.icon {
+            found.push((app.exe.clone(), icon.clone()));
         }
     }
-    if !resolved.is_empty() {
-        q.stores.stats.update(|s| {
-            for month in s.months.values_mut() {
-                for (exe, icon) in &resolved {
-                    if let Some(app) = month.get_mut(exe) { app.icon = Some(icon.clone()); }
-                }
-            }
-        });
-    }
+    save_icons(&q, &found);
     insights
 }
 
@@ -198,10 +238,21 @@ pub fn get_known_apps(q: Q) -> Vec<crate::platform::target::KnownApp> {
             apps.entry(app.app_exe.to_lowercase()).or_insert(KnownApp { exe: app.app_exe.to_lowercase(), name: app.app_name.clone(), icon: None });
         }
     });
-    for mut app in open_apps() {
-        if app.icon.is_none() { app.icon = apps.get(&app.exe).and_then(|a| a.icon.clone()); }
+    let open = open_apps();
+    for app in &open {
+        let known = apps.get(&app.exe).and_then(|a| a.icon.clone());
+        let mut app = app.clone();
+        app.icon = app.icon.or(known);
         apps.insert(app.exe.clone(), app);
     }
+    let mut found = Vec::new();
+    for app in apps.values_mut().filter(|a| a.icon.is_none() && !a.exe.is_empty()) {
+        app.icon = icon_for(&app.exe, &open);
+        if let Some(icon) = &app.icon {
+            found.push((app.exe.clone(), icon.clone()));
+        }
+    }
+    save_icons(&q, &found);
     let mut apps: Vec<_> = apps.into_values().filter(|a| !a.exe.is_empty()).collect();
     apps.sort_by_key(|a| a.name.to_lowercase());
     apps

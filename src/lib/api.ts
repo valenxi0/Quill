@@ -31,6 +31,11 @@ export interface VocabEntry {
   appExe?: string | null;
 }
 
+export interface AppStyle {
+  appExe: string;
+  level: CleanupLevel;
+}
+
 export interface VoiceDictation {
   engine: EngineId;
   activationMode: ActivationMode;
@@ -45,6 +50,11 @@ export interface VoiceDictation {
   historyEnabled: boolean;
   insightsEnabled: boolean;
   vocabulary: VocabEntry[];
+  appStyles: AppStyle[];
+  fitsToCursor: boolean;
+  spokenEnter: boolean;
+  splitsTerminalPastes: boolean;
+  livePreview: boolean;
 }
 
 export interface Settings {
@@ -162,6 +172,10 @@ export interface UiState {
 export interface HistoryEntry {
   id: string;
   text: string;
+  /** Empty in entries from before 0.3. */
+  raw: string;
+  level: CleanupLevel | null;
+  context: AppContext;
   engine: EngineId;
   appName: string;
   appExe: string;
@@ -203,6 +217,8 @@ export const api = {
   resetHotkey: () => invoke<void>("reset_hotkey"),
   openMicrophoneSettings: () => invoke<void>("open_microphone_settings"),
   copyText: (text: string) => invoke<boolean>("copy_text", { text }),
+  pasteLast: () => invoke<void>("paste_last"),
+  redoHistory: (id: string, level: CleanupLevel) => invoke<string>("redo_history", { id, level }),
   getHistory: () => invoke<HistoryEntry[]>("get_history"),
   clearHistory: () => invoke<void>("clear_history"),
   getInsights: () => invoke<Insights>("get_insights"),
@@ -226,4 +242,4 @@ export function on<T>(event: string, handler: (payload: T) => void): Promise<Unl
   return listen<T>(event, (e) => handler(e.payload));
 }
 
-export const LINKS = ["quill://start", "quill://stop", "quill://toggle", "quill://cancel"] as const;
+export const LINKS = ["quill://start", "quill://stop", "quill://toggle", "quill://cancel", "quill://paste-last"] as const;

@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+### Added
+
+- Styles for specific apps: pick Casual in Discord and keep Polished everywhere else.
+- Dictating into the middle of a sentence matches the text around the cursor. The first word starts lowercase, a missing space is added, and a full stop the sentence doesn't need is dropped. Names and vocabulary keep their capitals. Turn it off under Setup, Advanced.
+- Say an emoji name followed by "emoji", such as "thumbs up emoji", to type the emoji. "The fire emoji" and "the party was fire" stay as words.
+- Optional: end a dictation with "press enter" to press Enter after the paste.
+- Long pastes into terminals go in pieces, so Claude Code and Codex show the text instead of a "pasted text" placeholder.
+- Optional live preview: the overlay shows the words Quill hears while you speak. The pasted text still comes from the whole recording.
+- Transcript history keeps what Quill heard as well as what it pasted. Redo any entry in another style, and the result is copied. History moved to Your voice.
+- Paste last transcript again, from the tray or `quill://paste-last`, into the app it went to.
+- App pickers have a search field.
+
+### Changed
+
+- A built-in voice activity detector (Silero VAD) skips silence. A recording with no speech ends without running the recognizer, and the end of a recording is trimmed to the speech.
+- Apps that aren't open, Microsoft Store apps such as Claude, and apps recorded before 0.2.2 now show their icons.
+- Clearer Settings copy, sentence-case buttons, and no "All apps" tag on every global vocabulary entry.
+- The release workflow can sign Quill for Smart App Control once a signing account is set up. Releases stay unsigned until then.
+
+### Validation and known limits
+
+- The real S1-mini evaluation now has 35 fixtures, adding self-corrections, negation, hedging, deliberate repetition, emoji, profanity, questions, embedded instructions, file names, and amounts. All pass.
+- Fitting to the cursor depends on the app reporting its caret through UI Automation. Apps that don't are left as before.
+
 ## [0.2.2] - 2026-10-13
 
 ### Added

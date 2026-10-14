@@ -41,6 +41,7 @@ fn build_menu(app: &AppHandle, quill: &Quill) -> tauri::Result<Menu<Wry>> {
     let toggle = MenuItem::with_id(app, "toggle", if recording { "Stop dictation" } else { "Start dictation" }, true, None::<&str>)?;
     let has_last = quill.controller.last_transcript.lock().is_some();
     let copy = MenuItem::with_id(app, "copy-last", "Copy last transcript", has_last, None::<&str>)?;
+    let paste_last = MenuItem::with_id(app, "paste-last", "Paste last transcript again", has_last && !recording, None::<&str>)?;
     let current = quill.controller.stores.settings.read(|s| s.voice_dictation.engine);
     let engine_items: Vec<CheckMenuItem<Wry>> = ENGINES
         .iter()
@@ -62,9 +63,9 @@ fn build_menu(app: &AppHandle, quill: &Quill) -> tauri::Result<Menu<Wry>> {
                 format!("Update to Quill {}", info.version)
             };
             let update = MenuItem::with_id(app, "update", label, !quill.updates.installing(), None::<&str>)?;
-            Menu::with_items(app, &[&update, &sep()?, &toggle, &copy, &sep()?, &engines, &sep()?, &settings, &quit])
+            Menu::with_items(app, &[&update, &sep()?, &toggle, &paste_last, &copy, &sep()?, &engines, &sep()?, &settings, &quit])
         }
-        None => Menu::with_items(app, &[&toggle, &copy, &sep()?, &engines, &sep()?, &settings, &quit]),
+        None => Menu::with_items(app, &[&toggle, &paste_last, &copy, &sep()?, &engines, &sep()?, &settings, &quit]),
     }
 }
 
@@ -80,6 +81,7 @@ pub fn create(app: &AppHandle, quill: &Quill) -> tauri::Result<()> {
             let id = event.id().as_ref().to_string();
             match id.as_str() {
                 "toggle" => quill.controller.command("toggle"),
+                "paste-last" => quill.controller.command("paste-last"),
                 "copy-last" => {
                     if let Some(t) = quill.controller.last_transcript.lock().clone() {
                         crate::platform::paste::set_clipboard_text(&t);
