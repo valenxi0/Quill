@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-14
+
 ### Added
 
 - Styles for specific apps: pick Casual in Discord and keep Polished everywhere else.
