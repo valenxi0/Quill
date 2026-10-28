@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { House, Keyboard, Microphone, ShieldCheck, SlidersHorizontal, type Icon as PhosphorIcon } from "@phosphor-icons/react";
+import { House, Keyboard, Microphone, PencilSimpleLine, ShieldCheck, SlidersHorizontal, type Icon as PhosphorIcon } from "@phosphor-icons/react";
 import { api, on, type Settings, type UiState, type VoiceDictation } from "../lib/api";
 import { Button, Card, cx, Icon, Switch } from "./ui";
 import { StatusCard, SetupTab, TypingTab } from "./SetupTab";
 import { VoiceTab } from "./VoiceTab";
 import { InsightsTab } from "./InsightsTab";
 import { PrivacyTab } from "./PrivacyTab";
+import { SketchTab } from "./SketchTab";
 import { Onboarding } from "./Onboarding";
 
-export type Tab = "home" | "voice" | "setup" | "typing" | "privacy";
+export type Tab = "home" | "voice" | "setup" | "typing" | "sketch" | "privacy";
 
 export interface Ctx {
   state: UiState;
@@ -44,6 +45,7 @@ const PAGES: { id: Tab; label: string; icon: PhosphorIcon }[] = [
   { id: "voice", label: "Your voice", icon: Microphone },
   { id: "setup", label: "Setup", icon: SlidersHorizontal },
   { id: "typing", label: "Typing into apps", icon: Keyboard },
+  { id: "sketch", label: "Sketch", icon: PencilSimpleLine },
   { id: "privacy", label: "Privacy and data", icon: ShieldCheck },
 ];
 
@@ -103,6 +105,8 @@ function Page({ tab, ctx }: { tab: Tab; ctx: Ctx }): ReactNode {
       return <SetupTab ctx={ctx} />;
     case "typing":
       return <TypingTab ctx={ctx} />;
+    case "sketch":
+      return <SketchTab ctx={ctx} />;
     case "privacy":
       return <PrivacyTab ctx={ctx} />;
   }

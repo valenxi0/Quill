@@ -32,6 +32,8 @@ pub enum DictationError {
     NoSpeech,
     #[error("Already transcribing")]
     Busy,
+    #[error("Screenshots failed")]
+    ScreenCaptureFailed,
 }
 
 impl DictationError {
@@ -57,6 +59,7 @@ impl DictationError {
                 "The recording was empty or too short. Hold the shortcut while you speak.".into()
             }
             Self::Busy => "Wait for the current dictation to finish.".into(),
+            Self::ScreenCaptureFailed => "Quill couldn't capture the screen for this Sketch. The text was copied.".into(),
         }
     }
 }

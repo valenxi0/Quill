@@ -10,7 +10,7 @@ use quill_core::corrections::CorrectionPair;
 use quill_core::engines::{cohere_auto_language, language_name, AssetId, EngineId, EngineInfo, ENGINES, LANGUAGES};
 use quill_core::errors::{MIC_DENIED_DETAIL, MIC_UNAVAILABLE_DETAIL};
 use quill_core::models::{asset, ModelState};
-use quill_core::settings::{Hotkey, Settings};
+use quill_core::settings::{Hotkey, Settings, SketchSettings};
 use quill_core::state::Phase;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -32,6 +32,8 @@ pub struct Quill {
     pub hook: Option<HotkeyHook>,
     pub hook_error: Option<String>,
     pub capturing: AtomicBool,
+    /// The shortcut being captured is Sketch's, not dictation's.
+    pub capturing_sketch: AtomicBool,
     pub capture_error: Mutex<Option<String>>,
     pub preferred_languages: Vec<String>,
     pub updates: crate::updates::Updates,
@@ -111,6 +113,10 @@ pub struct UiState {
     pub hotkey_display: String,
     pub hotkey_is_default: bool,
     pub capturing_hotkey: bool,
+    pub sketch_hotkey_display: String,
+    pub sketch_hotkey_is_default: bool,
+    pub sketch_hotkey_problem: Option<String>,
+    pub capturing_sketch_hotkey: bool,
     pub capture_error: Option<String>,
     pub itn_available: bool,
     pub suggestions: Vec<CorrectionPair>,
@@ -222,7 +228,15 @@ impl Quill {
             cohere_auto_language: language_name(cohere_auto_language(&self.preferred_languages)).unwrap_or("English"),
             hotkey_display: vd.hotkey.display(),
             hotkey_is_default: vd.hotkey == Hotkey::default(),
-            capturing_hotkey: self.capturing.load(SeqCst),
+            capturing_hotkey: self.capturing.load(SeqCst) && !self.capturing_sketch.load(SeqCst),
+            sketch_hotkey_display: settings.sketch.hotkey.display(),
+            sketch_hotkey_is_default: settings.sketch.hotkey == SketchSettings::default_hotkey(),
+            sketch_hotkey_problem: settings
+                .sketch
+                .enabled
+                .then(|| SketchSettings::hotkey_problem(&settings.sketch.hotkey, &vd.hotkey))
+                .flatten(),
+            capturing_sketch_hotkey: self.capturing.load(SeqCst) && self.capturing_sketch.load(SeqCst),
             capture_error: self.capture_error.lock().clone(),
             itn_available: self.controller.itn_available(),
             suggestions,
@@ -249,6 +263,7 @@ impl Quill {
             if p.hotkey != n.hotkey {
                 hook.set_hotkey(n.hotkey);
             }
+            hook.set_sketch_hotkey(sketch_hotkey(&next));
             hook.set_suspended(!next.enabled || self.capturing.load(SeqCst));
         }
         if prev.launch_at_login != next.launch_at_login {
@@ -322,14 +337,28 @@ pub fn spawn_hook_consumer(app: AppHandle, rx: std::sync::mpsc::Receiver<HookEve
                     HookEvent::Pressed => q.controller.on_hotkey(quill_core::state::HotkeyEvent::Pressed),
                     HookEvent::Released => q.controller.on_hotkey(quill_core::state::HotkeyEvent::Released),
                     HookEvent::Escape => q.controller.on_hotkey(quill_core::state::HotkeyEvent::Escape),
+                    HookEvent::Sketch => q.controller.sketch(),
+                    HookEvent::SketchUndo => q.controller.sketch_action("undo"),
                     HookEvent::Captured(hotkey) => {
                         if !q.capturing.load(SeqCst) { continue; }
-                        if let Some(problem) = hotkey.problem() {
+                        let mut s = q.stores.settings.get();
+                        let sketch = q.capturing_sketch.load(SeqCst);
+                        let problem = if sketch {
+                            SketchSettings::hotkey_problem(&hotkey, &s.voice_dictation.hotkey)
+                        } else if hotkey == s.sketch.hotkey && s.sketch.enabled {
+                            Some("Sketch already uses this shortcut. Choose another one.".into())
+                        } else {
+                            hotkey.problem()
+                        };
+                        if let Some(problem) = problem {
                             *q.capture_error.lock() = Some(problem);
                         } else {
                             *q.capture_error.lock() = None;
-                            let mut s = q.stores.settings.get();
-                            s.voice_dictation.hotkey = hotkey;
+                            if sketch {
+                                s.sketch.hotkey = hotkey;
+                            } else {
+                                s.voice_dictation.hotkey = hotkey;
+                            }
                             q.apply_settings(&app, s);
                             end_capture(&q);
                         }
@@ -346,7 +375,15 @@ pub fn spawn_hook_consumer(app: AppHandle, rx: std::sync::mpsc::Receiver<HookEve
         .expect("spawn hotkey consumer");
 }
 
-pub fn begin_capture(q: &Quill) {
+/// The Sketch shortcut to listen for, if Sketch is on and its shortcut is usable.
+pub fn sketch_hotkey(s: &Settings) -> Option<Hotkey> {
+    let sketch = &s.sketch;
+    (sketch.enabled && SketchSettings::hotkey_problem(&sketch.hotkey, &s.voice_dictation.hotkey).is_none())
+        .then_some(sketch.hotkey)
+}
+
+pub fn begin_capture(q: &Quill, sketch: bool) {
+    q.capturing_sketch.store(sketch, SeqCst);
     if let Some(h) = &q.hook {
         q.capturing.store(true, SeqCst);
         h.set_suspended(true);
@@ -430,7 +467,7 @@ impl Shell for TauriShell {
     }
 
     fn own_windows(&self) -> Vec<isize> {
-        let mut v = Vec::new();
+        let mut v = crate::sketch_windows::own_hwnds(&self.app);
         if let Some(h) = overlay::own_hwnd(&self.app) {
             v.push(h);
         }
@@ -441,6 +478,46 @@ impl Shell for TauriShell {
         }
         v
     }
+
+    fn sketch_show(&self, monitor: &crate::platform::screen::Monitor, view: &crate::sketch::SketchView) {
+        crate::sketch_windows::show(&self.app, monitor, view);
+    }
+
+    fn sketch_view(&self, view: &crate::sketch::SketchView) {
+        let _ = self.app.emit_to(crate::sketch_windows::BAR, "sketch-view", view);
+    }
+
+    fn sketch_live(&self, points: &[(f32, f32)]) {
+        self.sketch_ink("sketch-live", points);
+    }
+
+    fn sketch_commit(&self, points: &[(f32, f32)], label: &str) {
+        self.sketch_ink("sketch-commit", Mark { points, label });
+    }
+
+    fn sketch_undo(&self) {
+        self.sketch_ink("sketch-undo", ());
+    }
+
+    fn sketch_pen(&self, on: bool) {
+        crate::sketch_windows::set_pen(&self.app, on);
+    }
+
+    fn sketch_hide(&self) {
+        crate::sketch_windows::hide(&self.app);
+    }
+}
+
+impl TauriShell {
+    fn sketch_ink(&self, event: &str, payload: impl serde::Serialize + Clone) {
+        let _ = self.app.emit_to(crate::sketch_windows::INK, event, payload);
+    }
+}
+
+#[derive(Clone, serde::Serialize)]
+struct Mark<'a> {
+    points: &'a [(f32, f32)],
+    label: &'a str,
 }
 
 /// Drop expired history records; writes the file only when one expired.

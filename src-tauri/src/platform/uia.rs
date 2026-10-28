@@ -167,7 +167,41 @@ impl Uia {
         None
     }
 
+    /// Put the caret back in a remembered element.
+    pub fn set_focus(&mut self, id: u64) -> bool {
+        self.elements.get(&id).is_some_and(|e| unsafe { e.SetFocus() }.is_ok())
+    }
+
     pub fn forget(&mut self, id: u64) {
         self.elements.remove(&id);
+    }
+
+    /// `button “Save”`: the control type and the first short label on the
+    /// element under a screen point or, for an unlabelled icon, on up to two
+    /// parents. Never reads password fields.
+    pub fn describe_at(&mut self, x: i32, y: i32) -> Option<String> {
+        let automation = self.automation.as_ref()?;
+        unsafe {
+            let mut node = automation.ElementFromPoint(windows::Win32::Foundation::POINT { x, y }).ok()?;
+            let walker = automation.ControlViewWalker().ok()?;
+            let mut role: Option<String> = None;
+            for _ in 0..3 {
+                if node.CurrentIsPassword().map(|b| b.as_bool()).unwrap_or(false) {
+                    return Some("password field".into());
+                }
+                let node_role = node.CurrentLocalizedControlType().map(|b| b.to_string()).ok().filter(|r| !r.is_empty());
+                if role.is_none() {
+                    role = node_role.clone();
+                }
+                let name = node.CurrentName().map(|b| b.to_string()).unwrap_or_default();
+                let name = name.trim();
+                if !name.is_empty() && !name.contains('\n') && name.chars().count() <= 60 {
+                    let r = node_role.or_else(|| role.clone()).unwrap_or_else(|| "element".into());
+                    return Some(format!("{r} “{name}”"));
+                }
+                node = walker.GetParentElement(&node).ok()?;
+            }
+            role
+        }
     }
 }

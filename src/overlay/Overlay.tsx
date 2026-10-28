@@ -1,5 +1,5 @@
 // The status pill. Redraws only on level updates; nothing animates while idle.
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api, on, type AppContext, type CorrectionPair, type DictationView, type UpdateInfo } from "../lib/api";
 
 export default function Overlay({ preview }: { preview?: DictationView }) {
@@ -39,10 +39,9 @@ export default function Overlay({ preview }: { preview?: DictationView }) {
   if (!view || phase === "idle") return null;
 
   return (
-    <div className="flex h-screen flex-col items-center justify-end gap-1.5 pb-2">
-      {phase === "recording" && heard && <Caption text={heard} />}
+    <div className="flex h-screen items-end justify-center pb-2">
       <Pill recording={phase === "recording"}>
-        {phase === "recording" && <Listening context={view.context} />}
+        {phase === "recording" && <Listening context={view.context} heard={heard} />}
         {(phase === "transcribing" || phase === "cleaning") && (
           <>
             <Orb />
@@ -81,7 +80,7 @@ function Pill({ children, recording }: { children: React.ReactNode; recording?: 
       style={{
         background: "rgba(10, 10, 10, 0.92)",
         border: recording ? "1px solid #ff453a" : "1px solid rgba(255,255,255,0.12)",
-        animation: "rise-in 0.16s ease-out",
+        animation: recording ? "rise-in 0.16s ease-out, rec-breathe 2s ease-in-out infinite" : "rise-in 0.16s ease-out",
       }}
     >
       {children}
@@ -89,17 +88,40 @@ function Pill({ children, recording }: { children: React.ReactNode; recording?: 
   );
 }
 
-/** The end of the live preview: the words just spoken matter most. */
-function Caption({ text }: { text: string }) {
-  const MAX = 140;
-  const shown = text.length > MAX ? `…${text.slice(text.length - MAX).replace(/^\S*\s/, "")}` : text;
+/** Widest the live words may grow before older ones slide off the left. */
+const CAPTION_MAX = 260;
+
+/**
+ * The live preview, inside the pill: one line, newest words pinned to the
+ * right, older ones fading off the left edge. The box eases wider as words
+ * arrive, up to CAPTION_MAX.
+ */
+function LiveCaption({ text }: { text: string }) {
+  // Only the tail can ever be visible; don't lay out the whole dictation.
+  const shown = text.length > 240 ? text.slice(-240) : text;
+  const inner = useRef<HTMLSpanElement>(null);
+  const [width, setWidth] = useState(0);
+
+  useLayoutEffect(() => {
+    if (inner.current) setWidth(Math.ceil(inner.current.offsetWidth));
+  }, [shown]);
+
+  const overflowing = width > CAPTION_MAX;
+  const fade = "linear-gradient(to right, transparent, black 28px)";
   return (
-    <p
-      className="max-w-[350px] rounded-[12px] px-3 py-1.5 text-center text-[12px] leading-[1.4] text-white/85"
-      style={{ background: "rgba(10, 10, 10, 0.92)", border: "1px solid rgba(255,255,255,0.12)", textWrap: "balance", animation: "rise-in 0.16s ease-out" }}
+    <span
+      className="ml-1 flex shrink-0 justify-end overflow-hidden text-[13px] text-white"
+      style={{
+        width: Math.min(width, CAPTION_MAX),
+        transition: "width 180ms ease-out",
+        maskImage: overflowing ? fade : undefined,
+        WebkitMaskImage: overflowing ? fade : undefined,
+      }}
     >
-      {shown}
-    </p>
+      <span ref={inner} className="whitespace-nowrap">
+        {shown}
+      </span>
+    </span>
   );
 }
 
@@ -120,16 +142,9 @@ function Orb() {
 
 const BARS = 12;
 
-function mmss(seconds: number) {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-}
-
-function Listening({ context }: { context: AppContext }) {
+function Listening({ context, heard }: { context: AppContext; heard: string }) {
   // The last 12 voice readings, newest on the right: a rolling waveform.
   const [bars, setBars] = useState<number[]>(() => Array(BARS).fill(0));
-  const [seconds, setSeconds] = useState(0);
 
   useEffect(() => {
     // Track the room's background noise so silence reads as flat. The floor
@@ -140,28 +155,24 @@ function Listening({ context }: { context: AppContext }) {
       const voice = Math.min(1, Math.max(0, (level - floor - 0.06) / 0.45));
       setBars((prev) => [...prev.slice(1), voice]);
     });
-    const timer = setInterval(() => setSeconds((t) => t + 1), 1000);
     return () => {
       un.then((f) => f());
-      clearInterval(timer);
     };
   }, []);
 
   return (
     <>
-      <div className="flex items-center gap-2">
-        <div className="flex h-6 items-center gap-[2px]">
-          {bars.map((v, i) => (
-            <span
-              key={i}
-              className="w-[2px] rounded-full bg-white"
-              style={{ height: 2 + v * 18, transition: "height 90ms ease-out" }}
-            />
-          ))}
-        </div>
-        <span className="w-10 text-center text-[12px] font-normal tabular-nums text-white/70">{mmss(seconds)}</span>
+      <div className="flex h-6 shrink-0 items-center gap-[2px]">
+        {bars.map((v, i) => (
+          <span
+            key={i}
+            className="w-[2px] rounded-full bg-white"
+            style={{ height: 2 + v * 18, transition: "height 90ms ease-out" }}
+          />
+        ))}
       </div>
-      {(context === "terminal" || context === "email") && <span className="rounded-full bg-white/15 px-1.5 text-[10.5px] text-white/80">{context === "email" ? "Email" : "Terminal"}</span>}
+      {heard && <LiveCaption text={heard} />}
+      {(context === "terminal" || context === "email") && <span className="shrink-0 rounded-full bg-white/15 px-1.5 text-[10.5px] text-white/80">{context === "email" ? "Email" : "Terminal"}</span>}
     </>
   );
 }

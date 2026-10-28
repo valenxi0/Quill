@@ -30,6 +30,7 @@ export default defineConfig({
       input: {
         settings: "index.html",
         overlay: "overlay.html",
+        sketch: "sketch.html",
       },
     },
   },

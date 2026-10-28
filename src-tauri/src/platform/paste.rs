@@ -4,9 +4,12 @@
 use std::time::{Duration, Instant};
 
 use windows::Win32::Foundation::{GlobalFree, HANDLE, HWND};
-use windows::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData};
+use windows::core::w;
+use windows::Win32::System::DataExchange::{
+    CloseClipboard, EmptyClipboard, OpenClipboard, RegisterClipboardFormatW, SetClipboardData,
+};
 use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
-use windows::Win32::System::Ole::CF_UNICODETEXT;
+use windows::Win32::System::Ole::{CF_DIB, CF_UNICODETEXT};
 use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS,
@@ -56,6 +59,61 @@ pub fn set_clipboard_text(text: &str) -> bool {
             }
             Err(_) => false,
         }
+    };
+    unsafe {
+        let _ = CloseClipboard();
+    }
+    ok
+}
+
+/// Copy `bytes` into a movable global block and hand it to the clipboard,
+/// which must be open.
+unsafe fn put(format: u32, bytes: &[u8]) -> bool {
+    unsafe {
+        let Ok(mem) = GlobalAlloc(GMEM_MOVEABLE, bytes.len()) else { return false };
+        let ptr = GlobalLock(mem) as *mut u8;
+        if ptr.is_null() {
+            let _ = GlobalFree(Some(mem));
+            return false;
+        }
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, bytes.len());
+        let _ = GlobalUnlock(mem);
+        if SetClipboardData(format, Some(HANDLE(mem.0))).is_ok() {
+            true
+        } else {
+            let _ = GlobalFree(Some(mem));
+            false
+        }
+    }
+}
+
+/// An image on the clipboard, as PNG (browsers and Electron apps) and as a
+/// DIB (everything else). `rgba` is opaque RGBA8, top-down.
+pub fn set_clipboard_image(png: &[u8], width: u32, height: u32, rgba: &[u8]) -> bool {
+    let mut dib = Vec::with_capacity(40 + rgba.len());
+    for v in [40u32, width, height] {
+        dib.extend_from_slice(&v.to_le_bytes());
+    }
+    dib.extend_from_slice(&1u16.to_le_bytes()); // planes
+    dib.extend_from_slice(&32u16.to_le_bytes()); // bits per pixel
+    dib.extend_from_slice(&0u32.to_le_bytes()); // BI_RGB
+    dib.extend_from_slice(&(rgba.len() as u32).to_le_bytes());
+    dib.extend_from_slice(&[0u8; 16]); // resolution and palette
+    // Bottom-up BGRA rows.
+    for row in rgba.chunks_exact(width as usize * 4).rev() {
+        for px in row.chunks_exact(4) {
+            dib.extend_from_slice(&[px[2], px[1], px[0], 255]);
+        }
+    }
+    if !open_clipboard() {
+        return false;
+    }
+    let ok = unsafe {
+        let _ = EmptyClipboard();
+        let png_format = RegisterClipboardFormatW(w!("PNG"));
+        let a = png_format != 0 && put(png_format, png);
+        let b = put(CF_DIB.0 as u32, &dib);
+        a || b
     };
     unsafe {
         let _ = CloseClipboard();

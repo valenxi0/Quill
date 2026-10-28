@@ -57,9 +57,27 @@ export interface VoiceDictation {
   livePreview: boolean;
 }
 
+export type DrawKey = "shift" | "ctrl" | "alt";
+
+export interface SketchSettings {
+  enabled: boolean;
+  hotkey: Hotkey;
+  drawKey: DrawKey;
+}
+
+/** What the Sketch bar shows. */
+export interface SketchView {
+  marks: number;
+  penOn: boolean;
+  drawKey: string;
+  finishShortcut: string;
+  startedAt: number;
+}
+
 export interface Settings {
   enabled: boolean;
   voiceDictation: VoiceDictation;
+  sketch: SketchSettings;
   launchAtLogin: boolean;
   historyExpanded: boolean;
   onboarded: boolean;
@@ -154,6 +172,10 @@ export interface UiState {
   hotkeyDisplay: string;
   hotkeyIsDefault: boolean;
   capturingHotkey: boolean;
+  sketchHotkeyDisplay: string;
+  sketchHotkeyIsDefault: boolean;
+  sketchHotkeyProblem: string | null;
+  capturingSketchHotkey: boolean;
   captureError: string | null;
   itnAvailable: boolean;
   suggestions: CorrectionPair[];
@@ -212,9 +234,12 @@ export const api = {
   removeAsset: (id: AssetId) => invoke<void>("remove_asset", { id }),
   removeEngine: (engine: EngineId) => invoke<void>("remove_engine", { engine }),
   loadEngine: () => invoke<void>("load_engine"),
-  beginHotkeyCapture: () => invoke<void>("begin_hotkey_capture"),
+  beginHotkeyCapture: (sketch = false) => invoke<void>("begin_hotkey_capture", { sketch }),
   cancelHotkeyCapture: () => invoke<void>("cancel_hotkey_capture"),
-  resetHotkey: () => invoke<void>("reset_hotkey"),
+  resetHotkey: (sketch = false) => invoke<void>("reset_hotkey", { sketch }),
+  sketchAction: (action: "pen" | "undo" | "cancel" | "finish") => invoke<void>("sketch_action", { action }),
+  sketchState: () => invoke<SketchView | null>("sketch_state"),
+  dictationCommand: (command: string) => invoke<void>("dictation_command", { command }),
   openMicrophoneSettings: () => invoke<void>("open_microphone_settings"),
   copyText: (text: string) => invoke<boolean>("copy_text", { text }),
   pasteLast: () => invoke<void>("paste_last"),

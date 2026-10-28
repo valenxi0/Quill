@@ -17,6 +17,10 @@ thiserror = "2"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 whatlang = "0.16"
+# Sketch screenshots: shapes and scaling, text, and PNG output.
+tiny-skia = "0.11"
+ab_glyph = "0.2"
+png = "0.18"
 # v0.3.0 is the version Nano uses (through FluidAudio); it is only published as a git tag.
 text-processing-rs = { git = "https://github.com/FluidInference/text-processing-rs", tag = "v0.3.0", optional = true }
 

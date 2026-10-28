@@ -32,6 +32,10 @@ pub enum HookEvent {
     Escape,
     Captured(Hotkey),
     CaptureCancelled,
+    /// The Sketch shortcut went down.
+    Sketch,
+    /// Ctrl+Z while a Sketch runs.
+    SketchUndo,
 }
 
 struct Shared {
@@ -50,6 +54,12 @@ struct Shared {
     capture_key: AtomicU32,
     /// Escape is intercepted only while dictation is busy.
     escape: EscapeSequence,
+    /// The Sketch shortcut; vk 0 when Sketch is off.
+    sketch_vk: AtomicU32,
+    sketch_mods: AtomicU32,
+    sketch_latched: AtomicBool,
+    /// A Sketch is running: Ctrl+Z undoes its last mark.
+    sketching: AtomicBool,
     tx: Sender<HookEvent>,
 }
 
@@ -73,6 +83,10 @@ impl HotkeyHook {
             modifier_keys: AtomicU32::new(initial_modifier_keys()),
             capture_key: AtomicU32::new(0),
             escape: EscapeSequence::default(),
+            sketch_vk: AtomicU32::new(0),
+            sketch_mods: AtomicU32::new(0),
+            sketch_latched: AtomicBool::new(false),
+            sketching: AtomicBool::new(false),
             tx,
         };
         SHARED.set(shared).map_err(|_| anyhow::anyhow!("hotkey hook already installed"))?;
@@ -122,6 +136,18 @@ impl HotkeyHook {
 
     pub fn set_escape_active(&self, active: bool) {
         Self::shared().escape.set_active(active);
+    }
+
+    /// The Sketch shortcut, or `None` when Sketch is off.
+    pub fn set_sketch_hotkey(&self, hotkey: Option<Hotkey>) {
+        let s = Self::shared();
+        s.sketch_vk.store(hotkey.map_or(0, |h| h.vk), SeqCst);
+        s.sketch_mods.store(hotkey.map_or(0, |h| h.modifiers), SeqCst);
+        s.sketch_latched.store(false, SeqCst);
+    }
+
+    pub fn set_sketching(&self, active: bool) {
+        Self::shared().sketching.store(active, SeqCst);
     }
 }
 
@@ -244,6 +270,30 @@ fn handle(s: &Shared, vk: u32, msg: u32) -> bool {
         return false;
     }
 
+    let sketch_vk = s.sketch_vk.load(SeqCst);
+    if sketch_vk != 0 && vk == sketch_vk {
+        if s.sketch_latched.load(SeqCst) {
+            if is_up {
+                s.sketch_latched.store(false, SeqCst);
+            }
+            return true;
+        }
+        let want = s.sketch_mods.load(SeqCst);
+        if is_down && mods == want {
+            s.sketch_latched.store(true, SeqCst);
+            if want & (modifiers::ALT | modifiers::WIN) != 0 {
+                tap_mask_key();
+            }
+            let _ = s.tx.send(HookEvent::Sketch);
+            return true;
+        }
+    }
+    const VK_Z: u32 = 0x5A;
+    if vk == VK_Z && is_down && mods == modifiers::CTRL && s.sketching.load(SeqCst) {
+        let _ = s.tx.send(HookEvent::SketchUndo);
+        return true;
+    }
+
     let want_vk = s.vk.load(SeqCst);
     let want_mods = s.mods.load(SeqCst);
     if vk == want_vk {
@@ -293,8 +343,30 @@ mod tests {
             modifier_keys: AtomicU32::new(0),
             capture_key: AtomicU32::new(0),
             escape: EscapeSequence::default(),
+            sketch_vk: AtomicU32::new(0x53),
+            sketch_mods: AtomicU32::new(modifiers::CTRL | modifiers::SHIFT),
+            sketch_latched: AtomicBool::new(false),
+            sketching: AtomicBool::new(false),
             tx,
         }, rx)
+    }
+
+    #[test]
+    fn sketch_shortcut_fires_once_and_undo_only_while_sketching() {
+        let (s, rx) = shared();
+        handle(&s, 0xA2, WM_KEYDOWN);
+        handle(&s, 0xA0, WM_KEYDOWN);
+        assert!(handle(&s, 0x53, WM_KEYDOWN));
+        assert!(handle(&s, 0x53, WM_KEYDOWN), "repeat swallowed");
+        assert!(handle(&s, 0x53, WM_KEYUP));
+        assert_eq!(rx.try_recv().unwrap(), HookEvent::Sketch);
+        assert!(rx.try_recv().is_err());
+        handle(&s, 0xA0, WM_KEYUP);
+        // Ctrl+Z belongs to the app unless a Sketch runs.
+        assert!(!handle(&s, 0x5A, WM_KEYDOWN));
+        s.sketching.store(true, SeqCst);
+        assert!(handle(&s, 0x5A, WM_KEYDOWN));
+        assert_eq!(rx.try_recv().unwrap(), HookEvent::SketchUndo);
     }
 
     #[test]

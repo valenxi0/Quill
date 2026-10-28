@@ -35,6 +35,7 @@ use crate::platform::{paste, target, uia};
 use crate::shell::Shell;
 use crate::stores::Stores;
 use crate::vad::Vad;
+use quill_core::speech::SpeechMap;
 
 /// What the overlay and tray show.
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -71,6 +72,8 @@ pub struct Metrics {
 
 struct Session {
     generation: u64,
+    /// A Sketch is cut where its marks were drawn, not at pauses.
+    sketch: bool,
     recording: Option<Recording>,
     segmenter: EarlySegmenter,
     worker: Sender<Job>,
@@ -97,6 +100,7 @@ const PREVIEW_WINDOW: usize = SAMPLE_RATE * 15;
 enum Job {
     Segment(Vec<f32>),
     Finish { stopped: Instant, audio_seconds: f64, rms_dbfs: f32 },
+    Sketch { samples: Vec<f32>, speech: Option<SpeechMap>, session: Arc<crate::sketch::Session>, stopped: Instant },
 }
 
 struct SessionConfig {
@@ -126,6 +130,8 @@ pub struct Controller {
     generation: AtomicU64,
     phase: Mutex<DictationView>,
     session: Mutex<Option<Session>>,
+    /// The Sketch being recorded, if any.
+    sketch: Mutex<Option<Arc<crate::sketch::Session>>>,
     /// Bumped by each outcome, so a stale hold timer can't reset a newer one.
     outcome_seq: AtomicU64,
     watch_generation: AtomicU64,
@@ -158,6 +164,7 @@ impl Controller {
             generation: AtomicU64::new(0),
             phase: Mutex::new(DictationView::default()),
             session: Mutex::new(None),
+            sketch: Mutex::new(None),
             outcome_seq: AtomicU64::new(0),
             watch_generation: AtomicU64::new(0),
             starting: std::sync::atomic::AtomicBool::new(false),
@@ -291,6 +298,7 @@ impl Controller {
             }
             "cancel" if phase.is_busy() => self.cancel(),
             "paste-last" if !phase.is_busy() => self.paste_last(),
+            "sketch" => self.sketch(),
             _ => {}
         }
     }
@@ -320,11 +328,53 @@ impl Controller {
         if self.phase().is_busy() || self.starting.swap(true, SeqCst) {
             return;
         }
-        self.start_inner();
+        self.start_inner(None);
         self.starting.store(false, SeqCst);
     }
 
-    fn start_inner(self: &Arc<Self>) {
+    /// The Sketch shortcut: start a Sketch, or finish the one running.
+    pub fn sketch(self: &Arc<Self>) {
+        if self.sketch.lock().is_some() {
+            if self.phase() == Phase::Recording {
+                self.stop();
+            }
+            return;
+        }
+        if !self.stores.settings.read(|s| s.sketch.enabled) || self.phase().is_busy() {
+            return;
+        }
+        let Some(monitor) = crate::platform::screen::monitor_under_pointer() else { return };
+        if self.starting.swap(true, SeqCst) {
+            return;
+        }
+        self.start_inner(Some(monitor));
+        self.starting.store(false, SeqCst);
+    }
+
+    /// The Sketch bar's buttons and Ctrl+Z.
+    pub fn sketch_action(self: &Arc<Self>, action: &str) {
+        let Some(session) = self.sketch.lock().clone() else { return };
+        match action {
+            "pen" => session.toggle_pen(),
+            "undo" => session.undo(),
+            "cancel" => self.cancel(),
+            "finish" if self.phase() == Phase::Recording => self.stop(),
+            _ => {}
+        }
+    }
+
+    pub fn sketch_view(&self) -> Option<crate::sketch::SketchView> {
+        self.sketch.lock().as_ref().map(|s| s.view())
+    }
+
+    fn end_sketch(&self) -> Option<Arc<crate::sketch::Session>> {
+        if let Some(h) = &self.hook {
+            h.set_sketching(false);
+        }
+        self.sketch.lock().take()
+    }
+
+    fn start_inner(self: &Arc<Self>, sketch: Option<crate::platform::screen::Monitor>) {
         if self.phase().is_busy() {
             return;
         }
@@ -404,14 +454,33 @@ impl Controller {
             preview_committed: preview.as_ref().map(|p| p.committed.clone()),
         };
         let worker = self.spawn_worker(config);
+        let clock = recording.sample_clock();
         *self.session.lock() = Some(Session {
             generation,
+            sketch: sketch.is_some(),
             recording: Some(recording),
             segmenter: EarlySegmenter::default(),
             worker,
             vad: None,
             preview,
         });
+
+        if let Some(monitor) = sketch {
+            let s = &settings.sketch;
+            match crate::sketch::Session::start(self.shell.clone(), monitor, s.draw_key, s.hotkey.display(), clock) {
+                Ok(session) => {
+                    *self.sketch.lock() = Some(session);
+                    if let Some(h) = &self.hook {
+                        h.set_sketching(true);
+                    }
+                }
+                Err(e) => {
+                    log::warn!("sketch: {e}");
+                    self.cancel();
+                    return;
+                }
+            }
+        }
 
         // Warm the engine so the load overlaps the speech. A failure is kept
         // for Settings and never flashed while the user is talking.
@@ -456,7 +525,7 @@ impl Controller {
                         let new = rec.with_samples(|samples| samples[fed.min(samples.len())..].to_vec());
                         vad.accept(&new);
                     }
-                    if last_segment_check.elapsed() >= Duration::from_secs(1) {
+                    if !s.sketch && last_segment_check.elapsed() >= Duration::from_secs(1) {
                         last_segment_check = Instant::now();
                         let segmenter = &mut s.segmenter;
                         let piece = rec.with_samples(|samples| segmenter.poll(samples).map(|r| (samples[r.clone()].to_vec(), r)));
@@ -486,6 +555,15 @@ impl Controller {
         let Some(rec) = s.recording.take() else { return };
         let samples = rec.stop();
         let audio_seconds = samples.len() as f64 / SAMPLE_RATE as f64;
+        if s.sketch {
+            let Some(session) = self.end_sketch() else {
+                return self.fail_session(s.generation, DictationError::Cancelled);
+            };
+            let speech = s.vad.as_mut().map(|v| v.finish(&samples).clone());
+            self.advance(s.generation, Phase::Recording, Phase::Transcribing);
+            let _ = s.worker.send(Job::Sketch { samples, speech, session, stopped });
+            return;
+        }
         if !has_speech(&samples, SAMPLE_RATE as u32) {
             self.fail_session(s.generation, DictationError::NoSpeech);
             return;
@@ -533,6 +611,9 @@ impl Controller {
         });
         if !cancelled {
             return;
+        }
+        if let Some(sketch) = self.end_sketch() {
+            sketch.cancel();
         }
         // Drop the audio.
         if let Some(s) = self.session.lock().take() {
@@ -588,6 +669,10 @@ impl Controller {
                                 return;
                             }
                             me.deliver(&cfg, results, metrics, stopped, rms_dbfs);
+                            return;
+                        }
+                        Job::Sketch { samples, speech, session, stopped } => {
+                            me.deliver_sketch(&cfg, &samples, speech.as_ref(), &session, stopped);
                             return;
                         }
                     }
@@ -743,6 +828,175 @@ impl Controller {
             return;
         }
         self.record(cfg, &results, &raw, &text, &metrics, release_to_paste, pasted);
+        *self.last_metrics.lock() = Some(metrics);
+        self.shell.state_changed();
+        self.schedule_idle_unload();
+    }
+
+    /// Transcribes the pieces between marks, stitches them with the mark
+    /// numbers, draws the marks onto their screenshots, and pastes both into
+    /// the field the Sketch was started from: images first, then the text.
+    fn deliver_sketch(
+        self: &Arc<Self>,
+        cfg: &SessionConfig,
+        samples: &[f32],
+        speech: Option<&SpeechMap>,
+        session: &crate::sketch::Session,
+        stopped: Instant,
+    ) {
+        use quill_core::sketch::{self as qs, render::Renderer, FrameLine, MomentKind};
+        let capture = session.finish();
+        if !self.is_current(cfg.generation) {
+            return;
+        }
+        let seconds = samples.len() as f64 / SAMPLE_RATE as f64;
+        let mut metrics = Metrics { audio_seconds: seconds, ..Default::default() };
+        // Marks, clicks and settled screen changes, cut down to the
+        // screenshots worth sending.
+        let moments = qs::pick(capture.moments, seconds);
+        let anchors = qs::anchors(&moments);
+        let marks: Vec<(usize, usize)> = anchors.iter().enumerate().map(|(i, a)| (i, a.sample)).collect();
+        let cuts = qs::cuts(&marks, samples);
+        let mut results: Vec<SegmentResult> = Vec::new();
+        let mut texts: Vec<String> = Vec::new();
+        for range in qs::pieces(samples.len(), &cuts) {
+            let piece = &samples[range.clone()];
+            let voiced = speech.is_none_or(|m| m.has_speech(&range));
+            if piece.len() < SAMPLE_RATE / 4 || !voiced || !has_speech(piece, SAMPLE_RATE as u32) {
+                texts.push(String::new());
+                continue;
+            }
+            // Long stretches between marks go through in pause-aware parts.
+            let mut parts = Vec::new();
+            for part in split(piece, 20.0) {
+                match self.process(cfg, &piece[part], &mut metrics) {
+                    Ok(r) => {
+                        parts.push(r.text.clone());
+                        results.push(r);
+                    }
+                    Err(e) => return self.fail_session(cfg.generation, e),
+                }
+            }
+            texts.push(join(&parts));
+        }
+        if !self.is_current(cfg.generation) {
+            return;
+        }
+        let raw = join(&results.iter().map(|r| r.raw.clone()).collect::<Vec<_>>());
+        let spoke = !raw.trim().is_empty();
+        if !spoke && moments.iter().all(|m| m.strokes.is_empty()) {
+            return self.fail_session(cfg.generation, DictationError::NoSpeech);
+        }
+        let rate = SAMPLE_RATE as f64;
+        // A single screenshot of an untouched screen needs no list.
+        let listed = moments.len() > 1 || moments.iter().any(|m| m.kind != MomentKind::Start);
+        let frames: Vec<FrameLine> = if listed {
+            moments
+                .iter()
+                .map(|m| FrameLine { time: m.sample as f64 / rate, tag: m.tag(), place: m.place.description() })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let body = qs::compose(&texts, &cuts, &anchors, &frames);
+
+        // Every screenshot full size, each marked one followed by a crop
+        // around its ink; the sheet of all of them is saved as well.
+        let renderer = Renderer::new(std::fs::read(r"C:\Windows\Fonts\segoeuib.ttf").ok());
+        let mut images: Vec<(String, qs::Image)> = Vec::new();
+        let mut rendered = Vec::new();
+        for (i, m) in moments.iter().enumerate() {
+            let badge = listed.then(|| format!("#{}  {}", i + 1, qs::clock(m.sample as f64 / rate)));
+            let frame = renderer.render(m, badge.as_deref());
+            images.push((format!("frame-{}.png", i + 1), frame.clone()));
+            let ink: Vec<qs::Point> = m.strokes.iter().flat_map(|s| s.points.iter().copied()).collect();
+            if !ink.is_empty() {
+                if let Some(crop) = renderer.crop(&frame, &ink, m.image.width) {
+                    images.push((format!("frame-{}-zoom.png", i + 1), crop));
+                }
+            }
+            rendered.push(frame);
+        }
+        let encoded: Vec<crate::sketch_store::Shot> = images
+            .into_iter()
+            .map(|(name, image)| {
+                let png = qs::render::encode_png(&image);
+                crate::sketch_store::Shot { name, image, png }
+            })
+            .collect();
+        let saved = crate::sketch_store::save(renderer.contact_sheet(&rendered).as_ref(), &encoded);
+        let m = capture.monitor;
+        let folder = saved.as_ref().map(|s| s.folder.to_string_lossy().to_string());
+        let header = qs::header(seconds, folder.as_deref(), Some((m.width as u32, m.height as u32, m.scale)));
+        let text = if listed { format!("{header}\n{}\n{body}", qs::PREAMBLE) } else { format!("{header}\n{body}") };
+        if !self.is_current(cfg.generation) {
+            return;
+        }
+
+        // Copied first, with the screenshot folder in the text, so nothing
+        // is lost if the paste can't happen.
+        *self.last_transcript.lock() = Some(text.clone());
+        *self.last_target.lock() = Some(cfg.target.clone());
+        if !paste::set_clipboard_text(&text) {
+            return self.fail_session(cfg.generation, DictationError::ClipboardFailed);
+        }
+        metrics.stop_to_clipboard_ms = stopped.elapsed().as_millis() as u64;
+        let own = self.shell.own_windows();
+        let still_current = || self.is_current(cfg.generation);
+        let terminal = cfg.recipe.context == AppContext::Terminal;
+        let paths = saved.as_ref().map(|s| s.images.clone()).unwrap_or_default();
+        // A GUI composer takes PNG data as an attachment; a terminal agent
+        // such as Claude Code takes a pasted image path.
+        let mut pasted = !encoded.is_empty() && paste::focus(&cfg.target, &own) && still_current();
+        // Clicks while sketching move focus around the app; put it back in
+        // the field the Sketch started from.
+        if let (true, Some(id)) = (pasted, cfg.target.element_id) {
+            if uia::run(400, move |u| u.set_focus(id)) == Some(true) {
+                std::thread::sleep(Duration::from_millis(150));
+            }
+        }
+        if pasted {
+            for (i, shot) in encoded.iter().enumerate() {
+                let written = if terminal {
+                    paths.get(i).is_some_and(|p| paste::set_clipboard_text(&p.to_string_lossy()))
+                } else {
+                    paste::set_clipboard_image(&shot.png, shot.image.width, shot.image.height, &shot.image.rgba)
+                };
+                if !written || !paste::paste(&cfg.target, &own, still_current) {
+                    pasted = false;
+                    break;
+                }
+                // Electron reads the clipboard after the key event; give it
+                // time before the clipboard changes under it.
+                std::thread::sleep(Duration::from_millis(if terminal { 250 } else { 400 }));
+            }
+        }
+        if pasted {
+            let chunks = if terminal && cfg.splits_terminal_pastes { paste_chunks(&text) } else { vec![text.clone()] };
+            pasted = paste_in_pieces(&cfg.target, &own, &chunks, still_current);
+        }
+        // Leave the whole text on the clipboard.
+        paste::set_clipboard_text(&text);
+        let release_to_paste = stopped.elapsed();
+        if encoded.is_empty() {
+            self.fail_session(cfg.generation, DictationError::ScreenCaptureFailed);
+            return;
+        }
+        let shown = self.outcome(
+            Some(cfg.generation),
+            DictationView {
+                phase: Phase::Completed,
+                outcome: Some(if pasted { "Sketch pasted" } else { "Copied only" }.into()),
+                context: cfg.recipe.context,
+                ..Default::default()
+            },
+        );
+        if !shown {
+            return;
+        }
+        // History and stats get what was said; nothing is learned from a
+        // Sketch's field.
+        self.record(cfg, &results, &raw, &body, &metrics, release_to_paste, false);
         *self.last_metrics.lock() = Some(metrics);
         self.shell.state_changed();
         self.schedule_idle_unload();

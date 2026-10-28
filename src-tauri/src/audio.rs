@@ -163,6 +163,13 @@ impl Recording {
         self.shared.full.load(SeqCst)
     }
 
+    /// How many samples have been captured, readable from any thread: Sketch
+    /// uses it as its clock.
+    pub fn sample_clock(&self) -> impl Fn() -> usize + Send + Sync + 'static {
+        let shared = self.shared.clone();
+        move || shared.samples.lock().len()
+    }
+
     /// Look at everything captured so far (16 kHz) without copying it.
     pub fn with_samples<R>(&self, f: impl FnOnce(&[f32]) -> R) -> R {
         f(&self.shared.samples.lock())

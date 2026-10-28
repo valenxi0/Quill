@@ -4,7 +4,9 @@
 pub mod apps;
 pub mod hotkey;
 mod escape;
+pub mod mouse;
 pub mod paste;
+pub mod screen;
 pub mod system;
 pub mod target;
 pub mod icons;

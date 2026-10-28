@@ -132,6 +132,13 @@ pub(crate) fn process_path(pid: u32) -> Option<String> {
     exe_path(&Process(h))
 }
 
+/// The friendly name of a running process ("Google Chrome").
+pub(crate) fn app_name_for_pid(pid: u32) -> Option<String> {
+    let path = process_path(pid)?;
+    let exe = path.rsplit('\\').next().unwrap_or(&path).to_string();
+    Some(display_name(&path, &exe))
+}
+
 pub(crate) fn display_name(exe_path: &str, exe: &str) -> String {
     file_description(exe_path)
         .unwrap_or_else(|| exe.trim_end_matches(".exe").trim_end_matches(".EXE").to_string())

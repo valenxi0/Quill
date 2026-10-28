@@ -1,7 +1,7 @@
-//! Launchers (section 4.10): `quill://start|stop|toggle|cancel|paste-last` and the same
+//! Launchers (section 4.10): `quill://start|stop|toggle|cancel|paste-last|sketch` and the same
 //! commands as CLI flags, for Stream Deck, AutoHotkey, PowerToys and friends.
 
-pub const COMMANDS: [&str; 5] = ["start", "stop", "toggle", "cancel", "paste-last"];
+pub const COMMANDS: [&str; 6] = ["start", "stop", "toggle", "cancel", "paste-last", "sketch"];
 
 /// The dictation command in a list of args or URLs, if any.
 pub fn command_from_args<S: AsRef<str>>(args: &[S]) -> Option<&'static str> {

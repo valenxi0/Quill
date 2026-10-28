@@ -94,9 +94,9 @@ pub fn load_engine(q: Q) {
 }
 
 #[tauri::command]
-pub fn begin_hotkey_capture(app: AppHandle, q: Q) {
+pub fn begin_hotkey_capture(app: AppHandle, q: Q, sketch: Option<bool>) {
     *q.capture_error.lock() = None;
-    app::begin_capture(&q);
+    app::begin_capture(&q, sketch.unwrap_or(false));
     notify(&app);
 }
 
@@ -108,10 +108,28 @@ pub fn cancel_hotkey_capture(app: AppHandle, q: Q) {
 }
 
 #[tauri::command]
-pub fn reset_hotkey(app: AppHandle, q: Q) {
+pub fn reset_hotkey(app: AppHandle, q: Q, sketch: Option<bool>) {
     let mut s = q.stores.settings.get();
-    s.voice_dictation.hotkey = Hotkey::default();
+    if sketch.unwrap_or(false) {
+        s.sketch.hotkey = quill_core::settings::SketchSettings::default_hotkey();
+    } else {
+        s.voice_dictation.hotkey = Hotkey::default();
+    }
     q.apply_settings(&app, s);
+}
+
+/// The Sketch bar's buttons: "pen", "undo", "cancel", "finish".
+#[tauri::command]
+pub fn sketch_action(q: Q, action: String) {
+    let controller = q.controller.clone();
+    // Finishing renders and pastes; never on the window's thread.
+    std::thread::spawn(move || controller.sketch_action(&action));
+}
+
+/// What a Sketch window shows when it loads mid-Sketch.
+#[tauri::command]
+pub fn sketch_state(q: Q) -> Option<crate::sketch::SketchView> {
+    q.controller.sketch_view()
 }
 
 #[tauri::command]

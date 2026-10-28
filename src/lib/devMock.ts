@@ -33,6 +33,7 @@ const settings: Settings = {
     splitsTerminalPastes: true,
     livePreview: false,
   },
+  sketch: { enabled: true, hotkey: { vk: 0x53, modifiers: 3 }, drawKey: "shift" },
 };
 
 const asset = (id: string, title: string, size: number, state: unknown, optional = false, available = true) => ({
@@ -55,6 +56,10 @@ const state: UiState = {
   hotkeyDisplay: "Ctrl+Alt+M",
   hotkeyIsDefault: true,
   capturingHotkey: false,
+  sketchHotkeyDisplay: "Ctrl+Alt+S",
+  sketchHotkeyIsDefault: true,
+  sketchHotkeyProblem: null,
+  capturingSketchHotkey: false,
   captureError: null,
   itnAvailable: true,
   suggestions: [{ from: "Tori", to: "Tauri", count: 2, dismissed: false, appExe: "code.exe" }],

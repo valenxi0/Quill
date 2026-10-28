@@ -17,6 +17,11 @@ pub fn models_dir() -> PathBuf {
     env_dir("LOCALAPPDATA").join("Quill").join("Models")
 }
 
+/// `%LOCALAPPDATA%\Quill\Sketches`: Sketch screenshots, kept for a day.
+pub fn sketches_dir() -> PathBuf {
+    env_dir("LOCALAPPDATA").join("Quill").join("Sketches")
+}
+
 /// `%LOCALAPPDATA%\Quill\Eval`: benchmark clips.
 pub fn eval_dir() -> PathBuf {
     env_dir("LOCALAPPDATA").join("Quill").join("Eval")

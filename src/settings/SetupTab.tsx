@@ -190,7 +190,7 @@ function ActivationCard({ ctx }: { ctx: Ctx }) {
       <CardHeader
         icon={<Subtitles size={19} />}
         title="Live preview"
-        detail="Shows the words Quill hears above the overlay while you speak. The pasted text still comes from the whole recording. Uses more CPU while you record."
+        detail="Shows the words Quill hears inside the overlay while you speak. The pasted text still comes from the whole recording. Uses more CPU while you record."
         right={<Switch label="Live preview" checked={vd.livePreview} onChange={(v) => ctx.saveVd({ livePreview: v })} />}
       />
     </Card>
@@ -198,18 +198,21 @@ function ActivationCard({ ctx }: { ctx: Ctx }) {
 }
 
 /// The shortcut capture button, with Reset when it isn't the default.
-export function ShortcutButton({ ctx }: { ctx: Ctx }) {
-  const { capturingHotkey, hotkeyDisplay, hotkeyIsDefault } = ctx.state;
+/// `sketch` picks the Sketch shortcut instead of dictation's.
+export function ShortcutButton({ ctx, sketch = false }: { ctx: Ctx; sketch?: boolean }) {
+  const capturingHotkey = sketch ? ctx.state.capturingSketchHotkey : ctx.state.capturingHotkey;
+  const hotkeyDisplay = sketch ? ctx.state.sketchHotkeyDisplay : ctx.state.hotkeyDisplay;
+  const hotkeyIsDefault = sketch ? ctx.state.sketchHotkeyIsDefault : ctx.state.hotkeyIsDefault;
   return (
     <>
       {!hotkeyIsDefault && !capturingHotkey && (
-        <Button kind="plain" onClick={() => api.resetHotkey()}>
+        <Button kind="plain" onClick={() => api.resetHotkey(sketch)}>
           Reset
         </Button>
       )}
       <button
         aria-label={capturingHotkey ? "Recording a shortcut. Press Esc to cancel." : `Shortcut ${hotkeyDisplay}. Change shortcut`}
-        onClick={() => (capturingHotkey ? api.cancelHotkeyCapture() : api.beginHotkeyCapture())}
+        onClick={() => (capturingHotkey ? api.cancelHotkeyCapture() : api.beginHotkeyCapture(sketch))}
         className={cx(
           "flex h-[30px] min-w-[120px] items-center justify-center gap-1 rounded-[7px] px-1 transition-[background-color] duration-100",
           capturingHotkey ? "bg-accent-soft px-3 text-[12.5px] text-accent shadow-[0_0_0_1px_var(--accent)]" : "hover:bg-fill",

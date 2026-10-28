@@ -161,6 +161,19 @@ button {
   }
 }
 
+/* The recording outline breathes so it reads as live. */
+@keyframes rec-breathe {
+  0%,
+  100% {
+    border-color: rgb(255 69 58 / 0.45);
+    box-shadow: 0 0 0 0 rgb(255 69 58 / 0);
+  }
+  50% {
+    border-color: rgb(255 69 58 / 1);
+    box-shadow: 0 0 8px 0 rgb(255 69 58 / 0.45);
+  }
+}
+
 /* The cleanup orb breathes while S1-mini works. */
 @keyframes orb-breathe {
   0%,
@@ -182,5 +195,21 @@ button {
   to {
     opacity: 1;
     transform: none;
+  }
+}
+
+/* Sketch: the edge glow breathes; finished marks fade after a moment. */
+@keyframes sketch-breathe {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sketch-mark-fade {
+  to {
+    opacity: 0;
   }
 }

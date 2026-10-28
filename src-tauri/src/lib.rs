@@ -12,6 +12,9 @@ mod overlay;
 pub mod paths;
 mod platform;
 mod shell;
+mod sketch;
+mod sketch_store;
+mod sketch_windows;
 mod stores;
 mod tray;
 mod updates;
@@ -70,6 +73,7 @@ pub fn run() {
             let (hook, hook_error) = match platform::hotkey::HotkeyHook::install(settings.voice_dictation.hotkey) {
                 Ok((hook, rx)) => {
                     hook.set_suspended(!settings.enabled);
+                    hook.set_sketch_hotkey(app::sketch_hotkey(&settings));
                     app::spawn_hook_consumer(handle.clone(), rx);
                     (Some(hook), None)
                 }
@@ -94,6 +98,7 @@ pub fn run() {
                 hook,
                 hook_error,
                 capturing: AtomicBool::new(false),
+                capturing_sketch: AtomicBool::new(false),
                 capture_error: Mutex::new(None),
                 preferred_languages,
                 updates: updates::Updates::default(),
@@ -162,6 +167,8 @@ pub fn run() {
             commands::begin_hotkey_capture,
             commands::cancel_hotkey_capture,
             commands::reset_hotkey,
+            commands::sketch_action,
+            commands::sketch_state,
             commands::open_microphone_settings,
             commands::open_sound_settings,
             commands::copy_text,

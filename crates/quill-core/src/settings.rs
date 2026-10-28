@@ -220,11 +220,72 @@ impl Default for VoiceDictation {
     }
 }
 
+/// The key held to draw during a Sketch: alone, with no other modifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum DrawKey {
+    #[default]
+    Shift,
+    Ctrl,
+    Alt,
+}
+
+impl DrawKey {
+    pub fn modifier(self) -> u32 {
+        match self {
+            Self::Shift => modifiers::SHIFT,
+            Self::Ctrl => modifiers::CTRL,
+            Self::Alt => modifiers::ALT,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Shift => "Shift",
+            Self::Ctrl => "Ctrl",
+            Self::Alt => "Alt",
+        }
+    }
+}
+
+/// Sketch: talk while marking up the screen, then paste the screenshots
+/// and the transcript together.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SketchSettings {
+    pub enabled: bool,
+    /// Starts and finishes a Sketch.
+    pub hotkey: Hotkey,
+    pub draw_key: DrawKey,
+}
+
+impl SketchSettings {
+    /// Ctrl+Alt+S.
+    pub fn default_hotkey() -> Hotkey {
+        Hotkey { vk: 0x53, modifiers: modifiers::CTRL | modifiers::ALT }
+    }
+
+    /// Why `hotkey` can't start a Sketch, if it can't.
+    pub fn hotkey_problem(hotkey: &Hotkey, dictation: &Hotkey) -> Option<String> {
+        if hotkey == dictation {
+            return Some("Sketch needs a different shortcut from dictation.".into());
+        }
+        hotkey.problem()
+    }
+}
+
+impl Default for SketchSettings {
+    fn default() -> Self {
+        Self { enabled: true, hotkey: Self::default_hotkey(), draw_key: DrawKey::Shift }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     pub enabled: bool,
     pub voice_dictation: VoiceDictation,
+    pub sketch: SketchSettings,
     pub launch_at_login: bool,
     /// UI state: whether the history card is expanded.
     pub history_expanded: bool,
@@ -237,6 +298,7 @@ impl Default for Settings {
         Self {
             enabled: true,
             voice_dictation: VoiceDictation::default(),
+            sketch: SketchSettings::default(),
             launch_at_login: true,
             history_expanded: false,
             onboarded: false,
@@ -280,6 +342,20 @@ mod tests {
         assert_eq!(s.voice_dictation.engine, EngineId::WhisperTiny);
         assert!(s.voice_dictation.writes_numbers);
         assert!(s.enabled);
+    }
+
+    #[test]
+    fn sketch_defaults_and_shortcut_clash() {
+        let json = serde_json::to_value(Settings::default()).unwrap();
+        assert_eq!(json["sketch"]["enabled"], true);
+        assert_eq!(json["sketch"]["drawKey"], "shift");
+        let sketch = SketchSettings::default();
+        assert_eq!(sketch.hotkey.display(), "Ctrl+Alt+S");
+        assert!(SketchSettings::hotkey_problem(&sketch.hotkey, &Hotkey::default()).is_none());
+        assert!(SketchSettings::hotkey_problem(&Hotkey::default(), &Hotkey::default()).is_some());
+        // Settings saved before Sketch existed still load.
+        let old: Settings = serde_json::from_str(r#"{"enabled":true}"#).unwrap();
+        assert_eq!(old.sketch, SketchSettings::default());
     }
 
     #[test]
