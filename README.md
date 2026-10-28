@@ -54,7 +54,7 @@ Releases are not code-signed, so Windows may warn before installing. Each releas
 
 ## Build and contribute
 
-Quill uses Rust and Tauri, with React and TypeScript for Settings and the recording overlay. See [Development](docs/DEVELOPMENT.md) for build instructions and [Contributing](CONTRIBUTING.md) for bug reports and pull requests.
+Quill uses Rust and Tauri, with React and TypeScript for Settings and the recording overlay. See [Development](docs/DEVELOPMENT.md) for build instructions, bug reports, and pull requests.
 
 Quill is [MIT licensed](LICENSE). Bundled runtimes and downloaded models have their own licenses, listed in the development guide and in Settings under Privacy and data.
 

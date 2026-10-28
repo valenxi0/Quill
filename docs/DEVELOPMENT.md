@@ -2,9 +2,9 @@
 
 ## Layout
 
-- `crates/quill-core`: platform-free logic: the text pipeline (vocabulary, snippets, cleanup guard, chunker, command formatter, number formatter), state machine, pause finder, correction diff, history, stats, settings, engine and model tables, and the 16 kHz resampler. Most unit tests live here.
+- `crates/quill-core`: platform-free logic: the text pipeline (vocabulary, snippets, cleanup guard, chunker, command formatter, number formatter), state machine, pause finder, correction diff, history, stats, settings, engine and model tables, the 16 kHz resampler, and Sketch's screenshot picking, text and rendering (`sketch/`). Most unit tests live here.
 - `src-tauri`: the Windows app: keyboard hook, audio capture, UI Automation, clipboard and paste, overlay, tray, downloads, engines, the dictation controller, and updates (`updates.rs`). `src/bin/quill-bench.rs` is the benchmark.
-- `src`: the Settings window (setup wizard, Insights, Your voice, Setup) and the overlay pill (React, TypeScript, Tailwind). Running `npm run dev` in a plain browser previews both against a fake backend (`src/lib/devMock.ts`). The preview uses sample counts and extracts icons from running Windows apps through `scripts/preview-app-icons.ps1`; it does not download logos.
+- `src`: the Settings window (setup wizard, Insights, Your voice, Setup, Sketch), the overlay pill, and the Sketch ink layer and bar (React, TypeScript, Tailwind). Running `npm run dev` in a plain browser previews both against a fake backend (`src/lib/devMock.ts`). The preview uses sample counts and extracts icons from running Windows apps through `scripts/preview-app-icons.ps1`; it does not download logos.
 - `.github/workflows`: `ci.yml` runs tests on every push; `release.yml` builds and publishes a release when you push a version tag.
 - `SETUP-GUIDE.md`: the install guide for users.
 - `vendor/whisper-rs-sys`: whisper-rs-sys 0.15.0, patched to build whisper.cpp against llama.cpp's ggml, so the program holds one copy of ggml.
@@ -111,3 +111,10 @@ Quill ships the runtimes; you download the weights. Always written as "S1-mini" 
 | Whisper tiny.en, base.en, large-v3-turbo | MIT |
 | Cohere Transcribe 03-2026 | Apache 2.0 |
 | Silero VAD (built in) | MIT |
+| Scrawl by Kit Langton (idea and interaction for Sketch; no code copied) | MIT |
+
+## Contributing
+
+Bug reports, documentation fixes, and focused pull requests are welcome. For a bug, include your Quill version, Windows version, selected engine, and steps to reproduce. Share only audio or transcripts you're comfortable making public. For a larger feature, open an issue first.
+
+Before a pull request, run `npm run build` and `cargo test -p quill-core --locked`, and include screenshots for UI changes. Keep model licenses and attribution. Cleanup changes must keep the S1-mini prompt, chat template, greedy decoding, output budget, guards, and evaluation rubrics.
