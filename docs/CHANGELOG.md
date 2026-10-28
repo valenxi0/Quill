@@ -2,16 +2,18 @@
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-10-14
+## [0.3.0] - 2026-10-27
 
 ### Added
+
+- Sketch, from Nano: press Ctrl+Alt+S and talk while you mark up the screen. Hold Shift and move the pointer to draw, or turn on Draw and drag; clicks still reach your apps. Press Ctrl+Alt+S again and Quill pastes the screenshots, then a line for each with what you said at that moment, into the app you started in. Terminals get the image paths, which Claude Code turns into images. Screenshots are kept for a day. Set the shortcut and draw key on the new Sketch page in Settings. The idea comes from Scrawl by Kit Langton.
 
 - Styles for specific apps: pick Casual in Discord and keep Polished everywhere else.
 - Dictating into the middle of a sentence matches the text around the cursor. The first word starts lowercase, a missing space is added, and a full stop the sentence doesn't need is dropped. Names and vocabulary keep their capitals. Turn it off under Setup, Advanced.
 - Say an emoji name followed by "emoji", such as "thumbs up emoji", to type the emoji. "The fire emoji" and "the party was fire" stay as words.
 - Optional: end a dictation with "press enter" to press Enter after the paste.
 - Long pastes into terminals go in pieces, so Claude Code and Codex show the text instead of a "pasted text" placeholder.
-- Optional live preview: the overlay shows the words Quill hears while you speak. The pasted text still comes from the whole recording.
+- Optional live preview: the words Quill hears appear inside the recording pill, newest on the right. The pasted text still comes from the whole recording.
 - Transcript history keeps what Quill heard as well as what it pasted. Redo any entry in another style, and the result is copied. History moved to Your voice.
 - Paste last transcript again, from the tray or `quill://paste-last`, into the app it went to.
 - App pickers have a search field.
@@ -22,7 +24,7 @@
 - Apps that aren't open, Microsoft Store apps such as Claude, and apps recorded before 0.2.2 now show their icons.
 - Clearer Settings copy, sentence-case buttons, and no "All apps" tag on every global vocabulary entry.
 - Settings has a new layout: a sidebar with Home, Your voice, Setup, Typing into apps, and Privacy and data, grouped settings with icons, and a Home page that leads with your week. The shortcut shows as keys.
-- The overlay shows a breathing light while Quill transcribes and cleans up, and its pills rise in without bouncing.
+- The overlay shows a breathing light while Quill transcribes and cleans up, and its pills rise in without bouncing. The recording pill no longer shows a timer, and its red outline breathes.
 - The update banner no longer shows raw release-note markdown. It says which version you have, with a What's new link to the release notes.
 - The README opens with the launch video.
 - The release workflow can sign Quill for Smart App Control once a signing account is set up. Releases stay unsigned until then.

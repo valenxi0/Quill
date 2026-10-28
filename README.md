@@ -16,7 +16,9 @@ The installer supports 64-bit Windows and installs without an admin prompt. Mode
 
 Hold **Ctrl+Alt+M** to record, then release to paste. Toggle mode lets you press once to start and again to finish. Press Esc twice within one second to cancel.
 
-Quill runs in the system tray. Settings has five pages: Home for your week, Your voice for vocabulary and history, Setup for the shortcut, engine, and cleanup style, Typing into apps for how text lands in each app, and Privacy and data.
+Quill runs in the system tray. Settings has six pages: Home for your week, Your voice for vocabulary and history, Setup for the shortcut, engine, and cleanup style, Typing into apps for how text lands in each app, Sketch, and Privacy and data.
+
+Press **Ctrl+Alt+S** to start a Sketch: talk while you mark up the screen, holding Shift and moving the pointer to draw. Press it again, and Quill pastes the screenshots and what you said at each one into the app you started in. It's made for showing an AI agent what you mean. The idea comes from [Scrawl](https://github.com/kitlangton/scrawl) by Kit Langton.
 
 Turn on Live preview in Setup to see the words Quill hears while you speak. Say "press enter" at the end of a dictation to send it, once that option is on. To paste the last transcript again, use the tray menu or `quill://paste-last`.
 
@@ -37,6 +39,8 @@ Screenshots use sample data.
 ## Privacy
 
 Quill processes audio in memory and discards it after transcription. Recognition and cleanup do not send audio or text to a server. Downloads and update checks need an internet connection.
+
+Sketch screenshots are saved on your PC, in `%LOCALAPPDATA%\Quill\Sketches`, for 24 hours.
 
 Insights store counts on your PC, including words dictated and the app you used. Transcript history is off by default. If you enable it, Quill keeps what it heard and what it pasted on your PC for 24 hours, and you can redo any entry in another style. You can turn both features off in Settings.
 
