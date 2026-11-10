@@ -1,8 +1,15 @@
 // The Sketch controls, floating above the dictation pill: time, Draw, a
-// hint, Undo, Cancel and Finish. Clicks here never move focus.
-import { useEffect, useState } from "react";
+// hint, Undo, Cancel and Finish. Clicks here never move focus. Drag anywhere
+// but a button to move it; it fades back while the pointer is elsewhere.
+import { useEffect, useState, type MouseEvent } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ArrowUUpLeft, PencilSimple } from "@phosphor-icons/react";
 import { api, on, type SketchView } from "../lib/api";
+
+function startDrag(e: MouseEvent) {
+  if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
+  if ("__TAURI_INTERNALS__" in window) getCurrentWindow().startDragging().catch(() => {});
+}
 
 function clock(ms: number) {
   const s = Math.max(0, Math.floor(ms / 1000));
@@ -28,9 +35,10 @@ export default function Bar() {
   const hint = view.penOn ? "Drag to draw" : `Hold ${view.drawKey} and move to draw${marks}`;
 
   return (
-    <div className="flex h-screen items-center p-[2px]">
+    <div className="flex h-screen items-center p-[2px] opacity-55 transition-opacity duration-300 hover:opacity-100 hover:duration-150">
       <div
-        className="flex h-full w-full items-center gap-2.5 rounded-full pr-[11px] pl-[17px] text-white"
+        onMouseDown={startDrag}
+        className="flex h-full w-full cursor-grab items-center gap-2.5 rounded-full pr-[11px] pl-[17px] text-white select-none active:cursor-grabbing"
         style={{
           background: "rgb(23 23 26 / 0.96)",
           boxShadow: "inset 0 0 0 1px rgb(255 255 255 / 0.1)",

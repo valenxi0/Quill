@@ -2,21 +2,34 @@ import { type Insights } from "../lib/api";
 import { compact, duration, monthDay } from "../lib/format";
 import type { Ctx } from "./App";
 import { Card, cx, Icon } from "./ui";
-import { useInsights } from "./VoiceTab";
+import { useInsights, VoiceStats } from "./VoiceTab";
+import { HistoryCard } from "./History";
 import { AppIcon } from "./AppScope";
 
+/** Home: your week, what cleanup did, and recent transcripts. */
 export function InsightsTab({ ctx }: { ctx: Ctx }) {
   const insights = useInsights(ctx.state);
   if (!insights) return null;
-  if (!ctx.state.settings.voiceDictation.insightsEnabled && insights.isEmpty) {
-    return (
+  const vd = ctx.state.settings.voiceDictation;
+  let counts;
+  if (!vd.insightsEnabled && insights.isEmpty) {
+    counts = (
       <Card className="py-10 text-center">
         <h3 className="text-[15px] font-semibold">Insights are off</h3>
-        <p className="mt-1 text-[12.5px] text-text-2">Turn them on under Privacy and data to count words and time saved.</p>
+        <p className="mt-1 text-[12.5px] text-text-2">Turn them on under Privacy to count words and time saved.</p>
       </Card>
     );
+  } else if (insights.isEmpty) {
+    counts = <Empty hotkey={ctx.state.hotkeyDisplay} />;
+  } else {
+    counts = <Filled insights={insights} vocabCount={vd.vocabulary.length} />;
   }
-  return insights.isEmpty ? <Empty hotkey={ctx.state.hotkeyDisplay} /> : <Filled insights={insights} />;
+  return (
+    <>
+      {counts}
+      <HistoryCard ctx={ctx} />
+    </>
+  );
 }
 
 function Empty({ hotkey }: { hotkey: string }) {
@@ -35,7 +48,7 @@ function Empty({ hotkey }: { hotkey: string }) {
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-function Filled({ insights: i }: { insights: Insights }) {
+function Filled({ insights: i, vocabCount }: { insights: Insights; vocabCount: number }) {
   const days = i.heatmap.filter((c) => !c.future).slice(-7);
   return (
     <>
@@ -64,6 +77,7 @@ function Filled({ insights: i }: { insights: Insights }) {
           </div>
         </Card>
       </div>
+      <VoiceStats insights={i} vocabCount={vocabCount} />
       <div className="grid grid-cols-2 gap-[10px]">
         <Card>
           <h2 className="mb-3 text-[13px] font-semibold">Where you dictate</h2>
@@ -94,7 +108,7 @@ function Filled({ insights: i }: { insights: Insights }) {
           <Heatmap cells={i.heatmap} />
         </Card>
       </div>
-      <p className="px-0.5 text-[11.5px] text-text-3">Counts only, stored on this PC. Change this under Privacy and data.</p>
+      <p className="px-0.5 text-[11.5px] text-text-3">Counts only, stored on this PC. Change this under Privacy.</p>
     </>
   );
 }

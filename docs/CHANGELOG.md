@@ -1,6 +1,17 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.1] - 2026-11-09
+
+### Changed
+
+- Pausing mid-sentence no longer ends the sentence. Long dictations are still recognized in pieces while you talk, but S1-mini now cleans the whole dictation at once, so a one or two second pause stays inside the sentence.
+- Casual keeps apostrophes, names, and "I", and drops fillers. Before, it wrote everything lowercase and turned "we're" into "were".
+- When a cleanup guard objects, only the sentences it objects to stay as heard, not the whole piece. Saying "not" twice in a stutter no longer counts as a dropped negation.
+- "Formal wording" is now called "Expand contractions", which is what it does.
+- Sketch: drag the bar anywhere, and it stays there for the next Sketch. It fades back while the pointer is elsewhere.
+- Sketch: ink follows the pointer more smoothly.
+- Settings has new pages: Home, Dictation, Cleanup, Vocabulary, Sketch, Privacy, and General. Cleanup holds the style and all the per-app formatting in one place, transcript history moved to Home, and startup, updates, launchers, and licenses moved to General.
+- The installer and uninstaller are dark, in the Settings window's colors. The Welcome page shows Quill typing a reply, and the Finish page shows the shortcut and where Quill sits in the tray. The setup file has Quill's icon, and setup no longer offers a desktop shortcut.
 
 ## [0.3.0] - 2026-10-27
 

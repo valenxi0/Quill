@@ -27,5 +27,7 @@ pub trait Shell: Send + Sync {
     fn sketch_commit(&self, points: &[(f32, f32)], label: &str);
     fn sketch_undo(&self);
     fn sketch_pen(&self, on: bool);
+    /// Where the bar is now, in physical screen pixels, since it can be dragged.
+    fn sketch_bar_rect(&self) -> Option<(i32, i32, i32, i32)>;
     fn sketch_hide(&self);
 }

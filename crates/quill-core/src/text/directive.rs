@@ -4,7 +4,6 @@ use crate::{context::AppContext, settings::CleanupLevel};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Styling {
-    Casual,
     SemiCasual,
     SemiFormal,
     Formal,
@@ -41,7 +40,7 @@ impl Directive {
         let polished = level != CleanupLevel::Light;
         Some(Self {
             styling: if !polished {
-                Styling::Casual
+                Styling::SemiCasual
             } else if formal {
                 Styling::Formal
             } else {
@@ -54,7 +53,6 @@ impl Directive {
 
     pub fn control_line(self) -> String {
         let styling = match self.styling {
-            Styling::Casual => "casual",
             Styling::SemiCasual => "semi-casual",
             Styling::SemiFormal => "semi-formal",
             Styling::Formal => "formal",
@@ -88,7 +86,7 @@ mod tests {
                     assert_eq!(
                         d.styling,
                         if level == CleanupLevel::Light {
-                            Styling::Casual
+                            Styling::SemiCasual
                         } else if formal {
                             Styling::Formal
                         } else {

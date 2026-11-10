@@ -48,9 +48,9 @@ Quill starts with Windows and waits in the **tray**: the icons near the clock, b
 
 ## Updates
 
-Quill checks for updates daily when its GitHub release feed is accessible. In **Settings → Setup → Updates**, check manually or install an available update. You can also download **Quill-Setup.exe** again and run it over your copy. Your settings and downloaded engines are kept.
+Quill checks for updates daily when its GitHub release feed is accessible. In **Settings → General → Updates**, check manually or install an available update. You can also download **Quill-Setup.exe** again and run it over your copy. Your settings and downloaded engines are kept.
 
-To hear about new versions, open [the repo](https://github.com/valenxi0/Quill) and click **Watch → Custom → Releases**. GitHub will email you each time one is published. In Quill, **Settings → Setup → Updates → Releases page** opens the same place.
+To hear about new versions, open [the repo](https://github.com/valenxi0/Quill) and click **Watch → Custom → Releases**. GitHub will email you each time one is published. In Quill, **Settings → General → Updates → Releases page** opens the same place.
 
 ## Troubleshooting
 

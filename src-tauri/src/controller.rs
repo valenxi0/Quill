@@ -21,7 +21,7 @@ use quill_core::text::directive::Directive;
 use quill_core::settings::{level_for_app, CleanupLevel};
 use quill_core::state::{action, Action, HotkeyEvent, Phase};
 use quill_core::stats::Session as StatSession;
-use quill_core::text::finish::{has_speech, join, peak, rms_dbfs, MIN_SPEECH_PEAK};
+use quill_core::text::finish::{has_speech, join, join_seams, peak, rms_dbfs, MIN_SPEECH_PEAK};
 use quill_core::text::numbers::Itn;
 use quill_core::text::spoken::paste_chunks;
 use quill_core::text::vocabulary::{for_app, vocabulary_terms};
@@ -96,6 +96,12 @@ struct Preview {
 
 /// The longest stretch of audio a preview decodes.
 const PREVIEW_WINDOW: usize = SAMPLE_RATE * 15;
+
+/// What the recognizer heard in one stretch of audio, before cleanup.
+struct Heard {
+    text: String,
+    language: Option<String>,
+}
 
 enum Job {
     Segment(Vec<f32>),
@@ -640,7 +646,7 @@ impl Controller {
         std::thread::Builder::new()
             .name("quill-dictation".into())
             .spawn(move || {
-                let mut results: Vec<SegmentResult> = Vec::new();
+                let mut heard: Vec<Heard> = Vec::new();
                 let mut metrics = Metrics::default();
                 let mut failure: Option<DictationError> = None;
                 for job in rx {
@@ -652,12 +658,12 @@ impl Controller {
                             if failure.is_some() {
                                 continue;
                             }
-                            match me.process(&cfg, &samples, &mut metrics) {
-                                Ok(r) => {
+                            match me.recognize(&cfg, &samples, &mut metrics) {
+                                Ok(h) => {
                                     if let Some(c) = &cfg.preview_committed {
-                                        c.lock().push(r.raw.clone());
+                                        c.lock().push(h.text.clone());
                                     }
-                                    results.push(r)
+                                    heard.push(h)
                                 }
                                 Err(e) => failure = Some(e),
                             }
@@ -668,7 +674,8 @@ impl Controller {
                                 me.fail_session(cfg.generation, e);
                                 return;
                             }
-                            me.deliver(&cfg, results, metrics, stopped, rms_dbfs);
+                            let result = me.clean(&cfg, &heard, &mut metrics);
+                            me.deliver(&cfg, result, metrics, stopped, rms_dbfs);
                             return;
                         }
                         Job::Sketch { samples, speech, session, stopped } => {
@@ -682,8 +689,9 @@ impl Controller {
         tx
     }
 
-    /// Recognize and process one segment.
-    fn process(self: &Arc<Self>, cfg: &SessionConfig, samples: &[f32], metrics: &mut Metrics) -> Result<SegmentResult, DictationError> {
+    /// Recognize one stretch of audio. Long dictations are recognized in
+    /// pieces while they are spoken, cut at pauses.
+    fn recognize(self: &Arc<Self>, cfg: &SessionConfig, samples: &[f32], metrics: &mut Metrics) -> Result<Heard, DictationError> {
         let info = cfg.engine.info();
         let request = TranscribeRequest { vocabulary_terms: cfg.vocabulary_terms.clone(), language: cfg.language.clone() };
         let min_seconds = if info.recognizer == Recognizer::Whisper { 1.1 } else { 1.0 };
@@ -701,7 +709,7 @@ impl Controller {
                         language = language.or(t.language);
                         texts.push(t.text);
                     }
-                    Ok(crate::engines::Transcript { text: join(&texts), language, boosted_terms: vec![] })
+                    Ok(crate::engines::Transcript { text: join_seams(&texts), language, boosted_terms: vec![] })
                 } else {
                     e.transcribe(&pad(samples, min_seconds), &request)
                 }
@@ -720,12 +728,24 @@ impl Controller {
         if !self.is_current(cfg.generation) {
             return Err(DictationError::Cancelled);
         }
+        Ok(Heard { text: transcript.text, language: transcript.language })
+    }
 
+    /// Clean what was heard as one text, so a pause the audio was cut at
+    /// never ends a sentence the speaker meant to continue.
+    fn clean(self: &Arc<Self>, cfg: &SessionConfig, heard: &[Heard], metrics: &mut Metrics) -> SegmentResult {
+        let info = cfg.engine.info();
+        let raw = join_seams(&heard.iter().map(|h| h.text.clone()).collect::<Vec<_>>());
+        // One language for the whole text only when every piece agrees;
+        // otherwise the text itself decides.
+        let mut languages = heard.iter().map(|h| h.language.as_deref());
+        let first = languages.next().flatten();
+        let language = first.filter(|l| languages.all(|o| o == Some(*l)));
         let post_start = Instant::now();
         let mut cleaner = HostCleaner { controller: self, generation: cfg.generation, time: Duration::ZERO, cold: None };
         let result = process_segment(
-            &transcript.text,
-            transcript.language.as_deref(),
+            &raw,
+            language,
             &cfg.recipe,
             if info.has_cleanup { Some(&mut cleaner as &mut dyn Cleaner) } else { None },
             self.itn.as_deref(),
@@ -739,15 +759,14 @@ impl Controller {
         metrics.post_processing_ms += post_start.elapsed().saturating_sub(cleanup).as_millis() as u64;
         metrics.cleanup_fallbacks += result.fallbacks;
         metrics.guard_restores += result.restored;
-        Ok(result)
+        result
     }
 
-    fn deliver(self: &Arc<Self>, cfg: &SessionConfig, results: Vec<SegmentResult>, mut metrics: Metrics, stopped: Instant, rms: f32) {
+    fn deliver(self: &Arc<Self>, cfg: &SessionConfig, result: SegmentResult, mut metrics: Metrics, stopped: Instant, rms: f32) {
         if !self.is_current(cfg.generation) {
             return;
         }
-        let raw = join(&results.iter().map(|r| r.raw.clone()).collect::<Vec<_>>());
-        let text = join(&results.iter().map(|r| r.text.clone()).collect::<Vec<_>>());
+        let (raw, text) = (result.raw.clone(), result.text.clone());
         let options = DeliveryOptions {
             spoken_enter: cfg.spoken_enter,
             around: cfg.target.surroundings.as_ref(),
@@ -827,7 +846,7 @@ impl Controller {
             // Cancelled during delivery: nothing is recorded or learned.
             return;
         }
-        self.record(cfg, &results, &raw, &text, &metrics, release_to_paste, pasted);
+        self.record(cfg, std::slice::from_ref(&result), &raw, &text, &metrics, release_to_paste, pasted);
         *self.last_metrics.lock() = Some(metrics);
         self.shell.state_changed();
         self.schedule_idle_unload();
@@ -866,18 +885,18 @@ impl Controller {
                 texts.push(String::new());
                 continue;
             }
-            // Long stretches between marks go through in pause-aware parts.
-            let mut parts = Vec::new();
+            // Long stretches between marks are recognized in pause-aware
+            // parts, then cleaned together.
+            let mut heard = Vec::new();
             for part in split(piece, 20.0) {
-                match self.process(cfg, &piece[part], &mut metrics) {
-                    Ok(r) => {
-                        parts.push(r.text.clone());
-                        results.push(r);
-                    }
+                match self.recognize(cfg, &piece[part], &mut metrics) {
+                    Ok(h) => heard.push(h),
                     Err(e) => return self.fail_session(cfg.generation, e),
                 }
             }
-            texts.push(join(&parts));
+            let r = self.clean(cfg, &heard, &mut metrics);
+            texts.push(r.text.clone());
+            results.push(r);
         }
         if !self.is_current(cfg.generation) {
             return;
@@ -1083,7 +1102,7 @@ impl Controller {
                 if me.is_current(generation) && me.phase() == Phase::Recording {
                     let mut parts = earlier.lock().clone();
                     parts.push(heard);
-                    me.shell.preview(&join(&parts));
+                    me.shell.preview(&join_seams(&parts));
                 }
             }
         });

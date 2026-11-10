@@ -3,7 +3,6 @@ import { api, type EntryKind, type Insights, type VocabEntry } from "../lib/api"
 import { AppPicker, AppScope, scopeName, useKnownApps } from "./AppScope";
 import { compact } from "../lib/format";
 import type { Ctx } from "./App";
-import { HistoryCard } from "./History";
 import { BookOpenText, PencilSimpleLine } from "@phosphor-icons/react";
 import { Button, Capsule, Card, CardHeader, Divider, Icon, IconButton, Segmented, Sheet, Switch, TextField } from "./ui";
 
@@ -25,24 +24,28 @@ function Stat({ title, value, detail }: { title: string; value: string; detail: 
   );
 }
 
-export function VoiceTab({ ctx }: { ctx: Ctx }) {
-  const insights = useInsights(ctx.state);
-  const vocab = ctx.state.settings.voiceDictation.vocabulary;
-  const median = insights?.medianLatency;
+/** Fillers removed, dictionary expansions, and speed, shown on Home. */
+export function VoiceStats({ insights, vocabCount }: { insights: Insights; vocabCount: number }) {
+  const median = insights.medianLatency;
+  return (
+    <Card className="flex p-0">
+      <Stat title="Filler words removed" value={compact(insights.fillersRemoved)} detail="Um, uh, and erm cut by cleanup" />
+      <Stat
+        title="Dictionary expansions"
+        value={compact(insights.dictionaryExpansions)}
+        detail={`From ${vocabCount} ${vocabCount === 1 ? "entry" : "entries"}`}
+      />
+      <Stat title="Release to paste" value={median != null ? `${median.toFixed(2)}s` : "--"} detail="Median of your last 200 dictations" />
+    </Card>
+  );
+}
+
+/** The Vocabulary page: your words and snippets, and learned corrections. */
+export function VocabularyTab({ ctx }: { ctx: Ctx }) {
   return (
     <>
-      <Card className="flex p-0">
-        <Stat title="Filler words removed" value={compact(insights?.fillersRemoved ?? 0)} detail="Um, uh, and erm cut by cleanup" />
-        <Stat
-          title="Dictionary expansions"
-          value={compact(insights?.dictionaryExpansions ?? 0)}
-          detail={`From ${vocab.length} ${vocab.length === 1 ? "entry" : "entries"}`}
-        />
-        <Stat title="Release to paste" value={median != null ? `${median.toFixed(2)}s` : "--"} detail="Median of your last 200 dictations" />
-      </Card>
       <VocabularyCard ctx={ctx} />
       <CorrectionsCard ctx={ctx} />
-      <HistoryCard ctx={ctx} />
     </>
   );
 }

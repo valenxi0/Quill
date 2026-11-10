@@ -1,15 +1,15 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { House, Keyboard, Microphone, PencilSimpleLine, ShieldCheck, SlidersHorizontal, type Icon as PhosphorIcon } from "@phosphor-icons/react";
+import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
+import { BookOpenText, GearSix, House, MagicWand, Microphone, PencilSimpleLine, ShieldCheck, type Icon as PhosphorIcon } from "@phosphor-icons/react";
 import { api, on, type Settings, type UiState, type VoiceDictation } from "../lib/api";
 import { Button, Card, cx, Icon, Switch } from "./ui";
-import { StatusCard, SetupTab, TypingTab } from "./SetupTab";
-import { VoiceTab } from "./VoiceTab";
+import { CleanupTab, DictationTab, GeneralTab, StatusCard } from "./SetupTab";
+import { VocabularyTab } from "./VoiceTab";
 import { InsightsTab } from "./InsightsTab";
 import { PrivacyTab } from "./PrivacyTab";
 import { SketchTab } from "./SketchTab";
 import { Onboarding } from "./Onboarding";
 
-export type Tab = "home" | "voice" | "setup" | "typing" | "sketch" | "privacy";
+export type Tab = "home" | "dictation" | "cleanup" | "vocabulary" | "sketch" | "privacy" | "general";
 
 export interface Ctx {
   state: UiState;
@@ -40,13 +40,15 @@ function useQuill() {
   return { state, save };
 }
 
-const PAGES: { id: Tab; label: string; icon: PhosphorIcon }[] = [
-  { id: "home", label: "Home", icon: House },
-  { id: "voice", label: "Your voice", icon: Microphone },
-  { id: "setup", label: "Setup", icon: SlidersHorizontal },
-  { id: "typing", label: "Typing into apps", icon: Keyboard },
-  { id: "sketch", label: "Sketch", icon: PencilSimpleLine },
-  { id: "privacy", label: "Privacy and data", icon: ShieldCheck },
+// A line in the sidebar follows each page marked `endsGroup`.
+const PAGES: { id: Tab; label: string; icon: PhosphorIcon; endsGroup?: boolean }[] = [
+  { id: "home", label: "Home", icon: House, endsGroup: true },
+  { id: "dictation", label: "Dictation", icon: Microphone },
+  { id: "cleanup", label: "Cleanup", icon: MagicWand },
+  { id: "vocabulary", label: "Vocabulary", icon: BookOpenText },
+  { id: "sketch", label: "Sketch", icon: PencilSimpleLine, endsGroup: true },
+  { id: "privacy", label: "Privacy", icon: ShieldCheck },
+  { id: "general", label: "General", icon: GearSix },
 ];
 
 export default function App() {
@@ -57,9 +59,9 @@ export default function App() {
     api.animationsEnabled().then((on) => document.documentElement.classList.toggle("reduced-motion", !on));
   }, []);
 
-  // Open on Setup until the first dictation, then on Home.
+  // Open on Dictation until the first dictation, then on Home.
   useEffect(() => {
-    if (state && tab === null) setTab(state.hasDictated ? "home" : "setup");
+    if (state && tab === null) setTab(state.hasDictated ? "home" : "dictation");
   }, [state, tab]);
 
   if (!state || !tab) return <div className="h-screen bg-bg" />;
@@ -70,7 +72,7 @@ export default function App() {
   if (!state.settings.onboarded) return <Onboarding ctx={ctx} />;
   const enabled = state.settings.enabled;
   const page = PAGES.find((p) => p.id === tab)!;
-  const pinStatus = enabled && tab !== "setup" && (state.status.kind !== "ready" || state.status.hotkeyProblem !== null);
+  const pinStatus = enabled && tab !== "dictation" && (state.status.kind !== "ready" || state.status.hotkeyProblem !== null);
 
   return (
     <div className="flex h-screen bg-bg">
@@ -99,16 +101,18 @@ function Page({ tab, ctx }: { tab: Tab; ctx: Ctx }): ReactNode {
   switch (tab) {
     case "home":
       return <InsightsTab ctx={ctx} />;
-    case "voice":
-      return <VoiceTab ctx={ctx} />;
-    case "setup":
-      return <SetupTab ctx={ctx} />;
-    case "typing":
-      return <TypingTab ctx={ctx} />;
+    case "dictation":
+      return <DictationTab ctx={ctx} />;
+    case "cleanup":
+      return <CleanupTab ctx={ctx} />;
+    case "vocabulary":
+      return <VocabularyTab ctx={ctx} />;
     case "sketch":
       return <SketchTab ctx={ctx} />;
     case "privacy":
       return <PrivacyTab ctx={ctx} />;
+    case "general":
+      return <GeneralTab ctx={ctx} />;
   }
 }
 
@@ -132,22 +136,24 @@ function Sidebar({ ctx, tab, onChange }: { ctx: Ctx; tab: Tab; onChange: (t: Tab
         </div>
         <Switch label="Quill" checked={enabled} onChange={(v) => save({ ...state.settings, enabled: v })} />
       </div>
-      {PAGES.map(({ id, label, icon: PageIcon }) => {
+      {PAGES.map(({ id, label, icon: PageIcon, endsGroup }) => {
         const selected = id === tab;
         return (
-          <button
-            key={id}
-            aria-current={selected ? "page" : undefined}
-            onClick={() => onChange(id)}
-            className={cx(
-              "relative flex h-9 items-center gap-3 rounded-[6px] px-2.5 text-left text-[13px] transition-[background-color,color] duration-100",
-              selected ? "bg-fill text-text" : "text-text-2 hover:bg-fill hover:text-text",
-            )}
-          >
-            {selected && <span className="absolute top-2.5 bottom-2.5 left-0 w-[3px] rounded-full bg-accent" />}
-            <PageIcon size={18} weight={selected ? "fill" : "regular"} />
-            {label}
-          </button>
+          <Fragment key={id}>
+            <button
+              aria-current={selected ? "page" : undefined}
+              onClick={() => onChange(id)}
+              className={cx(
+                "relative flex h-9 items-center gap-3 rounded-[6px] px-2.5 text-left text-[13px] transition-[background-color,color] duration-100",
+                selected ? "bg-fill text-text" : "text-text-2 hover:bg-fill hover:text-text",
+              )}
+            >
+              {selected && <span className="absolute top-2.5 bottom-2.5 left-0 w-[3px] rounded-full bg-accent" />}
+              <PageIcon size={18} weight={selected ? "fill" : "regular"} />
+              {label}
+            </button>
+            {endsGroup && <div className="mx-2.5 my-1.5 h-px bg-hairline" />}
+          </Fragment>
         );
       })}
       <div className="mt-auto">

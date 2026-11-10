@@ -4,7 +4,7 @@
 
 - `crates/quill-core`: platform-free logic: the text pipeline (vocabulary, snippets, cleanup guard, chunker, command formatter, number formatter), state machine, pause finder, correction diff, history, stats, settings, engine and model tables, the 16 kHz resampler, and Sketch's screenshot picking, text and rendering (`sketch/`). Most unit tests live here.
 - `src-tauri`: the Windows app: keyboard hook, audio capture, UI Automation, clipboard and paste, overlay, tray, downloads, engines, the dictation controller, and updates (`updates.rs`). `src/bin/quill-bench.rs` is the benchmark.
-- `src`: the Settings window (setup wizard, Insights, Your voice, Setup, Sketch), the overlay pill, and the Sketch ink layer and bar (React, TypeScript, Tailwind). Running `npm run dev` in a plain browser previews both against a fake backend (`src/lib/devMock.ts`). The preview uses sample counts and extracts icons from running Windows apps through `scripts/preview-app-icons.ps1`; it does not download logos.
+- `src`: the Settings window (setup wizard, then Home, Dictation, Cleanup, Vocabulary, Sketch, Privacy, and General), the overlay pill, and the Sketch ink layer and bar (React, TypeScript, Tailwind). Running `npm run dev` in a plain browser previews both against a fake backend (`src/lib/devMock.ts`). The preview uses sample counts and extracts icons from running Windows apps through `scripts/preview-app-icons.ps1`; it does not download logos.
 - `.github/workflows`: `ci.yml` runs tests on every push; `release.yml` builds and publishes a release when you push a version tag.
 - `SETUP-GUIDE.md`: the install guide for users.
 - `vendor/whisper-rs-sys`: whisper-rs-sys 0.15.0, patched to build whisper.cpp against llama.cpp's ggml, so the program holds one copy of ggml.
@@ -80,6 +80,15 @@ Options, cheapest first:
 Quill's release workflow is ready for Azure Artifact Signing. Add these repository secrets and the next tag is signed: `ARTIFACT_SIGNING_ENDPOINT`, `ARTIFACT_SIGNING_ACCOUNT`, `ARTIFACT_SIGNING_PROFILE`, `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`. The app registration needs the Artifact Signing Certificate Profile Signer role. `scripts/sign.ps1` signs `Quill.exe` and the installer through Tauri's `signCommand`, and `scripts/stage-dlls.mjs` signs the sherpa-onnx DLLs. Without the secrets, both skip signing. This path hasn't run against a real account yet, so check the first signed release with `signtool verify /pa`.
 
 Smart App Control also weighs reputation. A newly signed publisher can still see warnings for its first releases. Keep signing every release with the same identity.
+
+### The installer's look
+
+The dark installer lives in `src-tauri/windows`:
+
+- `installer.nsi` is a copy of Tauri's NSIS template (from tauri-cli 2.11.5), with Quill's changes marked `Quill:`. When you update `@tauri-apps/cli`, compare it with the new template in `crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi` and merge Tauri's changes.
+- `dark.nsh` places the Welcome and Finish pictures and calls the theme plugin on every page.
+- `theme/quill_theme.c` is a small NSIS plugin that paints the buttons, check boxes, labels and fields. The built DLL is committed in `plugins/x86-unicode`; after changing the C file, run `theme/build.cmd`, which needs Visual Studio Build Tools.
+- `art/art.html` is the source of the Welcome, Finish and header pictures. After editing it, run `python scripts/installer-art.py` (Chrome and Pillow) to render the `.bmp` files at 1x, 1.5x and 2x.
 
 ## Launchers
 

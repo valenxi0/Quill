@@ -16,11 +16,11 @@ The installer supports 64-bit Windows and installs without an admin prompt. Mode
 
 Hold **Ctrl+Alt+M** to record, then release to paste. Toggle mode lets you press once to start and again to finish. Press Esc twice within one second to cancel.
 
-Quill runs in the system tray. Settings has six pages: Home for your week, Your voice for vocabulary and history, Setup for the shortcut, engine, and cleanup style, Typing into apps for how text lands in each app, Sketch, and Privacy and data.
+Quill runs in the system tray. Settings has seven pages: Home for your week and transcript history, Dictation for the shortcut and engine, Cleanup for the style and how text lands in each app, Vocabulary, Sketch, Privacy, and General for startup, updates, and launchers.
 
 Press **Ctrl+Alt+S** to start a Sketch: talk while you mark up the screen, holding Shift and moving the pointer to draw. Press it again, and Quill pastes the screenshots and what you said at each one into the app you started in. It's made for showing an AI agent what you mean. The idea comes from [Scrawl](https://github.com/kitlangton/scrawl) by Kit Langton.
 
-Turn on Live preview in Setup to see the words Quill hears while you speak. Say "press enter" at the end of a dictation to send it, once that option is on. To paste the last transcript again, use the tray menu or `quill://paste-last`.
+Turn on Live preview under Dictation to see the words Quill hears while you speak. Say "press enter" at the end of a dictation to send it, once that option is on. To paste the last transcript again, use the tray menu or `quill://paste-last`.
 
 Quill uses a dark interface, including the window title bar, even when Windows uses light mode.
 
@@ -56,7 +56,7 @@ Releases are not code-signed, so Windows may warn before installing. Each releas
 
 Quill uses Rust and Tauri, with React and TypeScript for Settings and the recording overlay. See [Development](docs/DEVELOPMENT.md) for build instructions, bug reports, and pull requests.
 
-Quill is [MIT licensed](LICENSE). Bundled runtimes and downloaded models have their own licenses, listed in the development guide and in Settings under Privacy and data.
+Quill is [MIT licensed](LICENSE). Bundled runtimes and downloaded models have their own licenses, listed in the development guide and in Settings under General.
 
 ## Troubleshooting
 

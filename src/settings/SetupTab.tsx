@@ -57,7 +57,7 @@ export const CLEANUP: { value: CleanupLevel; label: string; detail: string }[] =
   {
     value: "light",
     label: "Casual",
-    detail: "Writes like a text message: lowercase, light punctuation, your wording left as spoken. Corrections are still resolved and numbers written as figures.",
+    detail: "Writes like a message to a friend: relaxed punctuation and your wording as spoken, with apostrophes, names, and \"I\" kept. \"Um\" and \"uh\" go, and numbers are written as figures.",
   },
   {
     value: "full",
@@ -78,40 +78,52 @@ const EXAMPLES: [string, string][] = [
   ["cd tilde slash projects", "cd ~/projects"],
 ];
 
-export function SetupTab({ ctx }: { ctx: Ctx }) {
+/** The Dictation page: whether Quill is ready, the shortcut, and the engine. */
+export function DictationTab({ ctx }: { ctx: Ctx }) {
   return (
     <>
       <StatusCard ctx={ctx} />
-      <Section title="Dictation">
+      <Section title="Shortcut">
         <ActivationCard ctx={ctx} />
       </Section>
-      <Section title="Engine and cleanup">
+      <Section title="Engine">
         <EngineCard ctx={ctx} />
-        <CleanupCard ctx={ctx} />
-      </Section>
-      <Section title="General">
-        <Card>
-          <CardHeader
-            icon={<Power size={19} />}
-            title="Start at login"
-            detail="Quill waits in the tray, ready for your shortcut."
-            right={<Switch label="Start at login" checked={ctx.state.settings.launchAtLogin} onChange={(v) => ctx.save({ ...ctx.state.settings, launchAtLogin: v })} />}
-          />
-        </Card>
-        <UpdatesCard ctx={ctx} />
       </Section>
     </>
   );
 }
 
-/** The "Typing into apps" page. */
-export function TypingTab({ ctx }: { ctx: Ctx }) {
+/** The Cleanup page: how the text is written, and how it lands in each app. */
+export function CleanupTab({ ctx }: { ctx: Ctx }) {
   return (
     <>
-      <FormattingCard ctx={ctx} />
+      <Section title="Style">
+        <CleanupCard ctx={ctx} />
+      </Section>
+      <Section title="Formatting">
+        <FormattingCard ctx={ctx} />
+      </Section>
+    </>
+  );
+}
+
+/** The General page: startup, updates, launchers, and licenses. */
+export function GeneralTab({ ctx }: { ctx: Ctx }) {
+  return (
+    <>
+      <Card>
+        <CardHeader
+          icon={<Power size={19} />}
+          title="Start at login"
+          detail="Quill waits in the tray, ready for your shortcut."
+          right={<Switch label="Start at login" checked={ctx.state.settings.launchAtLogin} onChange={(v) => ctx.save({ ...ctx.state.settings, launchAtLogin: v })} />}
+        />
+      </Card>
+      <UpdatesCard ctx={ctx} />
       <Section title="Launchers">
         <LaunchersCard />
       </Section>
+      <LicensesCard />
     </>
   );
 }
@@ -507,7 +519,7 @@ function CleanupCard({ ctx }: { ctx: Ctx }) {
         title="Cleanup"
         detail={
           hasCleanup
-            ? "Choose how S1-mini cleans up your English. Other languages are written as heard. Cleanup guards protect your wording, numbers, and negations."
+            ? "Choose how S1-mini cleans up your English. Other languages are written as heard. If cleanup drops a \"not\", invents a number, or loses a sentence, Quill keeps what you said instead."
             : `${engine?.title ?? "This engine"} has no cleanup stage; transcripts are delivered as recognized. Choose Parakeet + S1-mini to adjust this.`
         }
       />
@@ -525,9 +537,9 @@ function CleanupCard({ ctx }: { ctx: Ctx }) {
       <Divider />
       <CardHeader
         icon={<TextAa size={19} />}
-        title="Formal wording"
+        title="Expand contractions"
         detail={'Polished and Compose write contractions out, so "I don\'t think so" becomes "I do not think so".'}
-        right={<Switch label="Formal wording" disabled={!hasCleanup} checked={vd.formalRegister} onChange={(v) => ctx.saveVd({ formalRegister: v })} />}
+        right={<Switch label="Expand contractions" disabled={!hasCleanup} checked={vd.formalRegister} onChange={(v) => ctx.saveVd({ formalRegister: v })} />}
       />
     </Card>
   );
@@ -746,7 +758,7 @@ const LICENSES: [string, string, string][] = [
   ["Silero VAD", "MIT", "By Silero. Built into Quill to skip silence."],
 ];
 
-export function LicensesCard() {
+function LicensesCard() {
   const [open, setOpen] = useState(false);
   return (
     <Card>

@@ -2,7 +2,6 @@ import { useState } from "react";
 import { ChartBar, Cpu } from "@phosphor-icons/react";
 import { api } from "../lib/api";
 import type { Ctx } from "./App";
-import { LicensesCard } from "./SetupTab";
 import { Button, Card, CardHeader, Divider, Section, Sheet, Switch } from "./ui";
 
 export function PrivacyTab({ ctx }: { ctx: Ctx }) {
@@ -33,9 +32,8 @@ export function PrivacyTab({ ctx }: { ctx: Ctx }) {
             </Button>
           </div>
         </Card>
-        <p className="px-0.5 text-[12px] text-text-3">Transcript history and learned corrections are on the Your voice page.</p>
+        <p className="px-0.5 text-[12px] text-text-3">Transcript history is on Home, and learned corrections are on Vocabulary.</p>
       </Section>
-      <LicensesCard />
       {confirmReset && (
         <Sheet
           title="Reset insights?"

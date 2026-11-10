@@ -78,9 +78,36 @@ pub fn chunk(text: &str, budget: usize) -> Vec<String> {
     pack(units, budget)
 }
 
+/// Split at the sentence end nearest the middle, so a rejected cleanup can
+/// be retried on smaller pieces. `None` for a single sentence.
+pub fn halve(text: &str) -> Option<(String, String)> {
+    let sentences = split_after(text, &['.', '!', '?']);
+    if sentences.len() < 2 {
+        return None;
+    }
+    let half = words(text) / 2;
+    let mut seen = 0;
+    let mut cut = 1;
+    let mut best = usize::MAX;
+    for (i, s) in sentences.iter().enumerate().take(sentences.len() - 1) {
+        seen += words(s);
+        if seen.abs_diff(half) < best {
+            best = seen.abs_diff(half);
+            cut = i + 1;
+        }
+    }
+    Some((sentences[..cut].join(" "), sentences[cut..].join(" ")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn halves_at_the_middle_sentence() {
+        assert_eq!(halve("a b. c d. e f g h."), Some(("a b. c d.".into(), "e f g h.".into())));
+        assert_eq!(halve("one sentence, with a clause"), None);
+    }
 
     #[test]
     fn under_budget_is_one_chunk() {

@@ -14,3 +14,8 @@ src-tauri/windows/hooks.nsh
 *.pfx
 *.p12
 docs/cleanup-eval-*.json
+
+# Theme plugin build leftovers (the DLL itself is committed)
+src-tauri/windows/theme/*.obj
+src-tauri/windows/theme/*.exp
+src-tauri/windows/theme/*.lib

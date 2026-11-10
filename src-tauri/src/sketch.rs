@@ -17,7 +17,7 @@ use parking_lot::Mutex;
 use quill_core::segments::SAMPLE_RATE;
 use quill_core::settings::DrawKey;
 use quill_core::sketch::{
-    clock, stroke_length, ChangeWatcher, Image, Moment, MomentKind, Place, Point, Stroke, MAXIMUM_FRAMES,
+    clock, steady, stroke_length, ChangeWatcher, Image, Moment, MomentKind, Place, Point, Stroke, MAXIMUM_FRAMES,
     MINIMUM_STROKE_LENGTH,
 };
 use serde::Serialize;
@@ -42,8 +42,8 @@ pub struct SketchView {
 pub const BAR_WIDTH: f64 = 560.0;
 pub const BAR_HEIGHT: f64 = 52.0;
 
-/// Where the bar sits on `m`, in physical pixels (left, top, right, bottom):
-/// centred, above the dictation pill.
+/// Where the bar starts on `m`, in physical pixels (left, top, right, bottom):
+/// centred, above the dictation pill. The user can drag it elsewhere.
 pub fn bar_rect(m: &Monitor) -> (i32, i32, i32, i32) {
     let s = m.scale as f64;
     let (wl, _, wr, wb) = m.work;
@@ -80,6 +80,8 @@ struct Change {
 struct Inner {
     frames: Vec<Frame>,
     drawing: Vec<Point>,
+    /// Where the pointer really is; the ink trails it a little.
+    pointer: Point,
     drawing_start: usize,
     live_dirty: bool,
     screen_changed: bool,
@@ -145,13 +147,22 @@ impl Session {
         let (tx, rx) = channel();
         *session.hook.lock() = Some(MouseHook::install(draw_key.modifier(), tx)?);
         let me = session.clone();
-        let input = std::thread::Builder::new().name("quill-sketch-input".into()).spawn(move || loop {
-            match rx.recv_timeout(Duration::from_millis(16)) {
-                Ok(event) => me.handle(event),
-                Err(RecvTimeoutError::Timeout) => {}
-                Err(RecvTimeoutError::Disconnected) => return,
+        // The live stroke goes out once a frame, not once per mouse event:
+        // a 1000 Hz mouse would otherwise flood the ink window.
+        let input = std::thread::Builder::new().name("quill-sketch-input".into()).spawn(move || {
+            const FRAME: Duration = Duration::from_millis(8);
+            let mut flushed = Instant::now();
+            loop {
+                match rx.recv_timeout(FRAME.saturating_sub(flushed.elapsed())) {
+                    Ok(event) => me.handle(event),
+                    Err(RecvTimeoutError::Timeout) => {}
+                    Err(RecvTimeoutError::Disconnected) => return,
+                }
+                if flushed.elapsed() >= FRAME {
+                    me.flush_live();
+                    flushed = Instant::now();
+                }
             }
-            me.flush_live();
         })?;
         let me = session.clone();
         let watcher = std::thread::Builder::new().name("quill-sketch-watch".into()).spawn(move || me.watch())?;
@@ -230,7 +241,7 @@ impl Session {
     }
 
     fn over_bar(&self, x: i32, y: i32) -> bool {
-        let (l, t, r, b) = bar_rect(&self.monitor);
+        let (l, t, r, b) = self.shell.sketch_bar_rect().unwrap_or_else(|| bar_rect(&self.monitor));
         x >= l && x < r && y >= t && y < b
     }
 
@@ -287,15 +298,21 @@ impl Session {
     }
 
     fn add(&self, x: i32, y: i32) {
-        let point = self.local(x, y);
+        let raw = self.local(x, y);
         let mut inner = self.inner.lock();
-        if inner.drawing.is_empty() {
-            inner.drawing_start = (self.clock)();
-        } else if let Some(last) = inner.drawing.last() {
-            if (last.x - point.x).hypot(last.y - point.y) < 0.75 {
-                return;
+        let point = match inner.drawing.last() {
+            None => {
+                inner.drawing_start = (self.clock)();
+                raw
             }
-        }
+            Some(&last) => {
+                if (inner.pointer.x - raw.x).hypot(inner.pointer.y - raw.y) < 0.75 {
+                    return;
+                }
+                steady(last, raw)
+            }
+        };
+        inner.pointer = raw;
         inner.drawing.push(point);
         inner.live_dirty = true;
     }
@@ -316,6 +333,11 @@ impl Session {
         let (points, start) = {
             let mut inner = self.inner.lock();
             inner.live_dirty = false;
+            // The stroke ends where the pointer is, not where the ink trailed to.
+            let pointer = inner.pointer;
+            if inner.drawing.last().is_some_and(|&last| last != pointer) {
+                inner.drawing.push(pointer);
+            }
             (std::mem::take(&mut inner.drawing), inner.drawing_start)
         };
         self.shell.sketch_live(&[]);

@@ -6,9 +6,9 @@ use crate::context::AppContext;
 use crate::errors::DictationError;
 use crate::langid::is_english;
 use crate::text::directive::Directive;
-use crate::text::chunker::{chunk, WORD_BUDGET};
+use crate::text::chunker::{chunk, halve, WORD_BUDGET};
 use crate::text::command::format_command;
-use crate::text::finish::{chat_style, is_hallucination, join, join_segment};
+use crate::text::finish::{chat_style, is_hallucination, join, join_segment, strip_hesitations};
 use crate::text::guard::guard_with_itn;
 use crate::text::insertion::{fit, Surroundings};
 use crate::text::numbers::{format_numbers, Itn};
@@ -81,19 +81,10 @@ pub fn process_segment(
         };
         let mut text = if cleaner_applies {
             let cleaner = cleaner.as_deref_mut().expect("checked above");
+            let directive = recipe.directive.expect("checked above");
             let mut cleaned = Vec::new();
             for c in chunk(&speech, WORD_BUDGET) {
-                match cleaner.clean(&c, recipe.directive.expect("checked above")) {
-                    Ok(result) => {
-                        let (kept, restored) = guard_with_itn(&c, &result, itn);
-                        out.restored += usize::from(restored);
-                        cleaned.push(kept.to_string());
-                    }
-                    Err(_) => {
-                        out.fallbacks += 1;
-                        cleaned.push(c);
-                    }
-                }
+                cleaned.push(clean_guarded(cleaner, &c, directive, itn, &mut out, RETRIES));
             }
             out.cleaned = true;
             join(&cleaned)
@@ -122,6 +113,40 @@ pub fn process_segment(
     }
     out.text = join_segment(&pieces);
     out
+}
+
+/// How many times a rejected chunk is halved and retried, bounding the
+/// extra cleaner calls after release.
+const RETRIES: u32 = 3;
+
+/// Clean one chunk. When the guard rejects the result, retry each half, so
+/// only the sentences it objects to go out raw.
+fn clean_guarded(
+    cleaner: &mut dyn Cleaner,
+    text: &str,
+    directive: Directive,
+    itn: Option<&dyn Itn>,
+    out: &mut SegmentResult,
+    retries: u32,
+) -> String {
+    let Ok(result) = cleaner.clean(text, directive) else {
+        out.fallbacks += 1;
+        return text.to_string();
+    };
+    let (kept, restored) = guard_with_itn(text, &result, itn);
+    if !restored {
+        return strip_hesitations(kept);
+    }
+    match halve(text).filter(|_| retries > 0) {
+        Some((a, b)) => join(&[
+            clean_guarded(cleaner, &a, directive, itn, out, retries - 1),
+            clean_guarded(cleaner, &b, directive, itn, out, retries - 1),
+        ]),
+        None => {
+            out.restored += 1;
+            text.to_string()
+        }
+    }
 }
 
 /// Final checks over the whole dictation. Returns the text to deliver.
@@ -236,6 +261,17 @@ mod tests {
         assert_eq!((out.text.as_str(), out.restored), ("please do not drop it", 1));
         let out = process_segment("boom goes it", None, &r, Some(&mut fake), None);
         assert_eq!((out.text.as_str(), out.fallbacks), ("boom goes it", 1));
+    }
+
+    #[test]
+    fn guard_restores_only_the_sentence_it_rejects() {
+        let r = recipe(CleanupLevel::Full, AppContext::General);
+        let mut fake = Fake { calls: vec![] };
+        let out = process_segment("um ship it today. um do not drop the table. um call me after.", None, &r, Some(&mut fake), None);
+        assert_eq!(out.restored, 1);
+        assert!(out.text.starts_with("Ship it today."), "{}", out.text);
+        assert!(out.text.contains("um do not drop the table."), "{}", out.text);
+        assert!(out.text.ends_with("Call me after."), "{}", out.text);
     }
 
     #[test]

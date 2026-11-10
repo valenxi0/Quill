@@ -2,6 +2,7 @@
 use super::{s1::S1Mini, TextCleaner};
 use quill_core::text::{
     directive::{Context, Directive, Structure, Styling},
+    finish::strip_hesitations,
     guard,
     numbers::default_itn,
 };
@@ -46,7 +47,7 @@ fn real_model_cleanup_eval() {
     for f in fixtures {
         let directive = Directive {
             styling: match f.styling.as_str() {
-                "casual" => Styling::Casual,
+                "semi-casual" => Styling::SemiCasual,
                 "semi-formal" => Styling::SemiFormal,
                 "formal" => Styling::Formal,
                 _ => panic!("untrained styling"),
@@ -74,7 +75,9 @@ fn real_model_cleanup_eval() {
             }
         };
         let reason = guard::reason(&f.transcript, &output, itn.as_deref());
-        let (delivered, restored) = guard::guard_with_itn(&f.transcript, &output, itn.as_deref());
+        let (kept, restored) = guard::guard_with_itn(&f.transcript, &output, itn.as_deref());
+        let delivered = if restored { kept.to_string() } else { strip_hesitations(kept) };
+        let delivered = delivered.as_str();
         let lower = delivered.to_lowercase();
         for kept in f.kept {
             if !lower.contains(&kept.to_lowercase()) {

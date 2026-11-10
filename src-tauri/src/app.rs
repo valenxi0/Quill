@@ -503,6 +503,10 @@ impl Shell for TauriShell {
         crate::sketch_windows::set_pen(&self.app, on);
     }
 
+    fn sketch_bar_rect(&self) -> Option<(i32, i32, i32, i32)> {
+        crate::sketch_windows::bar_rect_now(&self.app)
+    }
+
     fn sketch_hide(&self) {
         crate::sketch_windows::hide(&self.app);
     }

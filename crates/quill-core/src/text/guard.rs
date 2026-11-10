@@ -9,15 +9,38 @@ const BARE_CONTRACTIONS: &[&str] = &[
 
 /// Negations in `text`. Bare "no" is a self-correction marker and never counts.
 pub fn negation_count(text: &str) -> usize {
-    text.split_whitespace()
+    let words: Vec<String> = text
+        .split_whitespace()
         .map(|w| {
             w.replace(['\u{2019}', '\u{2018}'], "'")
                 .trim_matches(|c: char| !c.is_alphanumeric() && c != '\'')
                 .trim_matches('\'')
                 .to_lowercase()
         })
+        .collect();
+    unstuttered(&words)
+        .into_iter()
         .filter(|w| NEGATIONS.contains(&w.as_str()) || w.ends_with("n't") || BARE_CONTRACTIONS.contains(&w.as_str()))
         .count()
+}
+
+/// The words with stutters said once: "I'm not, I'm not going" keeps one
+/// "I'm not", so cleaning the repeat away doesn't read as a lost negation.
+/// A single repeated word stays, since "not not bad" means something.
+fn unstuttered(words: &[String]) -> Vec<&String> {
+    let mut out: Vec<&String> = Vec::new();
+    let mut i = 0;
+    'next: while i < words.len() {
+        for n in (2..=3).rev() {
+            if i + n <= words.len() && out.len() >= n && out[out.len() - n..].iter().copied().eq(&words[i..i + n]) {
+                i += n;
+                continue 'next;
+            }
+        }
+        out.push(&words[i]);
+        i += 1;
+    }
+    out
 }
 
 use super::numbers::{format_numbers, Itn};
@@ -196,6 +219,13 @@ pub fn guard<'a>(raw: &'a str, cleaned: &'a str) -> (&'a str, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stuttered_negation_is_one_negation() {
+        assert_eq!(reason("I'm not, I'm not going to approve it", "I'm not going to approve it.", None), None);
+        assert_eq!(reason("no no I do not want it", "No, I want it.", None), Some(GuardReason::NegationDropped));
+        assert_eq!(reason("it's not not bad", "It's not bad.", None), Some(GuardReason::NegationDropped));
+    }
 
     #[test]
     fn negation_dropped_restores_raw() {

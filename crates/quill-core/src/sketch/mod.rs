@@ -11,6 +11,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use crate::segments::{find_pause, SAMPLE_RATE};
+use crate::text::finish::{continues_sentence, lowercasing_first_word};
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Point {
@@ -128,6 +129,16 @@ pub const MINIMUM_STROKE_LENGTH: f32 = 12.0;
 
 pub fn stroke_length(points: &[Point]) -> f32 {
     points.windows(2).map(|w| (w[1].x - w[0].x).hypot(w[1].y - w[0].y)).sum()
+}
+
+/// How far the ink trails the pointer, from 0 (raw, every hand tremor) to
+/// 1 (never moves). Trailing a little turns jitter into smooth curves.
+const STREAMLINE: f32 = 0.55;
+
+/// The next ink point after `last`, eased toward the pointer at `raw`.
+pub fn steady(last: Point, raw: Point) -> Point {
+    let k = 1.0 - STREAMLINE;
+    Point { x: last.x + (raw.x - last.x) * k, y: last.y + (raw.y - last.y) * k }
 }
 
 // Comparing screens
@@ -433,21 +444,6 @@ pub fn clock(seconds: f64) -> String {
     format!("{}:{:02}", whole / 60, whole % 60)
 }
 
-fn continues_sentence(text: &str) -> bool {
-    text.trim().chars().last().is_some_and(|c| !".!?:…".contains(c))
-}
-
-/// "This" becomes "this"; "I", "NASA" and "McDonald" stay.
-fn lowercasing_first_word(text: &str) -> String {
-    let word: String = text.chars().take_while(|c| !c.is_whitespace() && *c != ',' && *c != '.').collect();
-    let mut chars = word.chars();
-    let Some(first) = chars.next() else { return text.to_string() };
-    if word.chars().count() < 2 || !first.is_uppercase() || chars.any(char::is_uppercase) || word.starts_with("I'") || word.starts_with("I’") {
-        return text.to_string();
-    }
-    let rest = &text[first.len_utf8()..];
-    format!("{}{rest}", first.to_lowercase())
-}
 
 #[cfg(test)]
 mod tests {
@@ -560,15 +556,6 @@ mod tests {
     }
 
     #[test]
-    fn lowercasing_keeps_names() {
-        assert_eq!(lowercasing_first_word("This one"), "this one");
-        assert_eq!(lowercasing_first_word("I think"), "I think");
-        assert_eq!(lowercasing_first_word("NASA said"), "NASA said");
-        assert_eq!(lowercasing_first_word("McDonald"), "McDonald");
-        assert_eq!(lowercasing_first_word("I'm here"), "I'm here");
-    }
-
-    #[test]
     fn header_and_clock() {
         assert_eq!(clock(9.9), "0:09");
         assert_eq!(clock(65.0), "1:05");
@@ -632,5 +619,24 @@ mod tests {
         let p = [Point { x: 0.0, y: 0.0 }, Point { x: 3.0, y: 4.0 }, Point { x: 3.0, y: 10.0 }];
         assert_eq!(stroke_length(&p), 11.0);
         assert_eq!(stroke_length(&p[..1]), 0.0);
+    }
+
+    #[test]
+    fn steady_ink_trails_the_pointer_and_damps_jitter() {
+        let origin = Point::default();
+        let next = steady(origin, Point { x: 10.0, y: 0.0 });
+        assert!(next.x > 0.0 && next.x < 10.0, "moves part of the way: {next:?}");
+
+        let mut ink = origin;
+        let mut wobble = 0.0f32;
+        for i in 1..=40 {
+            let raw = Point { x: i as f32 * 4.0, y: if i % 2 == 0 { 3.0 } else { -3.0 } };
+            ink = steady(ink, raw);
+            if i > 10 {
+                wobble = wobble.max(ink.y.abs());
+            }
+        }
+        assert!(wobble < 2.0, "a 6 px zigzag shrinks: {wobble}");
+        assert!(ink.x > 150.0, "still follows the stroke: {}", ink.x);
     }
 }

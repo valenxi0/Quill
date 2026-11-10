@@ -38,9 +38,9 @@
     "guardExpected": false
   },
   {
-    "id": "fillers-casual-prose-general",
+    "id": "fillers-semi-casual-prose-general",
     "transcript": "Um, so I think we should, uh, ship it on Tuesday, no, Thursday, and, um, let the team know before the standup.",
-    "styling": "casual",
+    "styling": "semi-casual",
     "structure": "prose",
     "context": "general",
     "kept": [
@@ -87,9 +87,9 @@
     "guardExpected": false
   },
   {
-    "id": "numbers-casual-prose-general",
+    "id": "numbers-semi-casual-prose-general",
     "transcript": "The invoice came to twenty three thousand four hundred and fifty dollars and it's due on March third twenty twenty six.",
-    "styling": "casual",
+    "styling": "semi-casual",
     "structure": "prose",
     "context": "general",
     "kept": [
@@ -132,9 +132,9 @@
     "guardExpected": false
   },
   {
-    "id": "prose-casual-prose-general",
+    "id": "prose-semi-casual-prose-general",
     "transcript": "I talked to the landlord yesterday and he said the repair is not going to happen until next month, which is, you know, kind of frustrating, but I don't think we should push back yet.",
-    "styling": "casual",
+    "styling": "semi-casual",
     "structure": "prose",
     "context": "general",
     "kept": [
@@ -427,9 +427,9 @@
     "guardExpected": false
   },
   {
-    "id": "negation-casual-prose-general",
+    "id": "negation-semi-casual-prose-general",
     "transcript": "Um, do not cancel the order, we still need it for next week.",
-    "styling": "casual",
+    "styling": "semi-casual",
     "structure": "prose",
     "context": "general",
     "kept": [
@@ -474,9 +474,9 @@
     "guardExpected": false
   },
   {
-    "id": "emoji-noun-casual-prose-general",
+    "id": "emoji-noun-semi-casual-prose-general",
     "transcript": "The party last night was fire, honestly.",
-    "styling": "casual",
+    "styling": "semi-casual",
     "structure": "prose",
     "context": "general",
     "kept": [
@@ -570,9 +570,9 @@
     "guardExpected": false
   },
   {
-    "id": "amounts-casual-prose-general",
+    "id": "amounts-semi-casual-prose-general",
     "transcript": "Transfer four hundred and twenty dollars to the account ending in seven seven three one.",
-    "styling": "casual",
+    "styling": "semi-casual",
     "structure": "prose",
     "context": "general",
     "kept": [],
@@ -580,6 +580,75 @@
     "matches": [
       "420",
       "7731|7 7 3 1|seven seven three one"
+    ],
+    "guardExpected": false
+  },
+  {
+    "id": "seam-period-mid-sentence",
+    "transcript": "I think the best option is to. Move the launch to next week because the build is not ready.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "next week",
+      "not ready"
+    ],
+    "gone": [],
+    "matches": [],
+    "absent": [
+      "to. Move"
+    ],
+    "guardExpected": false
+  },
+  {
+    "id": "seam-capital-after-pause",
+    "transcript": "Engineering has started. On the settings screen redesign that we talked about yesterday.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "settings screen",
+      "yesterday"
+    ],
+    "gone": [],
+    "matches": [],
+    "absent": [
+      "started. On"
+    ],
+    "guardExpected": false
+  },
+  {
+    "id": "seam-real-sentence-end",
+    "transcript": "The build passed. So we can ship it today.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "build passed",
+      "ship it today"
+    ],
+    "gone": [],
+    "matches": [
+      "passed[.!]\\s"
+    ],
+    "guardExpected": false
+  },
+  {
+    "id": "semi-casual-keeps-apostrophes",
+    "transcript": "um we're almost out of coffee so can you grab some on the way home I'll pay you back",
+    "styling": "semi-casual",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "we're",
+      "I'll"
+    ],
+    "gone": [
+      "um"
+    ],
+    "matches": [],
+    "absent": [
+      "were almost"
     ],
     "guardExpected": false
   }
