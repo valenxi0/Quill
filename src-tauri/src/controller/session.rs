@@ -21,7 +21,6 @@ use crate::platform::system::{microphone_permission, MicPermission};
 use crate::platform::target;
 use crate::vad::Vad;
 
-use super::deliver::input_count;
 use super::{Controller, DictationView, Job, Preview, Session, SessionConfig};
 
 impl Controller {
@@ -150,7 +149,7 @@ impl Controller {
         let mut target = capture.join().unwrap_or_default();
         if sketch.is_none() {
             let last = self.last_paste.lock();
-            let input = input_count();
+            let input = crate::platform::input_activity::count();
             if let Some(around) = continuation(last.as_ref(), &target, Instant::now(), input, fits_to_cursor, target.surroundings.as_ref()) {
                 target.surroundings = Some(around);
             }

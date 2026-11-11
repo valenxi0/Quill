@@ -63,7 +63,7 @@ pub async fn check(app: &AppHandle) -> Result<Option<UpdateInfo>, String> {
         .updater_builder()
         // On Windows the installer exits Quill without RunEvent::Exit.
         .on_before_exit(move || {
-            crate::platform::other_audio::restore_all();
+            crate::before_exit();
             handle.cleanup_before_exit();
         })
         .build()
