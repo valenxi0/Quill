@@ -104,7 +104,7 @@ impl History {
                 words.iter().all(|w| hay.contains(w.as_str()))
             })
             .collect();
-        found.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        found.sort_by_key(|e| std::cmp::Reverse(e.created_at));
         found.into_iter().take(limit.min(MAX_RESULTS)).cloned().collect()
     }
 

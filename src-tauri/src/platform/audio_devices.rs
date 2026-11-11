@@ -3,7 +3,7 @@
 
 use quill_core::microphone::{choose, is_bluetooth_instance, InputDevice, MicChoice};
 use quill_core::settings::SavedDevice;
-use windows::core::{HSTRING, PCWSTR};
+use windows::core::{HSTRING, PCWSTR, PWSTR};
 use windows::Win32::Devices::DeviceAndDriverInstallation::{
     CM_Get_Device_IDW, CM_Get_Parent, CM_Locate_DevNodeW, CM_LOCATE_DEVNODE_NORMAL, CR_SUCCESS, MAX_DEVICE_ID_LEN,
 };
@@ -24,13 +24,16 @@ fn enumerator() -> windows::core::Result<IMMDeviceEnumerator> {
     }
 }
 
-fn id_of(device: &IMMDevice) -> Option<String> {
+fn take_string(p: PWSTR) -> Option<String> {
     unsafe {
-        let p = device.GetId().ok()?;
-        let id = p.to_string().ok();
+        let s = p.to_string().ok();
         CoTaskMemFree(Some(p.0 as _));
-        id
+        s
     }
+}
+
+fn id_of(device: &IMMDevice) -> Option<String> {
+    take_string(unsafe { device.GetId() }.ok()?)
 }
 
 /// Read one property and convert it with `read`.
@@ -45,13 +48,7 @@ fn property<T>(device: &IMMDevice, key: &PROPERTYKEY, read: impl FnOnce(&PROPVAR
 }
 
 fn name_of(device: &IMMDevice) -> String {
-    property(device, &PKEY_Device_FriendlyName, |v| unsafe {
-        let p = PropVariantToStringAlloc(v).ok()?;
-        let s = p.to_string().ok();
-        CoTaskMemFree(Some(p.0 as _));
-        s
-    })
-    .unwrap_or_default()
+    property(device, &PKEY_Device_FriendlyName, |v| take_string(unsafe { PropVariantToStringAlloc(v) }.ok()?)).unwrap_or_default()
 }
 
 fn is_mic(device: &IMMDevice) -> bool {

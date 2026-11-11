@@ -5,7 +5,7 @@ import type { Ctx } from "./App";
 import { CLEANUP } from "./SetupTab";
 import { Button, Capsule, Card, CardHeader, Icon, IconButton, Segmented, Sheet, Switch, useCopied, Warning } from "./ui";
 
-export const RETENTION: { value: HistoryRetention; label: string; span: string }[] = [
+const RETENTION: { value: HistoryRetention; label: string; span: string }[] = [
   { value: "day", label: "Day", span: "a day" },
   { value: "week", label: "Week", span: "a week" },
   { value: "month", label: "Month", span: "a month" },

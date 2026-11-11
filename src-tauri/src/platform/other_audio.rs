@@ -454,7 +454,7 @@ fn take_string(p: windows::core::PWSTR) -> String {
 }
 
 /// Every audio session on every active playback device.
-pub(crate) fn sessions() -> Sessions {
+fn sessions() -> Sessions {
     let mut out = Vec::new();
     for (_, manager) in render_devices() {
         unsafe {
