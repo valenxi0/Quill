@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, LINKS, type AppStyle, type AssetView, type CleanupLevel, type EngineView } from "../lib/api";
 import { bytes } from "../lib/format";
 import type { Ctx } from "./App";
@@ -287,6 +287,11 @@ function EngineCard({ ctx }: { ctx: Ctx }) {
   const [confirm, setConfirm] = useState<{ engine?: EngineView; assets: AssetView[] } | null>(null);
   const selected = ctx.state.engines.find((e) => e.id === vd.engine);
   const run = (p: Promise<unknown>) => p.catch((e) => setError(String(e)));
+  // Fixed for the life of the process, so one read is enough.
+  const [gpuCrash, setGpuCrash] = useState(false);
+  useEffect(() => {
+    api.gpuFallback().then(setGpuCrash).catch(() => {});
+  }, []);
 
   const startDownload = (engine: EngineView) => {
     const assets = engine.assets.filter((a) => !a.optional && a.state.state !== "downloaded");
@@ -311,6 +316,16 @@ function EngineCard({ ctx }: { ctx: Ctx }) {
         <span className="text-text-3"><Icon.Chevron open={open} /></span>
       </button>
       {error && <Warning>{error}</Warning>}
+      {gpuCrash && (
+        <div className="ml-8 mt-3 flex items-center gap-3">
+          <p className="min-w-0 flex-1 text-[12px] text-text-2">
+            Quill is using the CPU because the graphics driver crashed while starting.
+          </p>
+          <Button small title="Quill restarts and starts the engine on the GPU" onClick={() => run(api.retryGpu())}>
+            Try the GPU again
+          </Button>
+        </div>
+      )}
       <div id="engine-options" hidden={!open} className="ml-8">
         <p className="mt-3 text-[12px] text-text-2">Models download only when you choose them and are verified against pinned checksums.</p>
         {ctx.state.engines.map((e) => (

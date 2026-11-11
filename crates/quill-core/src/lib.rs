@@ -5,6 +5,7 @@ pub mod context;
 pub mod corrections;
 pub mod engines;
 pub mod errors;
+pub mod gpu;
 pub mod history;
 pub mod langid;
 pub mod microphone;

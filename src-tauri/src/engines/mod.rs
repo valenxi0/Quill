@@ -12,6 +12,7 @@ use quill_core::text::directive::Directive;
 
 use crate::models::ModelManager;
 
+pub mod gpu;
 #[cfg(feature = "whisper")]
 mod whisper;
 #[cfg(feature = "sherpa")]

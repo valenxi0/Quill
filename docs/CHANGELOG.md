@@ -8,6 +8,10 @@
 - Quill skips a Bluetooth headset's mic when another mic exists, because recording from it drops the headset to call quality. It moves to another mic you set as a Windows default, or else to a microphone or headset rather than a line input or virtual cable. On by default; a mic you pick is always used.
 - Other audio while dictating: lower other apps to a percent of their volume, mute them, or pause music and videos while you speak. Audio that starts mid-recording is lowered too. Everything goes back when the recording ends, is cancelled, or fails. An app closed while lowered gets its volume back the next time it opens, and after a crash Quill puts things back on its next launch. Off by default.
 
+### Changed
+
+- If the graphics driver crashes Quill while an engine starts on the GPU, Quill uses the CPU from then on instead of crashing at every launch. Settings says so under Engine, with a button to try the GPU again. A new version of Quill tries the GPU again on its own.
+
 ## [0.3.1] - 2026-11-09
 
 ### Changed
