@@ -80,13 +80,14 @@ pub fn run() {
                 }
                 Err(e) => (None, Some(format!("The global shortcut is unavailable: {e}"))),
             };
-            // Clicks count as input between dictations, like typing. Order
-            // matters: a process has one Raw Input target per device type, so
-            // while a continuation is possible the mouse is taken from tao's
-            // device events, which Quill doesn't use. Anything that registers
-            // the mouse later (tao's set_device_event_filter) takes it back,
-            // and input_activity::count() then reports None, which turns
-            // continuation off.
+            // Clicks count as input between dictations, like typing. This only
+            // makes the hidden window; Raw Input is registered at
+            // input_activity::watch(), just before a paste. A process has one
+            // Raw Input target per device type, so while watching, the mouse
+            // is taken from tao's device events, which Quill doesn't use; if
+            // anything registers the mouse during a watch (tao's
+            // set_device_event_filter), count() reports None and continuation
+            // is off.
             platform::clicks::start();
 
             let preferred_languages = platform::system::preferred_languages();

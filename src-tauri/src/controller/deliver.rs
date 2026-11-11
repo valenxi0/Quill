@@ -66,14 +66,17 @@ impl Controller {
         *self.last_paste.lock() = Some(LastPaste::delivered(text.clone(), cfg.target.clone()));
         let (restore, fits) = self.stores.settings.read(|s| (s.voice_dictation.restore_clipboard, s.voice_dictation.fits_to_cursor));
         let saved = if restore { paste::SavedClipboard::take() } else { None };
-        let Some(mut written) = paste::write_clipboard_text(&delivery.text) else {
-            // The saved copy may be the only one left: a snapshot taken over
-            // an earlier transcript replaced that one's pending restore.
-            if let Some(saved) = saved {
-                saved.restore_now(None);
+        let mut written = match paste::try_write_clipboard_text(&delivery.text) {
+            Ok(sequence) => sequence,
+            Err(failed) => {
+                // The saved copy may be the only one left: a snapshot taken
+                // over an earlier transcript replaced that one's restore.
+                if let Some(saved) = saved {
+                    saved.restore_after_failed_write(failed);
+                }
+                self.fail_session(cfg.generation, DictationError::ClipboardFailed);
+                return;
             }
-            self.fail_session(cfg.generation, DictationError::ClipboardFailed);
-            return;
         };
         metrics.stop_to_clipboard_ms = stopped.elapsed().as_millis() as u64;
         if fits {
@@ -117,7 +120,7 @@ impl Controller {
             }
             // Cancelled before the paste: the user's copy comes back now.
             (false, Some(saved)) if !still_current() => {
-                saved.restore_now(Some(written));
+                saved.restore_now(written);
             }
             // A failed paste leaves the transcript, so it can be pasted by hand.
             _ => {}
@@ -159,11 +162,14 @@ impl Controller {
         let me = self.clone();
         std::thread::spawn(move || {
             let saved = if restore { paste::SavedClipboard::take() } else { None };
-            let Some(written) = paste::write_clipboard_text(&last.text) else {
-                if let Some(saved) = saved {
-                    saved.restore_now(None);
+            let written = match paste::try_write_clipboard_text(&last.text) {
+                Ok(sequence) => sequence,
+                Err(failed) => {
+                    if let Some(saved) = saved {
+                        saved.restore_after_failed_write(failed);
+                    }
+                    return;
                 }
-                return;
             };
             if fits {
                 input_activity::watch();
