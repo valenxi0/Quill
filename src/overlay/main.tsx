@@ -17,10 +17,12 @@ if (import.meta.env.DEV && !("__TAURI_INTERNALS__" in window)) {
     if (preview === "recording") {
       let sample = 0;
       setInterval(() => emit("level", 0.1 + Math.max(0, Math.sin(sample++ * 0.6)) * 0.6), 100);
-      // Fake live words, one every 350 ms, looping.
+      // Fake live words, one every 350 ms, looping; ?quiet leaves live preview off.
       const words = "Uh, a voice-to-text dictation app with live transcription and edits, running on my own models.".split(" ");
       let n = 0;
-      setTimeout(() => setInterval(() => emit("preview", words.slice(0, (n++ % (words.length + 4)) + 1).join(" ")), 350), 1200);
+      if (!new URLSearchParams(location.search).has("quiet")) {
+        setTimeout(() => setInterval(() => emit("preview", words.slice(0, (n++ % (words.length + 4)) + 1).join(" ")), 350), 1200);
+      }
     }
   }
 }

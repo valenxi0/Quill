@@ -234,6 +234,7 @@ pub struct VoiceDictation {
     pub restore_clipboard: bool,
     pub history_retention: crate::history::Retention,
     /// How the recording pill draws your voice.
+    #[serde(deserialize_with = "pill_style_or_bars")]
     pub pill_style: PillStyle,
 }
 
@@ -275,8 +276,26 @@ pub enum PillStyle {
     #[default]
     Bars,
     Waveform,
-    Dither,
+    /// Saved as "dither" by a 0.4.0 preview build.
+    #[serde(alias = "dither")]
+    Dots,
     Glow,
+}
+
+/// Reads a pill style, or Bars for one this version doesn't know. The
+/// settings file fails to load as a whole on any bad field, so a renamed
+/// style must never reach that.
+fn pill_style_or_bars<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<PillStyle, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Lenient {
+        Known(PillStyle),
+        Other(serde::de::IgnoredAny),
+    }
+    Ok(match Lenient::deserialize(deserializer)? {
+        Lenient::Known(style) => style,
+        Lenient::Other(_) => PillStyle::Bars,
+    })
 }
 
 /// A cleanup style for one app, by executable name.
@@ -570,11 +589,28 @@ mod tests {
         for (name, style) in [
             ("bars", PillStyle::Bars),
             ("waveform", PillStyle::Waveform),
-            ("dither", PillStyle::Dither),
+            ("dots", PillStyle::Dots),
             ("glow", PillStyle::Glow),
+            ("dither", PillStyle::Dots),
         ] {
             let set: Settings = serde_json::from_str(&format!(r#"{{"voiceDictation":{{"pillStyle":"{name}"}}}}"#)).unwrap();
             assert_eq!(set.voice_dictation.pill_style, style, "{name}");
+        }
+    }
+
+    #[test]
+    fn an_unknown_pill_style_keeps_every_other_setting() {
+        for value in [r#""sparkles""#, "3", "null", r#"{"kind":"orb"}"#] {
+            let json = format!(
+                r#"{{"launchAtLogin":false,"voiceDictation":{{"engine":"whisperTiny","cleanupLevel":"light","restoreClipboard":true,"pillStyle":{value}}}}}"#
+            );
+            let set: Settings = serde_json::from_str(&json).unwrap_or_else(|e| panic!("{value}: {e}"));
+            let vd = &set.voice_dictation;
+            assert_eq!(vd.pill_style, PillStyle::Bars, "{value}");
+            assert_eq!(vd.engine, EngineId::WhisperTiny, "{value}");
+            assert_eq!(vd.cleanup_level, CleanupLevel::Light, "{value}");
+            assert!(vd.restore_clipboard, "{value}");
+            assert!(!set.launch_at_login, "{value}");
         }
     }
 

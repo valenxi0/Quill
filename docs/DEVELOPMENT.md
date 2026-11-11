@@ -153,7 +153,7 @@ Quill ships the runtimes; you download the weights. Always written as "S1-mini" 
 | Whisper tiny.en, base.en, large-v3-turbo | MIT |
 | Cohere Transcribe 03-2026 | Apache 2.0 |
 | Silero VAD (built in) | MIT |
-| dithercn by OpenCore (engine in `src/lib/dither`, draws the Dither pill) | MIT |
+| Hex by Christopher Langton (Dot scope, ported in `src/overlay/dotScope` for the Dots pill) | MIT |
 | Scrawl by Kit Langton (idea and interaction for Sketch; no code copied) | MIT |
 
 ## Contributing

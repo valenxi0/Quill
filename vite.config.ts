@@ -22,7 +22,6 @@ const previewIcons = {
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), previewIcons],
-  resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   clearScreen: false,
   server: { port: 1420, strictPort: true },
   build: {

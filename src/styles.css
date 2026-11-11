@@ -73,15 +73,6 @@ body.overlay {
   overflow: hidden;
 }
 
-/* The Dither pill draws its first frame within a few milliseconds of the
-   pill appearing; skip the engine's 700 ms fade from its fallback. */
-body.overlay .pill-dither > canvas {
-  transition: none;
-}
-body.overlay .pill-dither > [data-dither-fallback] {
-  transition-delay: 0s;
-}
-
 .selectable {
   user-select: text;
   cursor: text;

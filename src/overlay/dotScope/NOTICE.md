@@ -1,7 +1,16 @@
+# Dot scope
+
+`scope.ts` and `DotScope.tsx` are a TypeScript port of Hex's Dot scope
+(https://github.com/anomalyco/hex): `src/rune_hud/dot_scope.rs`,
+`src/rune_hud/dot_scope/scope.rs`, `src/rune_hud/spring.rs` and the dot plate
+in `src/rune_hud.wgsl`. Quill draws the dots with canvas 2D, ports only the
+Flow processing look, adds a denser-pixel tuning below 150% display scaling,
+and folds the field away after done so the outcome text can show. Hex's
+license:
+
 MIT License
 
-Copyright (c) 2026 Leo
-Copyright (c) 2026 Shadcn Labs (startercn, which this project is based on)
+Copyright (c) 2026 Christopher Langton
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

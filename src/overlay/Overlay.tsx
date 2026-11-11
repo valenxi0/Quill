@@ -1,7 +1,16 @@
 // The status pill. Redraws only on level updates; nothing animates while idle.
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { api, on, type AppContext, type CorrectionPair, type DictationView, type PillStyle, type UpdateInfo } from "../lib/api";
-import { METER_HISTORY, METERS } from "./meters";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { api, on, type AppContext, type CorrectionPair, type DictationView, type Phase, type PillStyle, type UpdateInfo } from "../lib/api";
+import { DotScope } from "./dotScope/DotScope";
+import { tuningFor, type Stage } from "./dotScope/scope";
+import { METER_HISTORY, METERS, type MeterStyle } from "./meters";
+
+/** A dictation the pill is showing. */
+type ActiveView = DictationView & { phase: Exclude<Phase, "idle"> };
+
+function isActive(view: DictationView | null): view is ActiveView {
+  return view != null && view.phase !== "idle";
+}
 
 export default function Overlay({ preview }: { preview?: DictationView }) {
   const [view, setView] = useState<DictationView | null>(preview ?? null);
@@ -10,6 +19,9 @@ export default function Overlay({ preview }: { preview?: DictationView }) {
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [heard, setHeard] = useState("");
   const [pillStyle, setPillStyle] = useState<PillStyle>("bars");
+  // Counts recordings, so each one starts a fresh Dots plate.
+  const [take, setTake] = useState(0);
+  const lastPhase = useRef(preview?.phase ?? "idle");
 
   useEffect(() => {
     // Read again at every recording start, so a new choice in Settings shows next time.
@@ -24,6 +36,8 @@ export default function Overlay({ preview }: { preview?: DictationView }) {
         if (v.phase !== "idle") setSuggestion(null);
         if (v.phase !== "recording") setHeard("");
         if (v.phase === "recording") readLook();
+        if (v.phase === "recording" && lastPhase.current !== "recording") setTake((t) => t + 1);
+        lastPhase.current = v.phase;
       }),
       on<CorrectionPair>("suggestion", (p) => {
         setSuggestion(p);
@@ -44,41 +58,135 @@ export default function Overlay({ preview }: { preview?: DictationView }) {
   const phase = view?.phase ?? "idle";
   if (update && phase === "idle") return <UpdatePrompt info={update} onDone={() => setUpdate(null)} />;
   if (suggestion && phase === "idle") return <Suggestion pair={suggestion} onDone={() => setSuggestion(null)} />;
-  if (!view || phase === "idle") return null;
+  if (!isActive(view)) return null;
+  if (pillStyle === "dots") return <DotsPill key={take} view={view} heard={heard} reduced={reduced} />;
 
   return (
     <div className="flex h-screen items-end justify-center pb-2">
-      <Pill recording={phase === "recording"}>
-        {phase === "recording" && <Listening context={view.context} heard={heard} pillStyle={pillStyle} reduced={reduced} />}
-        {(phase === "transcribing" || phase === "cleaning") && (
-          <>
-            <Orb />
-            <span>{phase === "transcribing" ? "Transcribing" : "Cleaning up"}</span>
-          </>
-        )}
-        {phase === "completed" && (
-          <>
-            <CheckGlyph />
-            <span>{view.outcome ?? "Paste sent"}</span>
-          </>
-        )}
-        {phase === "failed" && (
-          <>
-            <AlertGlyph />
-            <span>{view.errorTitle ?? "Something went wrong"}</span>
-          </>
-        )}
-        {phase === "cancelled" && (
-          <>
-            <span style={{ animation: "shake 0.45s ease-in-out" }}>
-              <MicGlyph slashed />
-            </span>
-            <span>Cancelled</span>
-          </>
+      <Pill recording={view.phase === "recording"}>
+        {view.phase === "recording" ? (
+          <Listening context={view.context} heard={heard} pillStyle={pillStyle} reduced={reduced} />
+        ) : (
+          <Status view={view} working={<Orb />} />
         )}
       </Pill>
     </div>
   );
+}
+
+/** What the pill says once recording ends; `working` leads the transcribing and cleaning text. */
+function Status({ view, working }: { view: ActiveView; working?: ReactNode }) {
+  switch (view.phase) {
+    case "recording":
+      return null;
+    case "transcribing":
+    case "cleaning":
+      return (
+        <>
+          {working}
+          <span>{view.phase === "transcribing" ? "Transcribing" : "Cleaning up"}</span>
+        </>
+      );
+    case "completed":
+      return (
+        <>
+          <CheckGlyph />
+          <span>{view.outcome ?? "Paste sent"}</span>
+        </>
+      );
+    case "failed":
+      return (
+        <>
+          <AlertGlyph />
+          <span>{view.errorTitle ?? "Something went wrong"}</span>
+        </>
+      );
+    case "cancelled":
+      return (
+        <>
+          <span style={{ animation: "shake 0.45s ease-in-out" }}>
+            <MicGlyph slashed />
+          </span>
+          <span>Cancelled</span>
+        </>
+      );
+  }
+}
+
+function hasTag(context: AppContext) {
+  return context === "terminal" || context === "email";
+}
+
+/** The live words and the Email or Terminal tag, while recording. */
+function Heard({ heard, context, max = CAPTION_MAX }: { heard: string; context: AppContext; max?: number }) {
+  return (
+    <>
+      {heard && <LiveCaption text={heard} max={max} />}
+      {hasTag(context) && <span className="shrink-0 rounded-full bg-white/15 px-1.5 text-[10.5px] text-white/80">{context === "email" ? "Email" : "Terminal"}</span>}
+    </>
+  );
+}
+
+/** The microphone's loudness as the last "level" event gave it, dBFS. */
+function useMicLoudness() {
+  const db = useRef(-90);
+  useEffect(() => {
+    const un = on<number>("level", (level) => {
+      // Quill's level maps -50..0 dBFS onto 0..1; 0 is anything quieter.
+      db.current = level > 0 ? level * 50 - 50 : -90;
+    });
+    return () => {
+      un.then((f) => f());
+    };
+  }, []);
+  return useRef(() => db.current).current;
+}
+
+const STAGES: Record<ActiveView["phase"], Stage> = {
+  recording: "recording",
+  transcribing: "processing",
+  cleaning: "processing",
+  completed: "done",
+  failed: "failed",
+  cancelled: "done",
+};
+
+/**
+ * The Dots style: Hex's dot plate is the whole pill. The field follows the
+ * voice while recording, works in cooler light while Quill transcribes and
+ * cleans up, then clears and folds away for the outcome. Text sits on the
+ * plate beside the field; without live preview the plate is only the field.
+ */
+function DotsPill({ view, heard, reduced }: { view: ActiveView; heard: string; reduced: boolean }) {
+  const loudness = useMicLoudness();
+  const tag = hasTag(view.context);
+  let text: ReactNode = <Status view={view} />;
+  if (view.phase === "recording") {
+    text = heard || tag ? <Heard heard={heard} context={view.context} max={dotsCaptionMax(tag)} /> : null;
+  }
+  return (
+    <div className="flex h-screen items-end justify-center pb-[14px]">
+      <DotScope stage={STAGES[view.phase]} loudness={loudness} reduced={reduced}>
+        {text}
+      </DotScope>
+    </div>
+  );
+}
+
+/** The overlay window's width, px (src-tauri/src/overlay.rs). */
+const OVERLAY_WIDTH = 440;
+/** Room the Email or Terminal tag takes, with its gap, px. */
+const TAG_ROOM = 64;
+
+/**
+ * The widest the caption may grow in the Dots pill, whose field is wider
+ * than the other styles' meters, so the whole plate stays in the window:
+ * an 8 px margin either side, the field, the 8 px gap, the caption's 4 px
+ * margin and the plate's 12 px end.
+ */
+function dotsCaptionMax(tag: boolean) {
+  const field = tuningFor(window.devicePixelRatio || 1).width;
+  return Math.min(CAPTION_MAX, OVERLAY_WIDTH - 16 - field - 8 - 4 - 12 - (tag ? TAG_ROOM : 0));
 }
 
 function Pill({ children, recording }: { children: React.ReactNode; recording?: boolean }) {
@@ -106,7 +214,7 @@ const CAPTION_MAX = 260;
  * right, older ones fading off the left edge. The box eases wider as words
  * arrive, up to CAPTION_MAX.
  */
-function LiveCaption({ text }: { text: string }) {
+function LiveCaption({ text, max }: { text: string; max: number }) {
   // Only the tail can ever be visible; don't lay out the whole dictation.
   const shown = text.length > 240 ? text.slice(-240) : text;
   const inner = useRef<HTMLSpanElement>(null);
@@ -116,13 +224,13 @@ function LiveCaption({ text }: { text: string }) {
     if (inner.current) setWidth(Math.ceil(inner.current.offsetWidth));
   }, [shown]);
 
-  const overflowing = width > CAPTION_MAX;
+  const overflowing = width > max;
   const fade = "linear-gradient(to right, transparent, black 28px)";
   return (
     <span
       className="ml-1 flex shrink-0 justify-end overflow-hidden text-[13px] text-white"
       style={{
-        width: Math.min(width, CAPTION_MAX),
+        width: Math.min(width, max),
         transition: "width 180ms ease-out",
         maskImage: overflowing ? fade : undefined,
         WebkitMaskImage: overflowing ? fade : undefined,
@@ -150,7 +258,7 @@ function Orb() {
   );
 }
 
-function Listening({ context, heard, pillStyle, reduced }: { context: AppContext; heard: string; pillStyle: PillStyle; reduced: boolean }) {
+function Listening({ context, heard, pillStyle, reduced }: { context: AppContext; heard: string; pillStyle: MeterStyle; reduced: boolean }) {
   // Recent voice readings, newest last: a rolling waveform.
   const [levels, setLevels] = useState<number[]>(() => Array(METER_HISTORY).fill(0));
 
@@ -172,8 +280,7 @@ function Listening({ context, heard, pillStyle, reduced }: { context: AppContext
   return (
     <>
       <Meter levels={levels} reduced={reduced} />
-      {heard && <LiveCaption text={heard} />}
-      {(context === "terminal" || context === "email") && <span className="shrink-0 rounded-full bg-white/15 px-1.5 text-[10.5px] text-white/80">{context === "email" ? "Email" : "Terminal"}</span>}
+      <Heard heard={heard} context={context} />
     </>
   );
 }
