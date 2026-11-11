@@ -39,7 +39,7 @@ const settings: Settings = {
     lowerToPercent: 20,
     vocabularyBoost: false,
     restoreClipboard: false,
-    historyRetention: "day",
+    historyRetention: "week",
   },
   sketch: { enabled: true, hotkey: { vk: 0x53, modifiers: 3 }, drawKey: "shift" },
 };
@@ -146,7 +146,7 @@ export async function installDevMock() {
     { id: "3", text: "Translate this into French: the meeting is moved to Monday.", raw: "Translate this into French: the meeting is moved to Monday.", level: "full", context: "general", engine: "parakeetS1", appName: "Notepad", appExe: "notepad.exe", secondsSpoken: 2.4, releaseToPasteMs: 260, createdAt: new Date().toISOString(), cleanupNote: "Kept your words: cleanup dropped words you said." },
     ...Array.from({ length: 42 }, (_, i) => ({
       id: `f${i}`, text: `Note ${i + 1}: follow up on the release checklist.`, raw: `note ${i + 1} follow up on the release checklist`, level: "light", context: "general", engine: "parakeetS1",
-      appName: i % 2 ? "Notepad" : "Outlook", appExe: i % 2 ? "notepad.exe" : "outlook.exe", secondsSpoken: 2, releaseToPasteMs: 220, createdAt: new Date(Date.now() - (i + 1) * 1800_000).toISOString(),
+      appName: i % 2 ? "Notepad" : "Outlook", appExe: i % 2 ? "notepad.exe" : "outlook.exe", secondsSpoken: 2, releaseToPasteMs: 220, createdAt: new Date(Date.now() - (i + 1) * 3 * 3600_000).toISOString(),
     })),
   ];
   mockIPC((cmd, args) => {
@@ -162,10 +162,12 @@ export async function installDevMock() {
         const { query = "", limit = 20 } = (args ?? {}) as { query?: string; limit?: number };
         const words = query.toLowerCase().split(/\s+/).filter(Boolean);
         return history
-          .filter((e) => words.every((w) => `${e.text}
-${e.raw}
-${e.appName}`.toLowerCase().includes(w)))
+          .filter((e) => words.every((w) => [e.text, e.raw, e.appName].join(" ").toLowerCase().includes(w)))
           .slice(0, Math.min(limit, 200));
+      }
+      case "count_expiring_history": {
+        const days = { day: 1, week: 7, month: 30 }[(args as { keep: "day" | "week" | "month" }).keep];
+        return history.filter((e) => Date.now() - Date.parse(e.createdAt) >= days * 86_400_000).length;
       }
       case "animations_enabled": return true;
       // ?gpucrash previews the CPU fallback note.

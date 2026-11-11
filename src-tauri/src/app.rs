@@ -248,7 +248,7 @@ impl Quill {
             has_dictated: self.stores.stats.read(|s| !s.is_empty()),
             dictionary_hits: self.stores.stats.read(|s| s.dictionary_hits.clone()),
             dictation: self.controller.view(),
-            has_last_transcript: self.controller.last_transcript.lock().is_some(),
+            has_last_transcript: self.controller.last_text().is_some(),
             version: env!("CARGO_PKG_VERSION"),
             update: self.updates.info(),
             updating: self.updates.installing(),

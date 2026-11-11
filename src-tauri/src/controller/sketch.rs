@@ -161,8 +161,14 @@ impl Controller {
 
         // Copied first, with the screenshot folder in the text, so nothing
         // is lost if the paste can't happen.
-        *self.last_transcript.lock() = Some(text.clone());
-        *self.last_target.lock() = Some(cfg.target.clone());
+        *self.last_paste.lock() = Some(quill_core::text::continuation::LastPaste {
+            text: text.clone(),
+            target: cfg.target.clone(),
+            at: Instant::now(),
+            input: None,
+            pasted: false,
+            entered: false,
+        });
         if !paste::set_clipboard_text(&text) {
             return self.fail_session(cfg.generation, DictationError::ClipboardFailed);
         }

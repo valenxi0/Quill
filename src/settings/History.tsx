@@ -3,7 +3,7 @@ import { api, on, type CleanupLevel, type HistoryEntry, type HistoryRetention, t
 import { timeAgo } from "../lib/format";
 import type { Ctx } from "./App";
 import { CLEANUP } from "./SetupTab";
-import { Button, Capsule, Card, CardHeader, Icon, IconButton, Segmented, Switch, useCopied, Warning } from "./ui";
+import { Button, Capsule, Card, CardHeader, Icon, IconButton, Segmented, Sheet, Switch, useCopied, Warning } from "./ui";
 
 export const RETENTION: { value: HistoryRetention; label: string; span: string }[] = [
   { value: "day", label: "Day", span: "a day" },
@@ -24,6 +24,13 @@ export function HistoryCard({ ctx }: { ctx: Ctx }) {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [query, setQuery] = useState("");
   const [limit, setLimit] = useState(PAGE);
+  const [shorten, setShorten] = useState<{ keep: HistoryRetention; count: number } | null>(null);
+  const rank = (r: HistoryRetention) => RETENTION.findIndex((o) => o.value === r);
+  // A shorter span deletes older entries at once, so ask first.
+  const changeRetention = (keep: HistoryRetention) => {
+    if (rank(keep) >= rank(retention)) return ctx.saveVd({ historyRetention: keep });
+    api.countExpiringHistory(keep).then((count) => (count > 0 ? setShorten({ keep, count }) : ctx.saveVd({ historyRetention: keep })));
+  };
   useEffect(() => {
     if (!expanded) return;
     let live = true;
@@ -79,7 +86,7 @@ export function HistoryCard({ ctx }: { ctx: Ctx }) {
             </div>
             <div className="flex items-center gap-2">
               <span className="text-[12px] text-text-2">Keep for</span>
-              <Segmented value={retention} options={RETENTION} onChange={(v) => ctx.saveVd({ historyRetention: v })} width={180} />
+              <Segmented value={retention} options={RETENTION} onChange={changeRetention} width={180} />
             </div>
           </div>
           {entries.length === 0 ? (
@@ -93,6 +100,11 @@ export function HistoryCard({ ctx }: { ctx: Ctx }) {
               ))}
             </div>
           )}
+          {entries.length >= MAX_SHOWN && (
+            <p className="pt-2 text-[12px] text-text-3">
+              {searching ? "Showing the newest 200 matches. Add words to narrow the search." : "Showing the newest 200. Search to find older ones."}
+            </p>
+          )}
           <div className="mt-2 flex items-center justify-end gap-2">
             {entries.length >= limit && limit < MAX_SHOWN && (
               <Button small onClick={() => setLimit(Math.min(limit + PAGE, MAX_SHOWN))}>
@@ -104,6 +116,31 @@ export function HistoryCard({ ctx }: { ctx: Ctx }) {
             </Button>
           </div>
         </div>
+      )}
+      {shorten && (
+        <Sheet
+          title={`Keep history for ${retentionSpan(shorten.keep)}?`}
+          width={380}
+          onClose={() => setShorten(null)}
+          footer={
+            <>
+              <Button onClick={() => setShorten(null)}>Cancel</Button>
+              <Button
+                kind="destructive"
+                onClick={() => {
+                  ctx.saveVd({ historyRetention: shorten.keep });
+                  setShorten(null);
+                }}
+              >
+                Delete
+              </Button>
+            </>
+          }
+        >
+          <p className="text-[12.5px] text-text-2">
+            {shorten.count === 1 ? "1 entry" : `${shorten.count} entries`} older than {retentionSpan(shorten.keep)} will be deleted.
+          </p>
+        </Sheet>
       )}
     </Card>
   );

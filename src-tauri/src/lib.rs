@@ -80,6 +80,8 @@ pub fn run() {
                 }
                 Err(e) => (None, Some(format!("The global shortcut is unavailable: {e}"))),
             };
+            // Clicks count as input between dictations, like typing.
+            platform::clicks::start();
 
             let preferred_languages = platform::system::preferred_languages();
             let controller = Controller::new(
@@ -180,6 +182,7 @@ pub fn run() {
             commands::paste_last,
             commands::redo_history,
             commands::get_history,
+            commands::count_expiring_history,
             commands::clear_history,
             commands::get_insights,
             commands::get_known_apps,

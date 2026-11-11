@@ -200,7 +200,7 @@ pub fn copy_text(text: String) -> bool {
 
 #[tauri::command]
 pub fn copy_last(q: Q) -> bool {
-    match q.controller.last_transcript.lock().clone() {
+    match q.controller.last_text() {
         Some(t) => crate::platform::paste::set_clipboard_text(&t),
         None => false,
     }
@@ -242,6 +242,13 @@ pub fn redo_history(q: Q, id: uuid::Uuid, level: CleanupLevel) -> Result<Redone,
 pub fn get_history(q: Q, query: Option<String>, limit: Option<usize>) -> Vec<HistoryEntry> {
     app::purge_history(&q);
     q.stores.history.read(|h| h.search(query.as_deref().unwrap_or(""), limit.unwrap_or(20)))
+}
+
+/// How many records keeping them for `keep` would delete now, so the
+/// Settings page can ask first.
+#[tauri::command]
+pub fn count_expiring_history(q: Q, keep: quill_core::history::Retention) -> usize {
+    q.stores.history.read(|h| h.expiring(chrono::Utc::now(), keep))
 }
 
 #[tauri::command]

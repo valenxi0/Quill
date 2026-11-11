@@ -97,12 +97,20 @@ impl History {
             .entries
             .iter()
             .filter(|e| {
+                if words.is_empty() {
+                    return true;
+                }
                 let hay = format!("{}\n{}\n{}", e.text, e.raw, e.app_name).to_lowercase();
                 words.iter().all(|w| hay.contains(w.as_str()))
             })
             .collect();
         found.sort_by(|a, b| b.created_at.cmp(&a.created_at));
         found.into_iter().take(limit.min(MAX_RESULTS)).cloned().collect()
+    }
+
+    /// How many records a purge with `keep` would delete now.
+    pub fn expiring(&self, now: DateTime<Utc>, keep: Retention) -> usize {
+        self.entries.iter().filter(|e| now - e.created_at >= keep.duration()).count()
     }
 
     /// Newest first.
@@ -182,6 +190,9 @@ mod tests {
         assert_eq!(oldest_first(&week), vec!["two days", "hour"]);
         assert_eq!(week.next_expiry(Retention::Week), Some(now + Duration::days(5)));
         let mut month = filled();
+        assert_eq!(month.expiring(now, Retention::Month), 1);
+        assert_eq!(month.expiring(now, Retention::Week), 2);
+        assert_eq!(month.expiring(now, Retention::Day), 3);
         assert!(month.purge(now, Retention::Month));
         assert_eq!(oldest_first(&month), vec!["ten days", "two days", "hour"]);
         assert!(!month.purge(now, Retention::Month));

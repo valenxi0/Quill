@@ -8,7 +8,7 @@ use quill_core::engines::{recognition_language, Recognizer};
 use quill_core::errors::DictationError;
 use quill_core::pipeline::{protected_terms, Recipe};
 use quill_core::segments::{EarlySegmenter, SAMPLE_RATE};
-use quill_core::text::continuation::{continuation, Start};
+use quill_core::text::continuation::continuation;
 use quill_core::text::directive::Directive;
 use quill_core::settings::level_for_app;
 use quill_core::state::{action, Action, HotkeyEvent, Phase};
@@ -21,7 +21,7 @@ use crate::platform::system::{microphone_permission, MicPermission};
 use crate::platform::target;
 use crate::vad::Vad;
 
-use super::deliver::{window_of, LAST_PASTE};
+use super::deliver::input_count;
 use super::{Controller, DictationView, Job, Preview, Session, SessionConfig};
 
 impl Controller {
@@ -113,11 +113,10 @@ impl Controller {
             }
         };
         let mut target = capture.join().unwrap_or_default();
-        if sketch.is_some() {
-            *LAST_PASTE.lock() = None;
-        } else {
-            let start = Start { window: window_of(&target), at: Instant::now(), typed: crate::platform::hotkey::typed_keys() };
-            if let Some(around) = continuation(LAST_PASTE.lock().as_ref(), &start, fits_to_cursor, target.surroundings.as_ref()) {
+        if sketch.is_none() {
+            let last = self.last_paste.lock();
+            let input = input_count();
+            if let Some(around) = continuation(last.as_ref(), &target, Instant::now(), input, fits_to_cursor, target.surroundings.as_ref()) {
                 target.surroundings = Some(around);
             }
         }

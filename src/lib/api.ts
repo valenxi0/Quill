@@ -298,6 +298,8 @@ export const api = {
   /** Newest first; `query` matches the text, the words heard, and the app. At most 200. */
   getHistory: (query = "", limit = 20) => invoke<HistoryEntry[]>("get_history", { query, limit }),
   clearHistory: () => invoke<void>("clear_history"),
+  /** How many entries keeping history for `keep` would delete now. */
+  countExpiringHistory: (keep: HistoryRetention) => invoke<number>("count_expiring_history", { keep }),
   getInsights: () => invoke<Insights>("get_insights"),
   getKnownApps: () => invoke<KnownApp[]>("get_known_apps"),
   resetInsights: () => invoke<void>("reset_insights"),
