@@ -13,6 +13,9 @@ pub struct InputDevice {
     pub id: String,
     pub name: String,
     pub bluetooth: bool,
+    /// A microphone, headset or handset, as opposed to a line input,
+    /// "Stereo Mix", a capture card, or a virtual cable.
+    pub is_mic: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,6 +36,21 @@ pub struct MicChoice {
     pub avoided: Option<String>,
 }
 
+impl MicChoice {
+    pub fn system_default(name: Option<String>, missing: Option<String>) -> Self {
+        Self { pick: Pick::SystemDefault, name, missing, avoided: None }
+    }
+
+    /// The saved mic, found connected.
+    pub fn saved(s: &SavedDevice) -> Self {
+        Self { pick: Pick::Device(s.id.clone()), name: Some(s.name.clone()), missing: None, avoided: None }
+    }
+
+    fn device(d: &InputDevice, missing: Option<String>, avoided: Option<String>) -> Self {
+        Self { pick: Pick::Device(d.id.clone()), name: Some(d.name.clone()), missing, avoided }
+    }
+}
+
 /// Bluetooth Classic audio (hands-free and A2DP) sits under these device
 /// enumerators. Recording from a hands-free endpoint drops the headset into
 /// call mode.
@@ -41,26 +59,30 @@ pub fn is_bluetooth_instance(instance_id: &str) -> bool {
     upper.starts_with("BTHENUM\\") || upper.starts_with("BTHHFENUM\\")
 }
 
-pub fn choose(devices: &[InputDevice], default_id: Option<&str>, saved: Option<&SavedDevice>, avoid_bluetooth: bool) -> MicChoice {
+/// `defaults` are Windows' default capture endpoints by role: the console
+/// default first (what "System default" opens), then the multimedia and
+/// communications defaults.
+pub fn choose(devices: &[InputDevice], defaults: &[&str], saved: Option<&SavedDevice>, avoid_bluetooth: bool) -> MicChoice {
+    let find = |id: &str| devices.iter().find(|d| d.id == id);
     let mut missing = None;
     if let Some(saved) = saved {
-        if let Some(d) = devices.iter().find(|d| d.id == saved.id) {
-            return MicChoice { pick: Pick::Device(d.id.clone()), name: Some(d.name.clone()), missing: None, avoided: None };
+        if let Some(d) = find(&saved.id) {
+            return MicChoice::device(d, None, None);
         }
         missing = Some(saved.name.clone());
     }
-    let default = default_id.and_then(|id| devices.iter().find(|d| d.id == id));
+    let default = defaults.first().and_then(|id| find(id));
     if let Some(def) = default.filter(|d| avoid_bluetooth && d.bluetooth) {
-        if let Some(other) = devices.iter().find(|d| !d.bluetooth) {
-            return MicChoice {
-                pick: Pick::Device(other.id.clone()),
-                name: Some(other.name.clone()),
-                missing,
-                avoided: Some(def.name.clone()),
-            };
+        let other = defaults[1..]
+            .iter()
+            .filter_map(|id| find(id))
+            .find(|d| !d.bluetooth)
+            .or_else(|| devices.iter().find(|d| d.is_mic && !d.bluetooth));
+        if let Some(other) = other {
+            return MicChoice::device(other, missing, Some(def.name.clone()));
         }
     }
-    MicChoice { pick: Pick::SystemDefault, name: default.map(|d| d.name.clone()), missing, avoided: None }
+    MicChoice::system_default(default.map(|d| d.name.clone()), missing)
 }
 
 #[cfg(test)]
@@ -68,7 +90,11 @@ mod tests {
     use super::*;
 
     fn dev(id: &str, name: &str, bluetooth: bool) -> InputDevice {
-        InputDevice { id: id.into(), name: name.into(), bluetooth }
+        InputDevice { id: id.into(), name: name.into(), bluetooth, is_mic: true }
+    }
+
+    fn line(id: &str, name: &str) -> InputDevice {
+        InputDevice { id: id.into(), name: name.into(), bluetooth: false, is_mic: false }
     }
 
     fn saved(id: &str, name: &str) -> SavedDevice {
@@ -87,16 +113,14 @@ mod tests {
     #[test]
     fn system_default_follows_windows() {
         let devices = [dev("usb", "Microphone (Scarlett)", false), dev("hda", "Mic (Realtek)", false)];
-        let c = choose(&devices, Some("hda"), None, true);
-        assert_eq!(c.pick, Pick::SystemDefault);
-        assert_eq!(c.name.as_deref(), Some("Mic (Realtek)"));
-        assert_eq!((c.missing, c.avoided), (None, None));
+        let c = choose(&devices, &["hda"], None, true);
+        assert_eq!(c, MicChoice::system_default(Some("Mic (Realtek)".into()), None));
     }
 
     #[test]
     fn saved_mic_wins_even_if_bluetooth() {
         let devices = [dev("usb", "USB mic", false), dev("bt", "Headset", true)];
-        let c = choose(&devices, Some("usb"), Some(&saved("bt", "Headset")), true);
+        let c = choose(&devices, &["usb"], Some(&saved("bt", "Headset")), true);
         assert_eq!(c.pick, Pick::Device("bt".into()));
         assert_eq!(c.avoided, None);
     }
@@ -104,36 +128,50 @@ mod tests {
     #[test]
     fn missing_saved_mic_falls_back_to_default() {
         let devices = [dev("usb", "USB mic", false)];
-        let c = choose(&devices, Some("usb"), Some(&saved("gone", "Yeti")), true);
-        assert_eq!(c.pick, Pick::SystemDefault);
-        assert_eq!(c.missing.as_deref(), Some("Yeti"));
-        assert_eq!(c.name.as_deref(), Some("USB mic"));
+        let c = choose(&devices, &["usb"], Some(&saved("gone", "Yeti")), true);
+        assert_eq!(c, MicChoice::system_default(Some("USB mic".into()), Some("Yeti".into())));
     }
 
     #[test]
     fn bluetooth_default_is_avoided_when_another_mic_exists() {
         let devices = [dev("bt", "Headset", true), dev("hda", "Laptop mic", false)];
-        let c = choose(&devices, Some("bt"), None, true);
+        let c = choose(&devices, &["bt"], None, true);
         assert_eq!(c.pick, Pick::Device("hda".into()));
         assert_eq!(c.avoided.as_deref(), Some("Headset"));
         assert_eq!(c.name.as_deref(), Some("Laptop mic"));
 
-        let off = choose(&devices, Some("bt"), None, false);
-        assert_eq!(off.pick, Pick::SystemDefault);
+        assert_eq!(choose(&devices, &["bt"], None, false).pick, Pick::SystemDefault);
 
-        let only_bt = choose(&devices[..1], Some("bt"), None, true);
-        assert_eq!(only_bt.pick, Pick::SystemDefault);
-        assert_eq!(only_bt.avoided, None);
+        let only_bt = choose(&devices[..1], &["bt"], None, true);
+        assert_eq!(only_bt, MicChoice::system_default(Some("Headset".into()), None));
 
-        let missing_then_bt = choose(&devices, Some("bt"), Some(&saved("gone", "Yeti")), true);
+        let missing_then_bt = choose(&devices, &["bt"], Some(&saved("gone", "Yeti")), true);
         assert_eq!(missing_then_bt.pick, Pick::Device("hda".into()));
         assert_eq!(missing_then_bt.missing.as_deref(), Some("Yeti"));
     }
 
     #[test]
+    fn avoidance_prefers_another_windows_default() {
+        let devices = [dev("bt", "Headset", true), dev("hda", "Laptop mic", false), dev("usb", "Desk mic", false)];
+        let c = choose(&devices, &["bt", "bt", "usb"], None, true);
+        assert_eq!(c.pick, Pick::Device("usb".into()), "the communications default, not the first mic");
+    }
+
+    #[test]
+    fn avoidance_never_picks_a_line_input() {
+        let devices = [dev("bt", "Headset", true), line("mix", "Stereo Mix"), line("cable", "CABLE Output"), dev("hda", "Laptop mic", false)];
+        assert_eq!(choose(&devices, &["bt"], None, true).pick, Pick::Device("hda".into()));
+
+        let no_mic = [dev("bt", "Headset", true), line("mix", "Stereo Mix")];
+        let c = choose(&no_mic, &["bt"], None, true);
+        assert_eq!(c, MicChoice::system_default(Some("Headset".into()), None), "the headset beats recording silence");
+
+        let line_default = [dev("bt", "Headset", true), line("mix", "Stereo Mix"), dev("hda", "Laptop mic", false)];
+        assert_eq!(choose(&line_default, &["bt", "bt", "bt"], None, true).pick, Pick::Device("hda".into()));
+    }
+
+    #[test]
     fn no_devices() {
-        let c = choose(&[], None, None, true);
-        assert_eq!(c.pick, Pick::SystemDefault);
-        assert_eq!(c.name, None);
+        assert_eq!(choose(&[], &[], None, true), MicChoice::system_default(None, None));
     }
 }

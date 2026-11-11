@@ -85,8 +85,8 @@ const state: UiState = {
 
 // ?btdefault previews a Bluetooth headset as the Windows default.
 const mics: InputDevice[] = [
-  { id: "{0.0.1.00000000}.{457aaca4}", name: "Microphone (Scarlett Solo USB)", bluetooth: false },
-  { id: "{0.0.1.00000000}.{9c1e22b0}", name: "Headset (WH-1000XM5 Hands-Free)", bluetooth: true },
+  { id: "{0.0.1.00000000}.{457aaca4}", name: "Microphone (Scarlett Solo USB)", bluetooth: false, isMic: true },
+  { id: "{0.0.1.00000000}.{9c1e22b0}", name: "Headset (WH-1000XM5 Hands-Free)", bluetooth: true, isMic: true },
 ];
 const defaultMic = new URLSearchParams(location.search).has("btdefault") ? mics[1]! : mics[0]!;
 
@@ -94,7 +94,7 @@ function microphones(saved: SavedDevice | null, avoid: boolean): Microphones {
   const found = saved && mics.find((m) => m.id === saved.id);
   if (found) return { devices: mics, using: found.name, missing: null, avoided: null };
   const missing = saved?.name ?? null;
-  const other = mics.find((m) => !m.bluetooth);
+  const other = mics.find((m) => m.isMic && !m.bluetooth);
   if (avoid && defaultMic.bluetooth && other) return { devices: mics, using: other.name, missing, avoided: defaultMic.name };
   return { devices: mics, using: defaultMic.name, missing, avoided: null };
 }

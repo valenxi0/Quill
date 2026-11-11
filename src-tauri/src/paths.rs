@@ -27,6 +27,12 @@ pub fn eval_dir() -> PathBuf {
     env_dir("LOCALAPPDATA").join("Quill").join("Eval")
 }
 
+/// `%LOCALAPPDATA%\Quill\audio-restore.json`: other apps' volumes Quill
+/// still has to put back.
+pub fn audio_restore_file() -> PathBuf {
+    env_dir("LOCALAPPDATA").join("Quill").join("audio-restore.json")
+}
+
 pub fn settings_file() -> PathBuf {
     config_dir().join("settings.json")
 }

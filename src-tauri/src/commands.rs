@@ -153,8 +153,9 @@ pub struct Microphones {
 /// Takes the choice being shown, so the answer never trails a save.
 #[tauri::command(async)]
 pub fn get_microphones(input_device: Option<quill_core::settings::SavedDevice>, avoid_bluetooth: bool) -> Microphones {
-    let (devices, default) = crate::platform::audio_devices::inputs();
-    let choice = quill_core::microphone::choose(&devices, default.as_deref(), input_device.as_ref(), avoid_bluetooth);
+    let (devices, defaults) = crate::platform::audio_devices::inputs();
+    let defaults: Vec<&str> = defaults.iter().map(String::as_str).collect();
+    let choice = quill_core::microphone::choose(&devices, &defaults, input_device.as_ref(), avoid_bluetooth);
     Microphones { devices, using: choice.name, missing: choice.missing, avoided: choice.avoided }
 }
 

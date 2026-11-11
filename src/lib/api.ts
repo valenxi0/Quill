@@ -48,6 +48,8 @@ export interface InputDevice {
   id: string;
   name: string;
   bluetooth: boolean;
+  /** A microphone or headset, not a line input or virtual cable. */
+  isMic: boolean;
 }
 
 export interface Microphones {

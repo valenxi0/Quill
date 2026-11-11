@@ -5,8 +5,8 @@
 ### Added
 
 - Pick your microphone under Settings → Dictation → Audio. System default follows Windows as it changes. If the mic you picked isn't connected, Quill uses the default and says so.
-- Quill skips a Bluetooth headset's mic when another mic exists, because recording from it drops the headset to call quality. On by default; a mic you pick is always used.
-- Other audio while dictating: lower other apps to a percent of their volume, mute them, or pause music and videos while you speak. Everything goes back when the recording ends, is cancelled, or fails, and after a crash on Quill's next launch. Off by default.
+- Quill skips a Bluetooth headset's mic when another mic exists, because recording from it drops the headset to call quality. It moves to your other Windows default mic, or another microphone or headset, never a line input or virtual cable. On by default; a mic you pick is always used.
+- Other audio while dictating: lower other apps to a percent of their volume, mute them, or pause music and videos while you speak. Audio that starts mid-recording is lowered too. Everything goes back when the recording ends, is cancelled, or fails. An app closed while lowered gets its volume back the next time it opens, and after a crash Quill puts things back on its next launch. Off by default.
 
 ## [0.3.1] - 2026-11-09
 

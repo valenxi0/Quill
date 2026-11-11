@@ -44,6 +44,8 @@ parking_lot = "0.12"
 chrono = "0.4"
 uuid = { version = "1", features = ["v4", "serde"] }
 cpal = "0.18"
+# `windows::core::implement` expands to paths in this crate.
+windows-core = "0.62"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 futures-util = "0.3"
 sha2 = "0.10"
