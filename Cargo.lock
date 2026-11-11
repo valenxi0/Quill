@@ -3467,7 +3467,7 @@ dependencies = [
 
 [[package]]
 name = "quill"
-version = "0.4.0"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3502,7 +3502,7 @@ dependencies = [
 
 [[package]]
 name = "quill-core"
-version = "0.4.0"
+version = "0.3.2"
 dependencies = [
  "ab_glyph",
  "chrono",

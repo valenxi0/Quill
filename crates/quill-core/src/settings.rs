@@ -276,7 +276,7 @@ pub enum PillStyle {
     #[default]
     Bars,
     Waveform,
-    /// Saved as "dither" by a 0.4.0 preview build.
+    /// Saved as "dither" by a preview build.
     #[serde(alias = "dither")]
     Dots,
     Glow,
