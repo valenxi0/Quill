@@ -37,6 +37,13 @@ Cargo features: `whisper`, `sherpa`, `llama`, `vulkan` (all on by default). CPU 
 
 The voice activity detector tests need the bundled ONNX Runtime beside the test binary. Otherwise Windows loads the older `System32\onnxruntime.dll` and the test process crashes. Copy `target\debug\onnxruntime*.dll` and `target\debug\sherpa-onnx-*.dll` into `target\debug\deps` once; without them, those tests skip.
 
+## Recovery files
+
+Two files in `%LOCALAPPDATA%\Quill` let Quill recover from a crash on its next launch:
+
+- `gpu-starting.json` exists while an engine starts on the GPU. If Quill finds one from the same version at launch, a GPU start never returned, so this run uses the CPU and Settings offers "Try the GPU again", which deletes the file and restarts Quill. A new version deletes it. Debug builds abort during the GPU start when `QUILL_SIMULATE_GPU_CRASH` is set, to test this.
+- `audio-restore.json` lists other apps' volumes and mutes that Quill changed and hasn't put back yet. Quill restores each one when that app's audio session next appears, and drops entries older than 30 days.
+
 ## Releasing and updates
 
 Release builds check GitHub shortly after launch and once a day. The update feed must be publicly accessible; while the repository is private, install updates manually from GitHub Releases. When an update is available, Quill offers it:

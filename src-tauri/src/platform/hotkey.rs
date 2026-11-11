@@ -595,7 +595,6 @@ mod tests {
     const RALT: u32 = 0xA5;
     const LCTRL: u32 = 0xA2;
 
-
     #[test]
     fn raw_shortcut_fires_as_its_own_binding() {
         let (s, rx) = shared();

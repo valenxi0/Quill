@@ -480,7 +480,6 @@ pub fn press_enter() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use windows::Win32::System::DataExchange::{EnumClipboardFormats, GetClipboardData, GetClipboardFormatNameW};
 
     /// Each registered format on the clipboard, with its DWORD value.
     fn registered_formats() -> Vec<(String, Option<u32>)> {
@@ -492,21 +491,17 @@ mod tests {
             if format == 0 {
                 break;
             }
-            let mut name = [0u16; 256];
-            let len = unsafe { GetClipboardFormatNameW(format, &mut name) };
-            if len <= 0 {
-                continue;
-            }
+            let Some(name) = format_name(format) else { continue };
             let value = unsafe {
                 GetClipboardData(format).ok().and_then(|h| {
-                    let mem = windows::Win32::Foundation::HGLOBAL(h.0);
+                    let mem = HGLOBAL(h.0);
                     let ptr = GlobalLock(mem) as *const u32;
                     let v = (!ptr.is_null()).then(|| ptr.read_unaligned());
                     let _ = GlobalUnlock(mem);
                     v
                 })
             };
-            out.push((String::from_utf16_lossy(&name[..len as usize]), value));
+            out.push((name, value));
         }
         unsafe {
             let _ = CloseClipboard();

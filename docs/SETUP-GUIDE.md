@@ -27,7 +27,7 @@ Quill opens a short setup:
 2. **Your shortcut**: the keys you'll hold to dictate. The default is **Ctrl+Alt+M**. Click it and press new keys to change it. Then choose:
    - **Push to talk**: hold the keys while you talk, and let go to finish.
    - **Toggle**: press once to start, and again to finish.
-   - **Hold or lock**: hold the keys while you talk, or tap them twice quickly to keep recording hands-free until you press them again. A single quick tap does nothing.
+   - **Hold or lock**: hold the keys while you talk, or tap them twice quickly to keep recording hands-free until you press them again. A single quick tap pastes nothing.
 
    The shortcut can also be a mouse side button (back or forward), or Right Ctrl or Right Alt pressed on its own. Click the shortcut button, then press the side button, or tap Right Ctrl or Right Alt and let go. Right Ctrl or Right Alt alone waits a moment before it acts, so other shortcuts keep working. In Push to talk and Hold or lock, hold it about a fifth of a second before you speak; a shorter tap does not start a recording. In Toggle, tap it and let go. Pressed with another key, a click, or the scroll wheel (Ctrl+C, Ctrl+click) within that moment, it does nothing in Quill. If the recording had already started, a key, click, or scroll within its first second drops it without pasting; after that, Quill keeps recording and the key works as usual. On keyboards with an AltGr key, Right Alt types characters, so pick Right Ctrl instead.
 3. **Choose an engine**: the speech engine downloads once and then works offline. You must download one to continue.
