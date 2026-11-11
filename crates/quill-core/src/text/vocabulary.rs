@@ -71,25 +71,30 @@ pub fn for_app(entries: &[VocabEntry], exe: &str) -> Vec<VocabEntry> {
     }).cloned().collect()
 }
 
-/// Terms that can be offered to a recognizer as vocabulary hints.
+/// Terms that can be offered to a recognizer as vocabulary hints. Entries
+/// for one app come first, so a capped list keeps them.
 pub fn vocabulary_terms(entries: &[VocabEntry]) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
-    entries
-        .iter()
-        .filter(|e| e.is_active() && e.kind == EntryKind::Vocabulary)
+    let active = entries.iter().filter(|e| e.is_active() && e.kind == EntryKind::Vocabulary);
+    let (scoped, global): (Vec<&VocabEntry>, Vec<&VocabEntry>) = active.partition(|e| e.app_exe.is_some());
+    scoped
+        .into_iter()
+        .chain(global)
         .map(|e| e.replacement.trim().to_string())
         .filter(|t| seen.insert(t.to_lowercase()))
         .collect()
 }
 
-/// Most terms passed to a recognizer as hotwords in one dictation. Every
-/// entry still applies to the transcript afterwards.
-pub const MAX_HOTWORDS: usize = 100;
+/// Most terms passed to a recognizer as hotwords in one dictation: the
+/// largest list measured (docs/DEVELOPMENT.md). Every entry still applies to
+/// the transcript afterwards.
+pub const MAX_HOTWORDS: usize = 26;
 
-/// Terms ready for sherpa-onnx's hotword list, in order, at most `max`.
-/// That list splits phrases on `/` and line breaks and reads a word starting
-/// with `:` as a score, so those are dropped instead of passed through.
-pub fn hotword_terms(terms: &[String], max: usize) -> Vec<String> {
+/// Terms ready for sherpa-onnx's hotword list, in order: cleaned, kept only
+/// if `spellable`, then capped at `max`. That list splits phrases on `/` and
+/// line breaks and reads a word starting with `:` as a score, so those are
+/// dropped instead of passed through.
+pub fn hotword_terms(terms: &[String], spellable: impl Fn(&str) -> bool, max: usize) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     terms
         .iter()
@@ -99,28 +104,8 @@ pub fn hotword_terms(terms: &[String], max: usize) -> Vec<String> {
                 .collect::<Vec<_>>()
                 .join(" ")
         })
-        .filter(|t| !t.is_empty() && seen.insert(t.to_lowercase()))
+        .filter(|t| !t.is_empty() && spellable(t) && seen.insert(t.to_lowercase()))
         .take(max)
-        .collect()
-}
-
-fn plain_words(s: &str) -> Vec<String> {
-    s.split_whitespace()
-        .map(|w| w.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase())
-        .filter(|w| !w.is_empty())
-        .collect()
-}
-
-/// The terms that appear in `text` as whole words, ignoring case and punctuation.
-pub fn terms_in(text: &str, terms: &[String]) -> Vec<String> {
-    let words = plain_words(text);
-    terms
-        .iter()
-        .filter(|t| {
-            let t = plain_words(t);
-            !t.is_empty() && words.windows(t.len()).any(|w| w == t.as_slice())
-        })
-        .cloned()
         .collect()
 }
 
@@ -362,34 +347,36 @@ mod tests {
 
     #[test]
     fn hotword_terms_are_safe_for_the_hotword_list_and_capped() {
-        let terms: Vec<String> = ["Siobhan", " Grafana  Cloud ", "A/B test", "line\nbreak", "C:\\temp", "x :3.5", "siobhan", "", " / "]
+        let terms: Vec<String> = ["Siobhan", " Grafana  Cloud ", "A/B test", "line\nbreak", r"C:\temp", "x :3.5", "siobhan", "", " / "]
             .iter()
             .map(|s| s.to_string())
             .collect();
-        assert_eq!(hotword_terms(&terms, 100), vec!["Siobhan", "Grafana Cloud", "A B test", "line break", "C:\\temp", "x"]);
-        assert_eq!(hotword_terms(&terms, 2), vec!["Siobhan", "Grafana Cloud"]);
-        assert!(hotword_terms(&[], MAX_HOTWORDS).is_empty());
+        let any = |_: &str| true;
+        assert_eq!(hotword_terms(&terms, any, 100), vec!["Siobhan", "Grafana Cloud", "A B test", "line break", r"C:\temp", "x"]);
+        assert_eq!(hotword_terms(&terms, any, 2), vec!["Siobhan", "Grafana Cloud"]);
+        assert!(hotword_terms(&[], any, MAX_HOTWORDS).is_empty());
     }
 
     #[test]
-    fn hotword_terms_come_only_from_enabled_vocabulary_for_the_app() {
+    fn unspellable_terms_do_not_use_up_the_cap() {
+        let terms: Vec<String> = ["AT&T", "C++", "Grafana", "Vitest"].iter().map(|s| s.to_string()).collect();
+        let ascii_letters = |t: &str| t.chars().all(|c| c.is_ascii_alphabetic() || c == ' ');
+        assert_eq!(hotword_terms(&terms, ascii_letters, 2), vec!["Grafana", "Vitest"]);
+    }
+
+    #[test]
+    fn hotword_terms_come_from_enabled_vocabulary_for_the_app_app_entries_first() {
         let mut off = vocab("tauri", "Tauri");
         off.is_enabled = false;
         let snippet = VocabEntry::new(EntryKind::Snippet, "my sign off", "Best, Jo");
         let mut other_app = vocab("zus", "Zustand");
         other_app.app_exe = Some("code.exe".into());
         let entries = vec![vocab("graph ana", "Grafana"), off, snippet, other_app];
-        let terms = hotword_terms(&vocabulary_terms(&for_app(&entries, "slack.exe")), MAX_HOTWORDS);
+        let any = |_: &str| true;
+        let terms = hotword_terms(&vocabulary_terms(&for_app(&entries, "slack.exe")), any, MAX_HOTWORDS);
         assert_eq!(terms, vec!["Grafana"]);
-        let code = hotword_terms(&vocabulary_terms(&for_app(&entries, "Code.exe")), MAX_HOTWORDS);
-        assert_eq!(code, vec!["Grafana", "Zustand"]);
-    }
-
-    #[test]
-    fn terms_in_matches_whole_words_ignoring_case_and_punctuation() {
-        let terms: Vec<String> = ["Grafana", "Tail scale", "Vite"].iter().map(|s| s.to_string()).collect();
-        assert_eq!(terms_in("Check the grafana board, then tail Scale.", &terms), vec!["Grafana", "Tail scale"]);
-        assert!(terms_in("Vitest failed", &terms).is_empty());
+        let code = hotword_terms(&vocabulary_terms(&for_app(&entries, "Code.exe")), any, 1);
+        assert_eq!(code, vec!["Zustand"]);
     }
 
     #[test]

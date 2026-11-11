@@ -32,6 +32,7 @@ const settings: Settings = {
     spokenEnter: false,
     splitsTerminalPastes: true,
     livePreview: false,
+    vocabularyBoost: false,
   },
   sketch: { enabled: true, hotkey: { vk: 0x53, modifiers: 3 }, drawKey: "shift" },
 };
@@ -45,7 +46,7 @@ const state: UiState = {
   status: { kind: "ready", dot: "green", title: "Ready · Ctrl+Alt+M", detail: "Hold the shortcut while you speak. Release to finish.", hotkeyProblem: null, engineLoaded: true, engineLoading: false, warmError: null },
   engines: [
     { id: "parakeetS1", title: "Parakeet + S1-mini", badge: "Best quality · Heaviest", badgeAccent: true, summary: "Best English results. Parakeet recognizes speech; S1-mini by Superwhisper removes fillers and false starts and writes numbers, dates, and emails properly.", languageNote: "Parakeet hears 25 European languages on its own. S1-mini cleanup runs on English; other languages are written as recognized.", recognizer: "parakeet", hasCleanup: true, showsLanguagePicker: false, englishOnly: false, supported: true, ready: true, busy: false, hasData: true, updateAvailable: false,
-      assets: [asset("parakeetTdt06bV3", "Parakeet TDT 0.6B v3", 670478772, { state: "downloaded" }), asset("s1Mini", "S1-mini", 484232348, { state: "downloaded" }), asset("parakeetVocabularyBooster", "Vocabulary booster (Parakeet CTC 110M)", 0, { state: "unavailable" }, true, false)] },
+      assets: [asset("parakeetTdt06bV3", "Parakeet TDT 0.6B v3", 670478772, { state: "downloaded" }), asset("s1Mini", "S1-mini", 484232348, { state: "downloaded" })] },
     { id: "cohereTranscribe", title: "Cohere Transcribe", badge: "Experimental · Slow", badgeAccent: false, summary: "Experimental. Strong on German, French, Spanish…", languageNote: "Cohere cannot detect the language: speech in another one comes out translated. Automatic follows your PC's language.", recognizer: "cohere", hasCleanup: false, showsLanguagePicker: true, englishOnly: false, supported: true, ready: false, busy: true, hasData: true, updateAvailable: false,
       assets: [asset("cohereTranscribe", "Cohere Transcribe 03-2026", 2888151330, { state: "downloading", fraction: 0.42, bytes: 1213023558, total: 2888151330 })] },
     { id: "whisperTiny", title: "Whisper Tiny", badge: "Fastest · Lightest", badgeAccent: false, summary: "Fastest and easiest on your PC, but trades recognition accuracy for its small footprint.", languageNote: "English-only model (base.en / tiny.en). Use Whisper Turbo or Cohere Transcribe for other languages.", recognizer: "whisper", hasCleanup: false, showsLanguagePicker: false, englishOnly: true, supported: true, ready: false, busy: false, hasData: false, updateAvailable: false,

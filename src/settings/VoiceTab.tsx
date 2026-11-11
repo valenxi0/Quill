@@ -3,7 +3,7 @@ import { api, type EntryKind, type Insights, type VocabEntry } from "../lib/api"
 import { AppPicker, AppScope, scopeName, useKnownApps } from "./AppScope";
 import { compact } from "../lib/format";
 import type { Ctx } from "./App";
-import { BookOpenText, PencilSimpleLine } from "@phosphor-icons/react";
+import { BookOpenText, Ear, PencilSimpleLine } from "@phosphor-icons/react";
 import { Button, Capsule, Card, CardHeader, Divider, Icon, IconButton, Segmented, Sheet, Switch, TextField } from "./ui";
 
 export function useInsights(dep: unknown): Insights | null {
@@ -174,9 +174,16 @@ function VocabularyCard({ ctx }: { ctx: Ctx }) {
       )}
       <Divider />
       {engine?.recognizer === "parakeet" && (
-        <p className="ml-8 text-[12px] text-text-3">
-          Parakeet listens for these terms as it recognizes, and Quill writes them into the transcript afterwards.
-        </p>
+        <>
+          <p className="ml-8 text-[12px] text-text-3">Quill writes these terms into Parakeet's transcript right after it recognizes.</p>
+          <Divider />
+          <CardHeader
+            icon={<Ear size={19} />}
+            title="Listen for these terms (experimental)"
+            detail="Parakeet recognizes your terms more often. It can miss words after long pauses."
+            right={<Switch label="Listen for these terms" checked={vd.vocabularyBoost} onChange={(v) => ctx.saveVd({ vocabularyBoost: v })} />}
+          />
+        </>
       )}
       {engine?.recognizer === "whisper" && (
         <p className="ml-8 text-[12px] text-text-3">Whisper is primed with these terms before it listens.</p>

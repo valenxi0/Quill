@@ -414,17 +414,19 @@ pub fn hotwords(args: &[String]) -> Result<(), String> {
     let dir = models.dir(quill_core::engines::AssetId::ParakeetTdt06bV3);
     let out_dir = std::env::temp_dir().join("quill");
     std::fs::create_dir_all(&out_dir).map_err(|e| e.to_string())?;
-    // tokens.txt is in sentencepiece id order, and sentencepiece scores BPE
-    // pieces by -id, so this is the closest vocab the installed model allows.
-    let derived = out_dir.join("parakeet-bpe.vocab");
-    let vocab: String = std::fs::read_to_string(dir.join("tokens.txt"))
-        .map_err(|e| e.to_string())?
-        .lines()
-        .filter_map(|l| l.rsplit_once(' '))
-        .filter(|(t, _)| !(t.starts_with('<') && t.ends_with('>')))
-        .map(|(t, id)| format!("{t} -{id}\n"))
-        .collect();
-    std::fs::write(&derived, vocab).map_err(|e| e.to_string())?;
+    // The vocabulary file, path, and term list a dictation would use.
+    let shipped = crate::engines::hotword_vocab(&dir);
+    match &shipped {
+        Some((path, _)) => println!("hotword vocabulary: {path}"),
+        None => println!("hotwords unavailable: Parakeet would stay on greedy search"),
+    }
+    let pieces = shipped.as_ref().map(|(_, p)| p.clone()).unwrap_or_default();
+    let hotword_list = quill_core::text::vocabulary::hotword_terms(
+        &terms,
+        |t| pieces.is_empty() || quill_core::engines::spellable(t, &pieces),
+        quill_core::text::vocabulary::MAX_HOTWORDS,
+    )
+    .join("/");
 
     struct Config {
         label: String,
@@ -436,16 +438,15 @@ pub fn hotwords(args: &[String]) -> Result<(), String> {
         Config { label: "greedy".into(), beam: false, vocab: None, score: 0.0 },
         Config { label: "beam4".into(), beam: true, vocab: None, score: 0.0 },
     ];
-    let mut vocabs = vec![("derived".to_string(), derived)];
+    let mut vocabs: Vec<(String, PathBuf)> = shipped.iter().map(|(p, _)| ("shipped".to_string(), PathBuf::from(p))).collect();
     vocabs.extend(extra_vocabs);
     for (label, path) in &vocabs {
-        for score in [1.5f32, 3.0] {
+        for score in [crate::engines::HOTWORDS_SCORE, 3.0] {
             configs.push(Config { label: format!("beam4+hw[{label}] s={score}"), beam: true, vocab: Some(path.clone()), score });
         }
     }
 
     let threads = crate::platform::system::inference_threads();
-    let hotword_list = terms.join("/");
     let contains = |hyp: &str, term: &str| {
         let (h, t) = (words(hyp), words(term));
         !t.is_empty() && h.windows(t.len()).any(|w| w == t.as_slice())
@@ -484,7 +485,7 @@ pub fn hotwords(args: &[String]) -> Result<(), String> {
     if paired {
         // Both recognizers stay loaded and alternate clip by clip, so load
         // from other processes lands on both sides of each comparison.
-        let (a_cfg, b_cfg) = (&configs[0], &configs[2]);
+        let (a_cfg, b_cfg) = (&configs[0], configs.get(2).ok_or("--paired needs hotwords, which are unavailable")?);
         let (a, b) = (build(a_cfg)?, build(b_cfg)?);
         let mut deltas: Vec<f64> = Vec::new();
         let mut ratios: Vec<f64> = Vec::new();

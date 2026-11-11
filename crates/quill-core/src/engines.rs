@@ -240,6 +240,13 @@ pub fn spellable(term: &str, pieces: &std::collections::HashSet<char>) -> bool {
     term.chars().filter(|c| !c.is_whitespace()).all(|c| pieces.contains(&c))
 }
 
+/// The path to hand sherpa-onnx's hotword vocabulary loader, which opens it
+/// as a narrow string and exits the process if that fails: `long` when it is
+/// ASCII, else its 8.3 `short` form when that is ASCII, else none.
+pub fn ascii_path(long: &str, short: Option<&str>) -> Option<String> {
+    [Some(long), short].into_iter().flatten().find(|p| p.is_ascii()).map(str::to_string)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -252,6 +259,16 @@ mod tests {
         assert!(spellable("the  het", &pieces));
         assert!(!spellable("AT&T", &pieces));
         assert!(!spellable("thé", &pieces));
+    }
+
+    #[test]
+    fn hotword_vocabulary_path_is_always_ascii() {
+        let long = r"C:\Users\José\AppData\Local\Quill\Models\parakeetTDT06BV3\bpe.vocab";
+        let short = r"C:\Users\JOS~1\AppData\Local\Quill\Models\PARAKE~1\bpe.vocab";
+        assert_eq!(ascii_path(r"C:\Users\jo\bpe.vocab", None).as_deref(), Some(r"C:\Users\jo\bpe.vocab"));
+        assert_eq!(ascii_path(long, Some(short)).as_deref(), Some(short));
+        assert_eq!(ascii_path(long, Some(long)), None);
+        assert_eq!(ascii_path(long, None), None);
     }
 
     fn prefs(v: &[&str]) -> Vec<String> {

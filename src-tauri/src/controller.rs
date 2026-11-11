@@ -412,7 +412,7 @@ impl Controller {
         let info = vd.engine.info();
         let vocabulary = for_app(&vd.vocabulary, &target.exe);
         let terms = vocabulary_terms(&vocabulary);
-        let hotwords = !terms.is_empty();
+        self.engines.set_hotwords(vd.vocabulary_boost && !vocabulary_terms(&vd.vocabulary).is_empty());
         let protected = protected_terms(&vocabulary);
         let level = level_for_app(vd.cleanup_level, &vd.app_styles, &target.exe);
         let recipe = Recipe {
@@ -494,7 +494,7 @@ impl Controller {
         let me = self.clone();
         let engine = vd.engine;
         std::thread::spawn(move || {
-            if let Err(e) = me.engines.warm_for(engine, hotwords) {
+            if let Err(e) = me.engines.warm(engine) {
                 *me.warm_error.lock() = Some(e);
             }
             me.shell.state_changed();
@@ -1229,7 +1229,11 @@ impl Controller {
 
     /// Settings → "Load Engine", and the warm-up after a download.
     pub fn warm_selected(self: &Arc<Self>) {
-        let (engine, hotwords) = self.stores.settings.read(|s| (s.voice_dictation.engine, !vocabulary_terms(&s.voice_dictation.vocabulary).is_empty()));
+        let (engine, hotwords) = self.stores.settings.read(|s| {
+            let vd = &s.voice_dictation;
+            (vd.engine, vd.vocabulary_boost && !vocabulary_terms(&vd.vocabulary).is_empty())
+        });
+        self.engines.set_hotwords(hotwords);
         let info = engine.info();
         if info.required.iter().any(|a| !self.models.is_ready(*a)) {
             return;
@@ -1238,7 +1242,7 @@ impl Controller {
         std::thread::spawn(move || {
             *me.warm_error.lock() = None;
             me.shell.state_changed();
-            let result = me.engines.warm_for(engine, hotwords);
+            let result = me.engines.warm(engine);
             *me.warm_error.lock() = result.err();
             me.shell.state_changed();
             me.schedule_idle_unload();

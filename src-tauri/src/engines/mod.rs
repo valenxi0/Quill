@@ -2,6 +2,7 @@
 //! `SpeechEngine` and `TextCleaner`; adding an engine is a data change.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -16,6 +17,8 @@ use crate::models::ModelManager;
 mod whisper;
 #[cfg(feature = "sherpa")]
 mod sherpa;
+#[cfg(feature = "sherpa")]
+pub(crate) use sherpa::{hotword_vocab, HOTWORDS_SCORE};
 #[cfg(feature = "llama")]
 mod s1;
 
@@ -29,7 +32,7 @@ pub struct TranscribeRequest {
 pub struct Transcript {
     pub text: String,
     pub language: Option<String>,
-    /// Vocabulary terms the recognizer was biased toward that appear in `text`.
+    /// Terms a vocabulary booster swapped in (none until a booster ships).
     #[allow(dead_code)]
     pub boosted_terms: Vec<String>,
 }
@@ -38,9 +41,6 @@ pub trait SpeechEngine: Send {
     /// Idempotent; the cold path.
     fn load(&mut self) -> Result<(), String>;
     fn is_loaded(&self) -> bool;
-    /// The next dictations carry vocabulary terms; an engine that needs a
-    /// different setup for them reports not loaded until `load` runs again.
-    fn want_hotwords(&mut self) {}
     fn transcribe(&mut self, samples: &[f32], request: &TranscribeRequest) -> Result<Transcript, String>;
     fn unload(&mut self);
     /// "Vulkan", "CPU", "DirectML"…
@@ -70,6 +70,8 @@ pub struct EngineHost {
     /// Engines whose recognizer is loaded, and ones loading right now.
     loaded: Mutex<HashSet<EngineId>>,
     loading: Mutex<HashSet<EngineId>>,
+    /// Bias recognition toward vocabulary terms (Parakeet hotwords).
+    hotwords: Arc<AtomicBool>,
 }
 
 impl EngineHost {
@@ -82,7 +84,14 @@ impl EngineHost {
             last_used: Mutex::new(Instant::now()),
             loaded: Mutex::new(HashSet::new()),
             loading: Mutex::new(HashSet::new()),
+            hotwords: Arc::new(AtomicBool::new(false)),
         })
+    }
+
+    /// Turn vocabulary hotwords on or off. An engine that decodes differently
+    /// for them reloads on its next use.
+    pub fn set_hotwords(&self, on: bool) {
+        self.hotwords.store(on, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Whether this build can run the engine at all.
@@ -109,7 +118,7 @@ impl EngineHost {
                 true,
             ))),
             #[cfg(feature = "sherpa")]
-            EngineId::ParakeetS1 => Ok(Box::new(sherpa::Parakeet::new(m.dir(AssetId::ParakeetTdt06bV3), self.threads))),
+            EngineId::ParakeetS1 => Ok(Box::new(sherpa::Parakeet::new(m.dir(AssetId::ParakeetTdt06bV3), self.threads, self.hotwords.clone()))),
             #[cfg(feature = "sherpa")]
             EngineId::CohereTranscribe => Ok(Box::new(sherpa::Cohere::new(m.dir(AssetId::CohereTranscribe), self.threads))),
             #[allow(unreachable_patterns)]
@@ -194,19 +203,6 @@ impl EngineHost {
             self.with_cleaner(|_| ())?;
         }
         Ok(())
-    }
-
-    /// `warm`, set up for vocabulary terms when `hotwords` is true.
-    pub fn warm_for(&self, engine: EngineId, hotwords: bool) -> Result<(), String> {
-        if hotwords {
-            let slot = self.slot(engine);
-            let mut guard = slot.lock();
-            if guard.is_none() {
-                *guard = Some(self.create(engine)?);
-            }
-            guard.as_mut().expect("just created").want_hotwords();
-        }
-        self.warm(engine)
     }
 
     /// Unload everything if idle long enough. Returns whether it did.

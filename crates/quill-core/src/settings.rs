@@ -180,6 +180,9 @@ pub struct VoiceDictation {
     pub splits_terminal_pastes: bool,
     /// Show a provisional transcript while recording.
     pub live_preview: bool,
+    /// Parakeet listens for vocabulary terms while it recognizes. Experimental:
+    /// the beam search it needs can drop words after long pauses.
+    pub vocabulary_boost: bool,
 }
 
 /// A cleanup style for one app, by executable name.
@@ -216,6 +219,7 @@ impl Default for VoiceDictation {
             spoken_enter: false,
             splits_terminal_pastes: true,
             live_preview: false,
+            vocabulary_boost: false,
         }
     }
 }
@@ -334,6 +338,14 @@ mod tests {
         let s: Settings = serde_json::from_str(r#"{"voiceDictation":{"appStyles":[{"appExe":"slack.exe","level":"verbatim"}]}}"#).unwrap();
         assert_eq!(s.voice_dictation.app_styles[0].level, CleanupLevel::Verbatim);
         assert!(s.voice_dictation.fits_to_cursor && !s.voice_dictation.live_preview && !s.voice_dictation.spoken_enter);
+    }
+
+    #[test]
+    fn settings_without_vocabulary_boost_keep_it_off() {
+        let s: Settings = serde_json::from_str(r#"{"voiceDictation":{"engine":"parakeetS1","livePreview":true}}"#).unwrap();
+        assert!(!s.voice_dictation.vocabulary_boost);
+        let on: Settings = serde_json::from_str(r#"{"voiceDictation":{"vocabularyBoost":true}}"#).unwrap();
+        assert!(on.voice_dictation.vocabulary_boost);
     }
 
     #[test]
