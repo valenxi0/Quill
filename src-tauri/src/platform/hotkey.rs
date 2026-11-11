@@ -33,9 +33,6 @@ pub enum HookEvent {
     /// chord. `at` is `now_ms()` when the hook saw it, so a slow consumer
     /// can't stretch a tap.
     Shortcut { binding: Binding, input: Input, at: u64 },
-    /// A timer the controller set is due, at `now_ms()`. It goes through the
-    /// same channel so it is handled after every key event before it.
-    Tick(u64),
     Escape,
     Captured(Hotkey),
     CaptureCancelled,
@@ -203,11 +200,6 @@ impl HotkeyHook {
         s.sketch_latched.store(false, SeqCst);
     }
 
-    /// Queue a `Tick` behind the key events already sent.
-    pub fn post_tick(&self) {
-        let _ = Self::shared().tx.send(HookEvent::Tick(now_ms()));
-    }
-
     pub fn set_sketching(&self, active: bool) {
         Self::shared().sketching.store(active, SeqCst);
     }
@@ -356,9 +348,10 @@ fn handle(s: &Shared, vk: u32, msg: u32) -> bool {
 
     let triggers = [(&s.dictate, Binding::Dictate), (&s.raw, Binding::Raw)];
     // A lone modifier sees every key first, so a chord that Sketch or
-    // another shortcut swallows still ends its press.
+    // another shortcut swallows still ends its press. During a Sketch the
+    // same modifier may be the draw key, so it is left alone.
     for (t, binding) in triggers {
-        if t.is_lone() {
+        if t.is_lone() && !s.sketching.load(SeqCst) {
             lone_modifier_key(s, t, binding, vk, is_down, is_up);
         }
     }
@@ -679,6 +672,19 @@ mod tests {
         handle(&s, RCTRL, WM_KEYDOWN);
         assert!(handle(&s, 0x5A, WM_KEYDOWN));
         assert_eq!(drain(&rx), [ev(Binding::Dictate, Input::Pressed), ev(Binding::Dictate, Input::Chord), HookEvent::SketchUndo]);
+    }
+
+    #[test]
+    fn a_lone_modifier_is_the_draw_key_during_a_sketch() {
+        let (s, rx) = shared();
+        s.dictate.set(Some(Hotkey { vk: RCTRL, modifiers: 0 }));
+        s.sketching.store(true, SeqCst);
+        assert!(!handle(&s, RCTRL, WM_KEYDOWN));
+        assert!(!handle(&s, RCTRL, WM_KEYUP));
+        assert!(drain(&rx).is_empty());
+        s.sketching.store(false, SeqCst);
+        handle(&s, RCTRL, WM_KEYDOWN);
+        assert_eq!(drain(&rx), [ev(Binding::Dictate, Input::Pressed)]);
     }
 
     #[test]

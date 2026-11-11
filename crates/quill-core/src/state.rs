@@ -89,7 +89,8 @@ enum Stage {
     #[default]
     Idle,
     /// A lone modifier is down with nothing else. Nothing has happened yet.
-    Armed { since: u64, from: Rest },
+    /// `due`: when holding it takes effect; `None` waits for the release.
+    Armed { since: u64, from: Rest, binding: Option<Binding>, due: Option<u64> },
     /// Recording while the shortcut is held, pressed at `since`.
     Held { since: u64 },
     /// After a tap: a second press before `until` locks. `recording`: the
@@ -117,36 +118,65 @@ pub struct Activation {
     stage: Stage,
     /// When a lone-modifier press last started a recording.
     lone_start: Option<u64>,
+    started_by: Option<Binding>,
 }
 
-type Step = (Action, Option<u64>);
-
 impl Activation {
-    /// `lone`: the shortcut is Right Ctrl or Right Alt alone. Returns the
-    /// action and, when one is due, the time to send `Tick` at.
-    pub fn on(&mut self, mode: ActivationMode, lone: bool, input: Input, now: u64, phase: Phase) -> Step {
+    /// `lone`: `binding` is Right Ctrl or Right Alt alone. Returns the action
+    /// and `deadline()`.
+    pub fn on(
+        &mut self,
+        mode: ActivationMode,
+        lone: bool,
+        binding: Option<Binding>,
+        input: Input,
+        now: u64,
+        phase: Phase,
+    ) -> (Action, Option<u64>) {
         let recording = phase == Phase::Recording;
         if !recording && matches!(self.stage, Stage::Held { .. } | Stage::Locked | Stage::Waiting { recording: true, .. }) {
             self.stage = Stage::Idle;
         }
-        match input {
+        let act = match input {
             Input::Escape => {
                 *self = Self::default();
-                (if phase.is_busy() { Action::Cancel } else { Action::Ignore }, None)
+                if phase.is_busy() { Action::Cancel } else { Action::Ignore }
             }
             Input::Chord => self.chord(now, phase),
             Input::Tick => self.tick(mode, now, phase),
-            _ if lone => self.lone(mode, input, now, phase),
-            _ => self.plain(mode, input, now, phase),
+            _ if lone => self.lone(mode, binding, input, now, phase),
+            _ => self.plain(mode, binding, input, now, phase),
+        };
+        (act, self.deadline())
+    }
+
+    /// When to send `Tick`, if a timer is running.
+    pub fn deadline(&self) -> Option<u64> {
+        match self.stage {
+            Stage::Armed { due, .. } => due,
+            Stage::Waiting { until, .. } => Some(until),
+            _ => None,
         }
     }
 
-    fn plain(&mut self, mode: ActivationMode, input: Input, now: u64, phase: Phase) -> Step {
+    /// The shortcut whose press started the last recording, even when a
+    /// tick did the starting.
+    pub fn started_by(&self) -> Option<Binding> {
+        self.started_by
+    }
+
+    fn started(&mut self, binding: Option<Binding>, stage: Stage) -> Action {
+        self.stage = stage;
+        self.started_by = binding;
+        Action::Start
+    }
+
+    fn plain(&mut self, mode: ActivationMode, binding: Option<Binding>, input: Input, now: u64, phase: Phase) -> Action {
         use Action::*;
         let recording = phase == Phase::Recording;
         let pressed = input == Input::Pressed;
-        let act = match mode {
-            ActivationMode::PushToTalk if pressed => if phase.is_busy() { Ignore } else { Start },
+        match mode {
+            ActivationMode::PushToTalk if pressed => if phase.is_busy() { Ignore } else { self.started(binding, Stage::Idle) },
             ActivationMode::PushToTalk => if recording { Stop } else { Ignore },
             ActivationMode::Toggle if pressed => {
                 if recording {
@@ -154,156 +184,150 @@ impl Activation {
                 } else if phase.is_busy() {
                     Ignore
                 } else {
-                    Start
+                    self.started(binding, Stage::Idle)
                 }
             }
             ActivationMode::Toggle => Ignore,
-            ActivationMode::HoldOrLock => return self.hold_or_lock(input, now, phase),
-        };
-        (act, None)
+            ActivationMode::HoldOrLock => self.hold_or_lock(binding, input, now, phase),
+        }
     }
 
-    fn hold_or_lock(&mut self, input: Input, now: u64, phase: Phase) -> Step {
+    fn hold_or_lock(&mut self, binding: Option<Binding>, input: Input, now: u64, phase: Phase) -> Action {
         use Action::*;
         let recording = phase == Phase::Recording;
         match (self.stage, input) {
             // Started from the tray, a link, or Sketch: a press finishes it.
-            (Stage::Idle, Input::Pressed) if recording => (Stop, None),
-            (Stage::Idle, Input::Pressed) if !phase.is_busy() => {
-                self.stage = Stage::Held { since: now };
-                (Start, None)
-            }
+            (Stage::Idle, Input::Pressed) if recording => Stop,
+            (Stage::Idle, Input::Pressed) if !phase.is_busy() => self.started(binding, Stage::Held { since: now }),
             (Stage::Held { since }, Input::Released) => self.release_held(since, now),
             (Stage::Waiting { until, .. }, Input::Pressed) => {
                 // A late press, before the timer ran, holds the same recording.
                 self.stage = if now <= until { Stage::Locked } else { Stage::Held { since: now } };
-                (Ignore, None)
+                Ignore
             }
             (Stage::Locked, Input::Pressed) => {
                 self.stage = Stage::Idle;
-                (Stop, None)
+                Stop
             }
-            _ => (Ignore, None),
+            _ => Ignore,
         }
     }
 
     /// Hold-or-lock: a hold finishes, a tap waits for a second one.
-    fn release_held(&mut self, since: u64, now: u64) -> Step {
+    fn release_held(&mut self, since: u64, now: u64) -> Action {
         if now.saturating_sub(since) >= TAP_MS {
             self.stage = Stage::Idle;
-            (Action::Stop, None)
+            Action::Stop
         } else {
-            let until = now + TAP_MS;
-            self.stage = Stage::Waiting { until, recording: true };
-            (Action::Ignore, Some(until))
+            self.stage = Stage::Waiting { until: now + TAP_MS, recording: true };
+            Action::Ignore
         }
     }
 
-    fn lone(&mut self, mode: ActivationMode, input: Input, now: u64, phase: Phase) -> Step {
+    fn lone(&mut self, mode: ActivationMode, binding: Option<Binding>, input: Input, now: u64, phase: Phase) -> Action {
         let recording = phase == Phase::Recording;
         match (input, self.stage) {
-            (Input::Pressed, Stage::Armed { .. }) => (Action::Ignore, None),
+            (Input::Pressed, Stage::Armed { .. }) => Action::Ignore,
             (Input::Pressed, _) => {
-                let busy = if mode == ActivationMode::PushToTalk { phase.is_busy() } else { phase.is_busy() && !recording };
-                if busy {
-                    return (Action::Ignore, None);
+                if phase.is_busy() && !recording {
+                    return Action::Ignore;
                 }
                 let from = match self.stage {
                     Stage::Waiting { until, recording } if now <= until => Rest::Waiting { until, recording },
                     Stage::Locked => Rest::Locked,
                     _ => Rest::Idle,
                 };
-                self.stage = Stage::Armed { since: now, from };
-                // Toggle waits for the release.
-                (Action::Ignore, (mode != ActivationMode::Toggle).then_some(now + ARM_MS))
+                // Toggle, and push to talk finishing a recording, wait for the release.
+                let due = match mode {
+                    ActivationMode::Toggle => None,
+                    ActivationMode::PushToTalk if recording => None,
+                    _ => Some(now + ARM_MS),
+                };
+                self.stage = Stage::Armed { since: now, from, binding, due };
+                Action::Ignore
             }
-            (Input::Released, Stage::Armed { since, from }) => self.fire(mode, since, from, now, phase, true),
+            (Input::Released, Stage::Armed { since, from, binding, .. }) => self.fire(mode, since, from, binding, now, phase, true),
             (Input::Released, Stage::Held { since }) if mode == ActivationMode::HoldOrLock => self.release_held(since, now),
             (Input::Released, Stage::Held { .. }) => {
                 self.stage = Stage::Idle;
-                (if recording { Action::Stop } else { Action::Ignore }, None)
+                if recording { Action::Stop } else { Action::Ignore }
             }
-            _ => (Action::Ignore, None),
+            _ => Action::Ignore,
         }
     }
 
     /// A lone press takes effect: on a clean release, or once armed.
-    fn fire(&mut self, mode: ActivationMode, since: u64, from: Rest, now: u64, phase: Phase, released: bool) -> Step {
+    #[allow(clippy::too_many_arguments)]
+    fn fire(&mut self, mode: ActivationMode, since: u64, from: Rest, binding: Option<Binding>, now: u64, phase: Phase, released: bool) -> Action {
         use Action::*;
         let recording = phase == Phase::Recording;
         let busy = phase.is_busy();
         self.stage = Stage::Idle;
         let start = |me: &mut Self, stage: Stage| {
-            me.stage = stage;
             me.lone_start = Some(now);
-            (Start, None)
+            me.started(binding, stage)
         };
         match mode {
-            ActivationMode::Toggle if recording => (Stop, None),
-            ActivationMode::Toggle if busy => (Ignore, None),
+            ActivationMode::Toggle if recording => Stop,
+            ActivationMode::Toggle if busy => Ignore,
             ActivationMode::Toggle => start(self, Stage::Idle),
+            ActivationMode::PushToTalk if recording => if released { Stop } else { Ignore },
             // A tap shorter than the arm delay does nothing.
-            ActivationMode::PushToTalk if released || busy => (Ignore, None),
+            ActivationMode::PushToTalk if released || busy => Ignore,
             ActivationMode::PushToTalk => start(self, Stage::Held { since }),
             ActivationMode::HoldOrLock => match from {
-                Rest::Locked | Rest::Idle if recording => (Stop, None),
-                Rest::Locked => (Ignore, None),
+                Rest::Locked | Rest::Idle if recording => Stop,
+                Rest::Locked => Ignore,
                 Rest::Idle if released => {
-                    let until = now + TAP_MS;
-                    self.stage = Stage::Waiting { until, recording: false };
-                    (Ignore, Some(until))
+                    self.stage = Stage::Waiting { until: now + TAP_MS, recording: false };
+                    Ignore
                 }
-                Rest::Idle if busy => (Ignore, None),
+                Rest::Idle if busy => Ignore,
                 Rest::Idle => start(self, Stage::Held { since }),
                 Rest::Waiting { recording: true, .. } if recording => {
                     self.stage = Stage::Locked;
-                    (Ignore, None)
+                    Ignore
                 }
                 Rest::Waiting { recording: false, .. } if !busy => start(self, Stage::Locked),
-                Rest::Waiting { .. } => (Ignore, None),
+                Rest::Waiting { .. } => Ignore,
             },
         }
     }
 
-    fn tick(&mut self, mode: ActivationMode, now: u64, phase: Phase) -> Step {
+    fn tick(&mut self, mode: ActivationMode, now: u64, phase: Phase) -> Action {
         match self.stage {
-            Stage::Armed { since, from } if mode != ActivationMode::Toggle => {
-                if now >= since + ARM_MS {
-                    self.fire(mode, since, from, now, phase, false)
-                } else {
-                    (Action::Ignore, Some(since + ARM_MS))
-                }
-            }
+            Stage::Armed { since, from, binding, due: Some(due) } if now >= due => self.fire(mode, since, from, binding, now, phase, false),
             Stage::Waiting { until, recording } => self.expire(until, recording, now, phase),
-            _ => (Action::Ignore, None),
+            _ => Action::Ignore,
         }
     }
 
     /// The double-tap window closes: a tap's recording is dropped.
-    fn expire(&mut self, until: u64, tap_recording: bool, now: u64, phase: Phase) -> Step {
+    fn expire(&mut self, until: u64, tap_recording: bool, now: u64, phase: Phase) -> Action {
         if now < until {
-            return (Action::Ignore, Some(until));
+            return Action::Ignore;
         }
         self.stage = Stage::Idle;
-        (if tap_recording && phase == Phase::Recording { Action::Discard } else { Action::Ignore }, None)
+        if tap_recording && phase == Phase::Recording { Action::Discard } else { Action::Ignore }
     }
 
-    fn chord(&mut self, now: u64, phase: Phase) -> Step {
+    fn chord(&mut self, now: u64, phase: Phase) -> Action {
         match self.stage {
             Stage::Armed { from, .. } => {
                 self.stage = from.into();
                 match from {
                     Rest::Waiting { until, recording } => self.expire(until, recording, now, phase),
-                    _ => (Action::Ignore, None),
+                    _ => Action::Ignore,
                 }
             }
             Stage::Held { .. } | Stage::Locked
                 if phase == Phase::Recording && self.lone_start.is_some_and(|t| now.saturating_sub(t) < CHORD_GRACE_MS) =>
             {
-                *self = Self::default();
-                (Action::Discard, None)
+                self.stage = Stage::Idle;
+                self.lone_start = None;
+                Action::Discard
             }
-            _ => (Action::Ignore, None),
+            _ => Action::Ignore,
         }
     }
 }
@@ -320,7 +344,7 @@ mod tests {
     const E: Input = Input::Escape;
 
     fn once(mode: ActivationMode, phase: Phase, input: Input) -> Action {
-        let (act, deadline) = Activation::default().on(mode, false, input, 0, phase);
+        let (act, deadline) = Activation::default().on(mode, false, Some(Binding::Dictate), input, 0, phase);
         assert_eq!(deadline, None);
         act
     }
@@ -355,12 +379,19 @@ mod tests {
         }
     }
 
-    /// Feeds `(input, ms, phase, want, deadline)` steps through one machine.
-    fn run(mode: ActivationMode, lone: bool, steps: &[(Input, u64, Phase, Action, Option<u64>)]) {
+    /// Feeds `(input, ms, phase, want, deadline)` steps from `binding`
+    /// through one machine; ticks and Escape carry no binding.
+    fn run_as(mode: ActivationMode, lone: bool, binding: Binding, steps: &[(Input, u64, Phase, Action, Option<u64>)]) -> Activation {
         let mut m = Activation::default();
         for (i, &(input, now, phase, want, deadline)) in steps.iter().enumerate() {
-            assert_eq!(m.on(mode, lone, input, now, phase), (want, deadline), "step {i}: {input:?} at {now} in {phase:?}");
+            let from = matches!(input, Input::Pressed | Input::Released | Input::Chord).then_some(binding);
+            assert_eq!(m.on(mode, lone, from, input, now, phase), (want, deadline), "step {i}: {input:?} at {now} in {phase:?}");
         }
+        m
+    }
+
+    fn run(mode: ActivationMode, lone: bool, steps: &[(Input, u64, Phase, Action, Option<u64>)]) {
+        run_as(mode, lone, Binding::Dictate, steps);
     }
 
     #[test]
@@ -583,7 +614,7 @@ mod tests {
             (R, 90, Idle, Action::Ignore, Some(390)),
             (P, 150, Idle, Action::Ignore, Some(350)),
             (Chord, 170, Idle, Action::Ignore, Some(390)),
-            (R, 220, Idle, Action::Ignore, None),
+            (R, 220, Idle, Action::Ignore, Some(390)),
             (Tick, 390, Idle, Action::Ignore, None),
         ]);
     }
@@ -602,6 +633,46 @@ mod tests {
             (Tick, 9200, Recording, Action::Stop, None),
             (R, 9400, Transcribing, Action::Ignore, None),
         ]);
+    }
+
+    #[test]
+    fn a_tick_start_keeps_the_binding_that_armed_it() {
+        let m = run_as(PushToTalk, true, Binding::Raw, &[
+            (P, 0, Idle, Action::Ignore, Some(200)),
+            (Tick, 200, Idle, Action::Start, None),
+        ]);
+        assert_eq!(m.started_by(), Some(Binding::Raw));
+        let m = run_as(HoldOrLock, true, Binding::Raw, &[
+            (P, 0, Idle, Action::Ignore, Some(200)),
+            (Tick, 200, Idle, Action::Start, None),
+            (R, 900, Recording, Action::Stop, None),
+        ]);
+        assert_eq!(m.started_by(), Some(Binding::Raw));
+        let m = run_as(HoldOrLock, true, Binding::Raw, &[
+            (P, 0, Idle, Action::Ignore, Some(200)),
+            (R, 90, Idle, Action::Ignore, Some(390)),
+            (P, 150, Idle, Action::Ignore, Some(350)),
+            (Tick, 350, Idle, Action::Start, None),
+        ]);
+        assert_eq!(m.started_by(), Some(Binding::Raw));
+        let m = run_as(Toggle, false, Binding::Raw, &[(P, 0, Idle, Action::Start, None)]);
+        assert_eq!(m.started_by(), Some(Binding::Raw));
+    }
+
+    #[test]
+    fn lone_push_to_talk_finishes_a_recording_started_elsewhere_on_release() {
+        run(PushToTalk, true, &[
+            (P, 0, Recording, Action::Ignore, None),
+            (Tick, 500, Recording, Action::Ignore, None),
+            (R, 900, Recording, Action::Stop, None),
+        ]);
+        // Ctrl+C during it leaves it running.
+        run(PushToTalk, true, &[
+            (P, 0, Recording, Action::Ignore, None),
+            (Chord, 40, Recording, Action::Ignore, None),
+            (R, 90, Recording, Action::Ignore, None),
+        ]);
+        run(PushToTalk, true, &[(P, 0, Transcribing, Action::Ignore, None), (R, 90, Transcribing, Action::Ignore, None)]);
     }
 
     #[test]

@@ -374,13 +374,31 @@ pub fn spawn_hook_consumer(app: AppHandle, rx: std::sync::mpsc::Receiver<HookEve
     std::thread::Builder::new()
         .name("quill-hotkey-events".into())
         .spawn(move || {
-            for event in rx {
+            use std::sync::mpsc::RecvTimeoutError;
+            // The shortcut's next timer. Waiting here, instead of on a timer
+            // thread, handles a tick only after every key event before it.
+            let mut deadline: Option<u64> = None;
+            loop {
+                let event = match deadline {
+                    Some(due) => match rx.recv_timeout(Duration::from_millis(due.saturating_sub(now_ms()))) {
+                        Ok(event) => Some(event),
+                        Err(RecvTimeoutError::Timeout) => None,
+                        Err(RecvTimeoutError::Disconnected) => break,
+                    },
+                    None => match rx.recv() {
+                        Ok(event) => Some(event),
+                        Err(_) => break,
+                    },
+                };
                 let Some(q) = app.try_state::<Arc<Quill>>() else { continue };
                 let q = q.inner().clone();
+                let Some(event) = event else {
+                    deadline = q.controller.on_hotkey(Input::Tick, None, now_ms());
+                    continue;
+                };
                 match event {
-                    HookEvent::Shortcut { binding, input, at } => q.controller.on_hotkey(input, Some(binding), at),
-                    HookEvent::Tick(at) => q.controller.on_hotkey(Input::Tick, None, at),
-                    HookEvent::Escape => q.controller.on_hotkey(Input::Escape, None, now_ms()),
+                    HookEvent::Shortcut { binding, input, at } => deadline = q.controller.on_hotkey(input, Some(binding), at),
+                    HookEvent::Escape => deadline = q.controller.on_hotkey(Input::Escape, None, now_ms()),
                     HookEvent::Sketch => q.controller.sketch(),
                     HookEvent::SketchUndo => q.controller.sketch_action("undo"),
                     HookEvent::Captured(hotkey) => {

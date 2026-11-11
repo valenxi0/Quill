@@ -16,7 +16,6 @@ use quill_core::text::vocabulary::{app_terms_first, for_app, vocabulary_terms};
 
 use crate::audio::{AudioError, Recording};
 use crate::engines::TranscribeRequest;
-use crate::platform::hotkey::now_ms;
 use crate::platform::system::{microphone_permission, MicPermission};
 use crate::platform::target;
 use crate::vad::Vad;
@@ -25,8 +24,8 @@ use super::{Controller, DictationView, Job, Preview, Session, SessionConfig};
 
 impl Controller {
     /// A shortcut event, stamped `at` on the hook's clock. `binding` is
-    /// `None` for Escape and timer ticks.
-    pub fn on_hotkey(self: &Arc<Self>, input: Input, binding: Option<Binding>, at: u64) {
+    /// `None` for Escape and timer ticks. Returns when to send the next tick.
+    pub fn on_hotkey(self: &Arc<Self>, input: Input, binding: Option<Binding>, at: u64) -> Option<u64> {
         let (mode, lone) = self.stores.settings.read(|s| {
             let vd = &s.voice_dictation;
             let key = match binding {
@@ -36,28 +35,22 @@ impl Controller {
             };
             (vd.activation_mode, key.is_some_and(|k| k.is_lone_modifier()))
         });
-        let (act, deadline) = {
+        let (act, deadline, started_by) = {
             let mut shortcut = self.shortcut.lock();
             let phase = self.phase();
             // While a session runs, only the shortcut that started it drives it.
             if let (Some(b), Some((owner, generation))) = (binding, shortcut.owner) {
                 if b != owner && phase.is_busy() && self.is_current(generation) {
-                    return;
+                    return shortcut.machine.deadline();
                 }
             }
-            shortcut.machine.on(mode, lone, input, at, phase)
+            let (act, deadline) = shortcut.machine.on(mode, lone, binding, input, at, phase);
+            (act, deadline, shortcut.machine.started_by())
         };
-        if let (Some(due), Some(hook)) = (deadline, self.hook) {
-            std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(due.saturating_sub(now_ms())));
-                hook.post_tick();
-            });
-        }
         match act {
             Action::Start => {
-                let raw = binding == Some(Binding::Raw);
-                self.start_as(raw);
-                if let Some(b) = binding.filter(|_| self.phase() == Phase::Recording) {
+                self.start_as(started_by == Some(Binding::Raw));
+                if let Some(b) = started_by.filter(|_| self.phase() == Phase::Recording) {
                     self.shortcut.lock().owner = Some((b, self.generation.load(SeqCst)));
                 }
             }
@@ -66,6 +59,7 @@ impl Controller {
             Action::Discard => self.discard(),
             Action::Ignore => {}
         }
+        deadline
     }
 
     /// Launcher commands (`quill://…`, `--toggle`, tray).
@@ -118,15 +112,12 @@ impl Controller {
         if self.phase().is_busy() || self.starting.swap(true, SeqCst) {
             return;
         }
-        self.begin(None, raw);
+        self.start_inner(None, raw);
         self.starting.store(false, SeqCst);
     }
 
-    pub(super) fn start_inner(self: &Arc<Self>, sketch: Option<crate::platform::screen::Monitor>) {
-        self.begin(sketch, false);
-    }
-
-    fn begin(self: &Arc<Self>, sketch: Option<crate::platform::screen::Monitor>, raw: bool) {
+    /// `raw`: dictate without cleanup.
+    pub(super) fn start_inner(self: &Arc<Self>, sketch: Option<crate::platform::screen::Monitor>, raw: bool) {
         if self.phase().is_busy() {
             return;
         }
