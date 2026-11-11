@@ -19,3 +19,4 @@ docs/cleanup-eval-*.json
 src-tauri/windows/theme/*.obj
 src-tauri/windows/theme/*.exp
 src-tauri/windows/theme/*.lib
+.forge/
