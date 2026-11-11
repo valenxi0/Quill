@@ -4,7 +4,7 @@ import { useState, type ReactNode } from "react";
 import { api, type ActivationMode, type EngineView } from "../lib/api";
 import { bytes } from "../lib/format";
 import type { Ctx } from "./App";
-import { CLEANUP, ShortcutButton } from "./SetupTab";
+import { CAPTURE_HINT, CLEANUP, ShortcutButton } from "./SetupTab";
 import { Button, Capsule, cx, Icon, Progress, Segmented, Switch, Warning } from "./ui";
 
 const STEPS = ["Welcome", "Shortcut", "Engine", "Done"] as const;
@@ -133,13 +133,14 @@ function ShortcutStep({ ctx }: { ctx: Ctx }) {
           <p className="text-[13.5px] font-semibold">Shortcut</p>
           <p className="text-[12.5px] text-text-2">
             {ctx.state.capturingHotkey
-              ? "Hold Ctrl, Alt, Shift or Win, then press another key. Esc cancels."
-              : "Click to change it. Use at least one of Ctrl, Alt, Shift or Win plus a key."}
+              ? CAPTURE_HINT
+              : "Click to change it. Use at least one of Ctrl, Alt, Shift or Win plus a key, or a mouse side button, Right Ctrl or Right Alt alone."}
           </p>
         </div>
         <ShortcutButton ctx={ctx} />
       </div>
       {ctx.state.captureError && <Warning>{ctx.state.captureError}</Warning>}
+      {ctx.state.hotkeyNote && <Warning>{ctx.state.hotkeyNote}</Warning>}
       <p className="mt-5 mb-2 text-[13px] font-semibold">How should it work?</p>
       <div className="flex gap-3">
         <ModeCard
@@ -153,6 +154,12 @@ function ShortcutStep({ ctx }: { ctx: Ctx }) {
           title="Toggle"
           detail="Press the shortcut once to start and again to finish."
           onClick={() => setMode("toggle")}
+        />
+        <ModeCard
+          selected={vd.activationMode === "holdOrLock"}
+          title="Hold or lock"
+          detail="Hold to speak, or tap twice to keep recording until you press it again."
+          onClick={() => setMode("holdOrLock")}
         />
       </div>
       <p className="mt-3 text-[12px] text-text-3">You can change both later in Settings. Press Esc twice within a second to cancel dictation.</p>
@@ -270,7 +277,7 @@ function EngineChoice({ engine: e, selected, onSelect }: { engine: EngineView; s
 
 function DoneStep({ ctx, engine }: { ctx: Ctx; engine: EngineView | undefined }) {
   const { status, hotkeyDisplay, settings } = ctx.state;
-  const hold = settings.voiceDictation.activationMode === "pushToTalk";
+  const hold = settings.voiceDictation.activationMode !== "toggle";
   const ready = engine?.ready ?? false;
   return (
     <>

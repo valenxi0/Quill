@@ -1,7 +1,7 @@
 //! The app's shared state, what Settings shows, and the shell that connects
 //! the controller to windows, the tray, and events.
 
-use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
+use std::sync::atomic::Ordering::SeqCst;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -10,15 +10,16 @@ use quill_core::corrections::CorrectionPair;
 use quill_core::engines::{cohere_auto_language, language_name, AssetId, EngineId, EngineInfo, ENGINES, LANGUAGES};
 use quill_core::errors::{MIC_DENIED_DETAIL, MIC_UNAVAILABLE_DETAIL};
 use quill_core::models::{asset, ModelState};
-use quill_core::settings::{Hotkey, Settings, SketchSettings};
-use quill_core::state::Phase;
+use quill_core::settings::{Hotkey, Settings, ShortcutSlot, SketchSettings};
+use quill_core::state::{Input, Phase};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 use crate::controller::{Controller, DictationView};
 use crate::engines::EngineHost;
 use crate::models::ModelManager;
-use crate::platform::hotkey::{HookEvent, HotkeyHook};
+use crate::platform::hotkey::{now_ms, HookEvent, HotkeyHook};
+use crate::platform::mouse::ButtonHook;
 use crate::platform::system::{microphone_permission, MicPermission};
 use crate::shell::Shell;
 use crate::stores::Stores;
@@ -31,10 +32,11 @@ pub struct Quill {
     pub stores: Arc<Stores>,
     pub hook: Option<HotkeyHook>,
     pub hook_error: Option<String>,
-    pub capturing: AtomicBool,
-    /// The shortcut being captured is Sketch's, not dictation's.
-    pub capturing_sketch: AtomicBool,
+    /// The shortcut Settings is capturing, if any.
+    pub capturing: Mutex<Option<ShortcutSlot>>,
     pub capture_error: Mutex<Option<String>>,
+    /// The mouse hook for a side-button shortcut, while one is needed.
+    pub buttons: Mutex<Option<ButtonHook>>,
     pub preferred_languages: Vec<String>,
     pub updates: crate::updates::Updates,
 }
@@ -119,6 +121,12 @@ pub struct UiState {
     pub sketch_hotkey_is_default: bool,
     pub sketch_hotkey_problem: Option<String>,
     pub capturing_sketch_hotkey: bool,
+    /// The shortcut that dictates without cleanup, if set.
+    pub raw_hotkey_display: Option<String>,
+    pub raw_hotkey_problem: Option<String>,
+    pub capturing_raw_hotkey: bool,
+    pub hotkey_note: Option<&'static str>,
+    pub raw_hotkey_note: Option<&'static str>,
     pub capture_error: Option<String>,
     pub itn_available: bool,
     pub suggestions: Vec<CorrectionPair>,
@@ -231,7 +239,7 @@ impl Quill {
             cohere_auto_language: language_name(cohere_auto_language(&self.preferred_languages)).unwrap_or("English"),
             hotkey_display: vd.hotkey.display(),
             hotkey_is_default: vd.hotkey == Hotkey::default(),
-            capturing_hotkey: self.capturing.load(SeqCst) && !self.capturing_sketch.load(SeqCst),
+            capturing_hotkey: self.capture_slot() == Some(ShortcutSlot::Dictate),
             sketch_hotkey_display: settings.sketch.hotkey.display(),
             sketch_hotkey_is_default: settings.sketch.hotkey == SketchSettings::default_hotkey(),
             sketch_hotkey_problem: settings
@@ -239,7 +247,12 @@ impl Quill {
                 .enabled
                 .then(|| SketchSettings::hotkey_problem(&settings.sketch.hotkey, &vd.hotkey))
                 .flatten(),
-            capturing_sketch_hotkey: self.capturing.load(SeqCst) && self.capturing_sketch.load(SeqCst),
+            capturing_sketch_hotkey: self.capture_slot() == Some(ShortcutSlot::Sketch),
+            raw_hotkey_display: vd.raw_hotkey.map(|h| h.display()),
+            raw_hotkey_problem: vd.raw_hotkey.and_then(|h| settings.shortcut_problem(ShortcutSlot::Raw, &h)),
+            capturing_raw_hotkey: self.capture_slot() == Some(ShortcutSlot::Raw),
+            hotkey_note: vd.hotkey.note(),
+            raw_hotkey_note: vd.raw_hotkey.and_then(|h| h.note()),
             capture_error: self.capture_error.lock().clone(),
             itn_available: self.controller.itn_available(),
             suggestions,
@@ -257,6 +270,32 @@ impl Quill {
         }
     }
 
+    /// Which shortcut Settings is capturing, if any.
+    pub fn capture_slot(&self) -> Option<ShortcutSlot> {
+        *self.capturing.lock()
+    }
+
+    /// Run the mouse hook only while a dictation shortcut needs the mouse (a
+    /// side button, or a lone modifier that clicks turn into chords), or
+    /// Settings is capturing.
+    pub fn sync_buttons(&self) {
+        let settings = self.stores.settings.get();
+        let needs_mouse = |h: Hotkey| h.is_mouse() || h.is_lone_modifier();
+        let wanted = self.hook.is_some()
+            && (self.capture_slot().is_some()
+                || (settings.enabled
+                    && (needs_mouse(settings.voice_dictation.hotkey) || settings.usable_raw_hotkey().is_some_and(needs_mouse))));
+        let mut buttons = self.buttons.lock();
+        if wanted && buttons.is_none() {
+            match ButtonHook::install() {
+                Ok(hook) => *buttons = Some(hook),
+                Err(e) => log::warn!("mouse shortcut: {e}"),
+            }
+        } else if !wanted {
+            *buttons = None;
+        }
+    }
+
     /// Save new settings and apply their side effects.
     pub fn apply_settings(&self, app: &AppHandle, next: Settings) {
         let prev = self.stores.settings.get();
@@ -267,8 +306,10 @@ impl Quill {
                 hook.set_hotkey(n.hotkey);
             }
             hook.set_sketch_hotkey(sketch_hotkey(&next));
-            hook.set_suspended(!next.enabled || self.capturing.load(SeqCst));
+            hook.set_raw_hotkey(next.usable_raw_hotkey());
+            hook.set_suspended(!next.enabled || self.capture_slot().is_some());
         }
+        self.sync_buttons();
         if prev.launch_at_login != next.launch_at_login {
             set_autostart(app, next.launch_at_login);
         }
@@ -337,34 +378,44 @@ pub fn spawn_hook_consumer(app: AppHandle, rx: std::sync::mpsc::Receiver<HookEve
     std::thread::Builder::new()
         .name("quill-hotkey-events".into())
         .spawn(move || {
-            for event in rx {
+            use std::sync::mpsc::RecvTimeoutError;
+            // The shortcut's next timer. Waiting here, instead of on a timer
+            // thread, handles a tick only after every key event before it.
+            let mut deadline: Option<u64> = None;
+            loop {
+                let event = match deadline {
+                    Some(due) => match rx.recv_timeout(Duration::from_millis(due.saturating_sub(now_ms()))) {
+                        Ok(event) => Some(event),
+                        Err(RecvTimeoutError::Timeout) => None,
+                        Err(RecvTimeoutError::Disconnected) => break,
+                    },
+                    None => match rx.recv() {
+                        Ok(event) => Some(event),
+                        Err(_) => break,
+                    },
+                };
                 let Some(q) = app.try_state::<Arc<Quill>>() else { continue };
                 let q = q.inner().clone();
+                let Some(event) = event else {
+                    deadline = q.controller.on_hotkey(Input::Tick, None, now_ms());
+                    continue;
+                };
                 match event {
-                    HookEvent::Pressed => q.controller.on_hotkey(quill_core::state::HotkeyEvent::Pressed),
-                    HookEvent::Released => q.controller.on_hotkey(quill_core::state::HotkeyEvent::Released),
-                    HookEvent::Escape => q.controller.on_hotkey(quill_core::state::HotkeyEvent::Escape),
+                    HookEvent::Shortcut { binding, input, at } => deadline = q.controller.on_hotkey(input, Some(binding), at),
+                    HookEvent::Escape => deadline = q.controller.on_hotkey(Input::Escape, None, now_ms()),
                     HookEvent::Sketch => q.controller.sketch(),
                     HookEvent::SketchUndo => q.controller.sketch_action("undo"),
                     HookEvent::Captured(hotkey) => {
-                        if !q.capturing.load(SeqCst) { continue; }
+                        let Some(slot) = q.capture_slot() else { continue };
                         let mut s = q.stores.settings.get();
-                        let sketch = q.capturing_sketch.load(SeqCst);
-                        let problem = if sketch {
-                            SketchSettings::hotkey_problem(&hotkey, &s.voice_dictation.hotkey)
-                        } else if hotkey == s.sketch.hotkey && s.sketch.enabled {
-                            Some("Sketch already uses this shortcut. Choose another one.".into())
-                        } else {
-                            hotkey.problem()
-                        };
-                        if let Some(problem) = problem {
+                        if let Some(problem) = s.shortcut_problem(slot, &hotkey) {
                             *q.capture_error.lock() = Some(problem);
                         } else {
                             *q.capture_error.lock() = None;
-                            if sketch {
-                                s.sketch.hotkey = hotkey;
-                            } else {
-                                s.voice_dictation.hotkey = hotkey;
+                            match slot {
+                                ShortcutSlot::Dictate => s.voice_dictation.hotkey = hotkey,
+                                ShortcutSlot::Raw => s.voice_dictation.raw_hotkey = Some(hotkey),
+                                ShortcutSlot::Sketch => s.sketch.hotkey = hotkey,
                             }
                             q.apply_settings(&app, s);
                             end_capture(&q);
@@ -389,12 +440,12 @@ pub fn sketch_hotkey(s: &Settings) -> Option<Hotkey> {
         .then_some(sketch.hotkey)
 }
 
-pub fn begin_capture(q: &Quill, sketch: bool) {
-    q.capturing_sketch.store(sketch, SeqCst);
+pub fn begin_capture(q: &Quill, slot: ShortcutSlot) {
     if let Some(h) = &q.hook {
-        q.capturing.store(true, SeqCst);
+        *q.capturing.lock() = Some(slot);
         h.set_suspended(true);
         h.set_capturing(true);
+        q.sync_buttons();
     } else {
         *q.capture_error.lock() = Some("Quill could not start the keyboard hook. Quit Quill from the tray and reopen it, then try again.".into());
     }
@@ -402,10 +453,11 @@ pub fn begin_capture(q: &Quill, sketch: bool) {
 
 pub fn end_capture(q: &Quill) {
     if let Some(h) = &q.hook {
-        q.capturing.store(false, SeqCst);
+        *q.capturing.lock() = None;
         h.set_capturing(false);
         let enabled = q.stores.settings.read(|s| s.enabled);
         h.set_suspended(!enabled);
+        q.sync_buttons();
     }
 }
 

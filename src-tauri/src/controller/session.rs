@@ -10,8 +10,8 @@ use quill_core::pipeline::{protected_terms, Recipe};
 use quill_core::segments::{EarlySegmenter, SAMPLE_RATE};
 use quill_core::text::continuation::continuation;
 use quill_core::text::directive::Directive;
-use quill_core::settings::level_for_app;
-use quill_core::state::{action, Action, HotkeyEvent, Phase};
+use quill_core::settings::{level_for_app, CleanupLevel};
+use quill_core::state::{Action, Binding, Input, Phase};
 use quill_core::text::finish::{has_speech, peak, rms_dbfs, MIN_SPEECH_PEAK};
 use quill_core::text::vocabulary::{app_terms_first, for_app, vocabulary_terms};
 
@@ -25,14 +25,43 @@ use super::deliver::input_count;
 use super::{Controller, DictationView, Job, Preview, Session, SessionConfig};
 
 impl Controller {
-    pub fn on_hotkey(self: &Arc<Self>, event: HotkeyEvent) {
-        let mode = self.stores.settings.read(|s| s.voice_dictation.activation_mode);
-        match action(mode, self.phase(), event) {
-            Action::Start => self.start(),
+    /// A shortcut event, stamped `at` on the hook's clock. `binding` is
+    /// `None` for Escape and timer ticks. Returns when to send the next tick.
+    pub fn on_hotkey(self: &Arc<Self>, input: Input, binding: Option<Binding>, at: u64) -> Option<u64> {
+        let (mode, lone) = self.stores.settings.read(|s| {
+            let vd = &s.voice_dictation;
+            let key = match binding {
+                Some(Binding::Dictate) => Some(vd.hotkey),
+                Some(Binding::Raw) => vd.raw_hotkey,
+                None => None,
+            };
+            (vd.activation_mode, key.is_some_and(|k| k.is_lone_modifier()))
+        });
+        let (act, deadline, started_by) = {
+            let mut shortcut = self.shortcut.lock();
+            let phase = self.phase();
+            // While a session runs, only the shortcut that started it drives it.
+            if let (Some(b), Some((owner, generation))) = (binding, shortcut.owner) {
+                if b != owner && phase.is_busy() && self.is_current(generation) {
+                    return shortcut.machine.deadline();
+                }
+            }
+            let (act, deadline) = shortcut.machine.on(mode, lone, binding, input, at, phase);
+            (act, deadline, shortcut.machine.started_by())
+        };
+        match act {
+            Action::Start => {
+                self.start_as(started_by == Some(Binding::Raw));
+                if let Some(b) = started_by.filter(|_| self.phase() == Phase::Recording) {
+                    self.shortcut.lock().owner = Some((b, self.generation.load(SeqCst)));
+                }
+            }
             Action::Stop => self.stop(),
             Action::Cancel => self.cancel(),
+            Action::Discard => self.discard(),
             Action::Ignore => {}
         }
+        deadline
     }
 
     /// Launcher commands (`quill://…`, `--toggle`, tray).
@@ -76,15 +105,21 @@ impl Controller {
     }
 
     pub fn start(self: &Arc<Self>) {
+        self.start_as(false);
+    }
+
+    /// `raw`: dictate without cleanup, whatever the style.
+    fn start_as(self: &Arc<Self>, raw: bool) {
         // One start at a time (the hotkey and a launcher may race).
         if self.phase().is_busy() || self.starting.swap(true, SeqCst) {
             return;
         }
-        self.start_inner(None);
+        self.start_inner(None, raw);
         self.starting.store(false, SeqCst);
     }
 
-    pub(super) fn start_inner(self: &Arc<Self>, sketch: Option<crate::platform::screen::Monitor>) {
+    /// `raw`: dictate without cleanup.
+    pub(super) fn start_inner(self: &Arc<Self>, sketch: Option<crate::platform::screen::Monitor>, raw: bool) {
         if self.phase().is_busy() {
             return;
         }
@@ -127,7 +162,7 @@ impl Controller {
         let terms = if info.recognizer == Recognizer::Parakeet { app_terms_first(&vocabulary) } else { vocabulary_terms(&vocabulary) };
         self.engines.set_hotwords(vd.wants_hotwords());
         let protected = protected_terms(&vocabulary);
-        let level = level_for_app(vd.cleanup_level, &vd.app_styles, &target.exe);
+        let level = if raw { CleanupLevel::Verbatim } else { level_for_app(vd.cleanup_level, &vd.app_styles, &target.exe) };
         let recipe = Recipe {
             directive: Directive::for_recording(level, context, vd.formal_register),
             layout_cues: vd.layout_cues,
@@ -314,6 +349,30 @@ impl Controller {
             None => {}
         }
         let _ = s.worker.send(Job::Finish { stopped, audio_seconds, rms_dbfs: rms_dbfs(&samples) });
+    }
+
+    /// Drop the recording and go straight back to idle, with no outcome on
+    /// screen: a quick tap in hold-or-lock, or a lone-modifier shortcut that
+    /// turned out to be part of a key chord.
+    pub fn discard(self: &Arc<Self>) {
+        if self.session.lock().as_ref().is_none_or(|s| s.sketch) {
+            return;
+        }
+        let discarded = self.transition(|v| {
+            if v.phase != Phase::Recording {
+                return false;
+            }
+            self.generation.fetch_add(1, SeqCst);
+            self.outcome_seq.fetch_add(1, SeqCst);
+            *v = DictationView::default();
+            true
+        });
+        if discarded {
+            if let Some(s) = self.session.lock().take() {
+                drop(s.recording);
+            }
+            self.schedule_idle_unload();
+        }
     }
 
     pub fn cancel(self: &Arc<Self>) {

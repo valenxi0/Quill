@@ -22,6 +22,9 @@ use super::hotkey::QUILL_INPUT;
 static RUNNING: AtomicBool = AtomicBool::new(false);
 static STARTED: AtomicBool = AtomicBool::new(false);
 static CLICKS: AtomicU32 = AtomicU32::new(0);
+/// Side-button presses the mouse hook swallowed as Quill's shortcut. Raw
+/// Input still reports them, so they are taken back out of the count.
+static SHORTCUT_BUTTONS: AtomicU32 = AtomicU32::new(0);
 /// The hidden window Raw Input reports to.
 static WINDOW: AtomicIsize = AtomicIsize::new(0);
 
@@ -136,6 +139,16 @@ fn still_registered() -> bool {
     devices[..read as usize]
         .iter()
         .any(|d| d.usUsagePage == GENERIC_DESKTOP && d.usUsage == MOUSE && d.hwndTarget.0 as isize == window)
+}
+
+/// A mouse side button went down as Quill's shortcut.
+pub fn shortcut_button_down() {
+    SHORTCUT_BUTTONS.fetch_add(1, SeqCst);
+}
+
+/// Side-button presses that were Quill's shortcut, not the user's input.
+pub fn shortcut_buttons() -> u32 {
+    SHORTCUT_BUTTONS.load(SeqCst)
 }
 
 /// How many mouse buttons, touches and pen reports there have been; `None`

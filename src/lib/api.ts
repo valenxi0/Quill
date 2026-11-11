@@ -10,11 +10,13 @@ export type AssetId =
   | "whisperLargeV3Turbo"
   | "whisperBaseEnglish"
   | "whisperTinyEnglish";
-export type ActivationMode = "pushToTalk" | "toggle";
+export type ActivationMode = "pushToTalk" | "toggle" | "holdOrLock";
 export type CleanupLevel = "verbatim" | "light" | "full" | "compose";
 export type EntryKind = "vocabulary" | "snippet";
 export type Phase = "idle" | "recording" | "transcribing" | "cleaning" | "completed" | "failed" | "cancelled";
 export type AppContext = "general" | "chat" | "terminal" | "email";
+
+export type ShortcutSlot = "dictate" | "raw" | "sketch";
 
 export interface Hotkey {
   vk: number;
@@ -65,6 +67,8 @@ export interface VoiceDictation {
   engine: EngineId;
   activationMode: ActivationMode;
   hotkey: Hotkey;
+  /** Dictates without cleanup, in the same mode. */
+  rawHotkey: Hotkey | null;
   cleanupLevel: CleanupLevel;
   formalRegister: boolean;
   layoutCues: boolean;
@@ -213,6 +217,11 @@ export interface UiState {
   sketchHotkeyIsDefault: boolean;
   sketchHotkeyProblem: string | null;
   capturingSketchHotkey: boolean;
+  rawHotkeyDisplay: string | null;
+  rawHotkeyProblem: string | null;
+  capturingRawHotkey: boolean;
+  hotkeyNote: string | null;
+  rawHotkeyNote: string | null;
   captureError: string | null;
   itnAvailable: boolean;
   suggestions: CorrectionPair[];
@@ -283,9 +292,10 @@ export const api = {
   /** Whether this run is on the CPU because a GPU start crashed. */
   gpuFallback: () => invoke<boolean>("gpu_fallback"),
   retryGpu: () => invoke<void>("retry_gpu"),
-  beginHotkeyCapture: (sketch = false) => invoke<void>("begin_hotkey_capture", { sketch }),
+  beginHotkeyCapture: (slot: ShortcutSlot = "dictate") => invoke<void>("begin_hotkey_capture", { slot }),
   cancelHotkeyCapture: () => invoke<void>("cancel_hotkey_capture"),
-  resetHotkey: (sketch = false) => invoke<void>("reset_hotkey", { sketch }),
+  /** Back to the default; the no-cleanup shortcut is cleared. */
+  resetHotkey: (slot: ShortcutSlot = "dictate") => invoke<void>("reset_hotkey", { slot }),
   sketchAction: (action: "pen" | "undo" | "cancel" | "finish") => invoke<void>("sketch_action", { action }),
   sketchState: () => invoke<SketchView | null>("sketch_state"),
   dictationCommand: (command: string) => invoke<void>("dictation_command", { command }),

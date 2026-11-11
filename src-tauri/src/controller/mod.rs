@@ -24,7 +24,7 @@ use quill_core::errors::DictationError;
 use quill_core::pipeline::Recipe;
 use quill_core::segments::{EarlySegmenter, SAMPLE_RATE};
 use quill_core::settings::CleanupLevel;
-use quill_core::state::Phase;
+use quill_core::state::{Activation, Binding, Phase};
 use quill_core::text::continuation::LastPaste;
 use quill_core::text::numbers::Itn;
 use serde::Serialize;
@@ -128,6 +128,15 @@ struct SessionConfig {
     preview_committed: Option<Arc<Mutex<Vec<String>>>>,
 }
 
+/// Turns shortcut presses into actions, and remembers which shortcut
+/// started the session it is driving.
+#[derive(Default)]
+struct Shortcut {
+    machine: Activation,
+    /// The binding and generation of the session the shortcut started.
+    owner: Option<(Binding, u64)>,
+}
+
 pub struct Controller {
     pub stores: Arc<Stores>,
     pub engines: Arc<EngineHost>,
@@ -145,6 +154,7 @@ pub struct Controller {
     outcome_seq: AtomicU64,
     watch_generation: AtomicU64,
     starting: std::sync::atomic::AtomicBool,
+    shortcut: Mutex<Shortcut>,
     /// The last transcript and where it went: for "Paste last transcript",
     /// and for continuing it in apps that don't report their caret.
     last_paste: Mutex<Option<LastPaste<target::Target>>>,
@@ -177,6 +187,7 @@ impl Controller {
             outcome_seq: AtomicU64::new(0),
             watch_generation: AtomicU64::new(0),
             starting: std::sync::atomic::AtomicBool::new(false),
+            shortcut: Mutex::new(Shortcut::default()),
             last_paste: Mutex::new(None),
             last_metrics: Mutex::new(None),
             warm_error: Mutex::new(None),

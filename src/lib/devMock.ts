@@ -5,6 +5,8 @@ import { emit } from "@tauri-apps/api/event";
 import type { InputDevice, Insights, KnownApp, Microphones, SavedDevice, Settings, UiState } from "./api";
 import pkg from "../../package.json";
 
+const shortcuts = new URLSearchParams(location.search).has("shortcuts");
+
 const settings: Settings = {
   enabled: true,
   launchAtLogin: true,
@@ -12,8 +14,10 @@ const settings: Settings = {
   onboarded: new URLSearchParams(location.search).has("onboarded"),
   voiceDictation: {
     engine: "parakeetS1",
-    activationMode: "pushToTalk",
-    hotkey: { vk: 0x4d, modifiers: 3 },
+    // ?shortcuts previews hold-or-lock, a side-button shortcut without cleanup, and the Right Alt note.
+    activationMode: shortcuts ? "holdOrLock" : "pushToTalk",
+    hotkey: shortcuts ? { vk: 0xa5, modifiers: 0 } : { vk: 0x4d, modifiers: 3 },
+    rawHotkey: shortcuts ? { vk: 0x05, modifiers: 0 } : null,
     cleanupLevel: "full",
     formalRegister: false,
     layoutCues: true,
@@ -61,13 +65,18 @@ const state: UiState = {
   ] as UiState["engines"],
   languages: [["en", "English"], ["de", "German"], ["fr", "French"]],
   cohereAutoLanguage: "English",
-  hotkeyDisplay: "Ctrl+Alt+M",
-  hotkeyIsDefault: true,
+  hotkeyDisplay: shortcuts ? "Right Alt" : "Ctrl+Alt+M",
+  hotkeyIsDefault: !shortcuts,
   capturingHotkey: false,
   sketchHotkeyDisplay: "Ctrl+Alt+S",
   sketchHotkeyIsDefault: true,
   sketchHotkeyProblem: null,
   capturingSketchHotkey: false,
+  rawHotkeyDisplay: shortcuts ? "Mouse back" : null,
+  rawHotkeyProblem: null,
+  capturingRawHotkey: false,
+  hotkeyNote: shortcuts ? "On keyboards with AltGr, Right Alt types characters and won't start dictation. Pick Right Ctrl there." : null,
+  rawHotkeyNote: null,
   captureError: null,
   itnAvailable: true,
   suggestions: [{ from: "Tori", to: "Tauri", count: 2, dismissed: false, appExe: "code.exe" }],

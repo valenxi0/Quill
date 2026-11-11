@@ -22,7 +22,13 @@ impl SameWindow for target::Target {
 /// Keys typed and mouse buttons pressed so far; `None` unless both are
 /// counted.
 pub(super) fn input_count() -> Option<u32> {
-    Some(hotkey::typed_keys()?.wrapping_add(clicks::clicks()?))
+    Some(user_input(hotkey::typed_keys()?, clicks::clicks()?, clicks::shortcut_buttons()))
+}
+
+/// A side button that is the dictation shortcut is pressed to dictate, not
+/// to click into the app, so it never stops a continuation.
+fn user_input(typed: u32, clicks: u32, shortcut_buttons: u32) -> u32 {
+    typed.wrapping_add(clicks).wrapping_sub(shortcut_buttons)
 }
 
 impl Controller {
@@ -180,4 +186,18 @@ pub(super) fn paste_in_pieces(target: &target::Target, own: &[isize], chunks: &[
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::user_input;
+
+    #[test]
+    fn a_side_button_shortcut_is_not_user_input() {
+        let before = user_input(40, 7, 2);
+        assert_eq!(user_input(40, 8, 3), before, "a shortcut press, seen by Raw Input too");
+        assert_eq!(user_input(40, 8, 2), before + 1, "a real click");
+        assert_eq!(user_input(41, 7, 2), before + 1, "a key");
+        assert_eq!(user_input(0, 0, 1), u32::MAX, "wraps like the counts it combines");
+    }
 }

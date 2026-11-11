@@ -20,7 +20,6 @@ mod tray;
 mod updates;
 mod vad;
 
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -75,6 +74,7 @@ pub fn run() {
                 Ok((hook, rx)) => {
                     hook.set_suspended(!settings.enabled);
                     hook.set_sketch_hotkey(app::sketch_hotkey(&settings));
+                    hook.set_raw_hotkey(settings.usable_raw_hotkey());
                     app::spawn_hook_consumer(handle.clone(), rx);
                     (Some(hook), None)
                 }
@@ -105,13 +105,14 @@ pub fn run() {
                 stores: stores.clone(),
                 hook,
                 hook_error,
-                capturing: AtomicBool::new(false),
-                capturing_sketch: AtomicBool::new(false),
+                capturing: Mutex::new(None),
                 capture_error: Mutex::new(None),
+                buttons: Mutex::new(None),
                 preferred_languages,
                 updates: updates::Updates::default(),
             });
             tauri_app.manage(quill.clone());
+            quill.sync_buttons();
 
             // Warm once right after a download, so any first-run compile
             // happens while the user is still in Settings.
@@ -212,7 +213,7 @@ pub fn run() {
             if window.label() == app::SETTINGS_LABEL {
                 if matches!(event, tauri::WindowEvent::Destroyed | tauri::WindowEvent::Focused(false)) {
                     if let Some(q) = window.app_handle().try_state::<Arc<Quill>>() {
-                        if q.capturing.load(std::sync::atomic::Ordering::SeqCst) {
+                        if q.capture_slot().is_some() {
                             app::end_capture(&q);
                             app::notify(window.app_handle());
                         }

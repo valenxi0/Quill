@@ -11,6 +11,8 @@ pub enum ActivationMode {
     #[default]
     PushToTalk,
     Toggle,
+    /// Hold to talk, or double-tap to keep recording until the next press.
+    HoldOrLock,
 }
 
 impl ActivationMode {
@@ -18,6 +20,7 @@ impl ActivationMode {
         match self {
             Self::PushToTalk => "Hold the shortcut while you speak. Release to finish.",
             Self::Toggle => "Press the shortcut once to start and again to finish.",
+            Self::HoldOrLock => "Hold the shortcut while you speak, or tap it twice to keep recording until you press it again.",
         }
     }
 }
@@ -39,7 +42,9 @@ pub mod modifiers {
     pub const WIN: u32 = 8;
 }
 
-/// A global shortcut: a Windows virtual-key code plus modifier bits.
+/// A global shortcut: a Windows virtual-key code plus modifier bits. A
+/// mouse side button may have no modifiers, and so may Right Ctrl or Right
+/// Alt pressed alone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Hotkey {
     pub vk: u32,
@@ -55,12 +60,32 @@ impl Default for Hotkey {
 
 const VK_H: u32 = 0x48;
 const VK_ESCAPE: u32 = 0x1B;
+pub const VK_XBUTTON1: u32 = 0x05;
+pub const VK_XBUTTON2: u32 = 0x06;
+pub const VK_RCONTROL: u32 = 0xA3;
+pub const VK_RMENU: u32 = 0xA5;
 
 impl Hotkey {
+    /// A mouse side button, with or without modifiers.
+    pub fn is_mouse(&self) -> bool {
+        matches!(self.vk, VK_XBUTTON1 | VK_XBUTTON2)
+    }
+
+    /// Right Ctrl or Right Alt pressed alone.
+    pub fn is_lone_modifier(&self) -> bool {
+        self.modifiers == 0 && matches!(self.vk, VK_RCONTROL | VK_RMENU)
+    }
+
     /// Why this chord can't be the dictation shortcut, if it can't.
     pub fn problem(&self) -> Option<String> {
+        if self.is_mouse() || self.is_lone_modifier() {
+            return None;
+        }
         if self.modifiers & 0xF == 0 {
-            return Some("The shortcut needs at least one modifier key (Ctrl, Alt, Shift, or Win).".into());
+            return Some(
+                "The shortcut needs at least one modifier key (Ctrl, Alt, Shift, or Win). Right Ctrl, Right Alt, and the mouse side buttons also work alone."
+                    .into(),
+            );
         }
         if is_modifier_vk(self.vk) || self.vk == 0 {
             return Some("The shortcut needs a key besides the modifiers.".into());
@@ -93,6 +118,12 @@ impl Hotkey {
             || (vk == F4 && m == alt)
             || (vk == DELETE && m == modifiers::CTRL | alt)
             || (m == win && matches!(vk, L | D | E | R))
+    }
+
+    /// Worth knowing about a shortcut that works.
+    pub fn note(&self) -> Option<&'static str> {
+        (self.is_lone_modifier() && self.vk == VK_RMENU)
+            .then_some("On keyboards with AltGr, Right Alt types characters and won't start dictation. Pick Right Ctrl there.")
     }
 
     /// "Ctrl+Alt+M".
@@ -150,6 +181,10 @@ pub fn vk_name(vk: u32) -> String {
         0xDC => "\\".into(),
         0xDD => "]".into(),
         0xDE => "'".into(),
+        VK_XBUTTON1 => "Mouse back".into(),
+        VK_XBUTTON2 => "Mouse forward".into(),
+        VK_RCONTROL => "Right Ctrl".into(),
+        VK_RMENU => "Right Alt".into(),
         _ => format!("Key {vk:#04X}"),
     }
 }
@@ -160,6 +195,8 @@ pub struct VoiceDictation {
     pub engine: EngineId,
     pub activation_mode: ActivationMode,
     pub hotkey: Hotkey,
+    /// A second shortcut that dictates without cleanup, in the same mode.
+    pub raw_hotkey: Option<Hotkey>,
     pub cleanup_level: CleanupLevel,
     pub formal_register: bool,
     pub layout_cues: bool,
@@ -249,6 +286,7 @@ impl Default for VoiceDictation {
             engine: EngineId::ParakeetS1,
             activation_mode: ActivationMode::PushToTalk,
             hotkey: Hotkey::default(),
+            raw_hotkey: None,
             cleanup_level: CleanupLevel::Full,
             formal_register: false,
             layout_cues: true,
@@ -325,6 +363,9 @@ impl SketchSettings {
         if hotkey == dictation {
             return Some("Sketch needs a different shortcut from dictation.".into());
         }
+        if hotkey.is_mouse() || hotkey.is_lone_modifier() {
+            return Some("Sketch needs a key with Ctrl, Alt, Shift, or Win.".into());
+        }
         hotkey.problem()
     }
 }
@@ -346,6 +387,41 @@ pub struct Settings {
     pub history_expanded: bool,
     /// The first-run setup (shortcut, mode, engine) is finished.
     pub onboarded: bool,
+}
+
+/// The shortcuts Settings can set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ShortcutSlot {
+    Dictate,
+    Raw,
+    Sketch,
+}
+
+impl Settings {
+    /// Why `hotkey` can't be the shortcut for `slot`, given the others.
+    pub fn shortcut_problem(&self, slot: ShortcutSlot, hotkey: &Hotkey) -> Option<String> {
+        let vd = &self.voice_dictation;
+        let others = [
+            (ShortcutSlot::Dictate, Some(vd.hotkey), "Dictation"),
+            (ShortcutSlot::Raw, vd.raw_hotkey, "Dictate without cleanup"),
+            (ShortcutSlot::Sketch, self.sketch.enabled.then_some(self.sketch.hotkey), "Sketch"),
+        ];
+        for (other, key, name) in others {
+            if other != slot && key.as_ref() == Some(hotkey) {
+                return Some(format!("{name} already uses this shortcut. Choose another one."));
+            }
+        }
+        if slot == ShortcutSlot::Sketch {
+            return SketchSettings::hotkey_problem(hotkey, &vd.hotkey);
+        }
+        hotkey.problem()
+    }
+
+    /// The no-cleanup shortcut to listen for, if one is set and usable.
+    pub fn usable_raw_hotkey(&self) -> Option<Hotkey> {
+        self.voice_dictation.raw_hotkey.filter(|h| self.shortcut_problem(ShortcutSlot::Raw, h).is_none())
+    }
 }
 
 impl Default for Settings {
@@ -484,5 +560,65 @@ mod tests {
         assert!(Hotkey { vk: 0x73, modifiers: modifiers::ALT }.problem().is_some(), "Alt+F4");
         assert!(Hotkey { vk: 0x4C, modifiers: modifiers::WIN }.problem().is_some(), "Win+L");
         assert!(Hotkey { vk: 0x4C, modifiers: modifiers::CTRL | modifiers::WIN }.problem().is_none());
+    }
+
+    #[test]
+    fn mouse_buttons_and_lone_right_modifiers() {
+        let back = Hotkey { vk: VK_XBUTTON1, modifiers: 0 };
+        assert!(back.problem().is_none() && back.is_mouse());
+        assert_eq!(back.display(), "Mouse back");
+        assert_eq!(Hotkey { vk: VK_XBUTTON2, modifiers: modifiers::CTRL }.display(), "Ctrl+Mouse forward");
+        let rctrl = Hotkey { vk: VK_RCONTROL, modifiers: 0 };
+        assert!(rctrl.problem().is_none() && rctrl.is_lone_modifier() && rctrl.note().is_none());
+        assert_eq!(rctrl.display(), "Right Ctrl");
+        let ralt = Hotkey { vk: VK_RMENU, modifiers: 0 };
+        assert_eq!(ralt.display(), "Right Alt");
+        assert!(ralt.problem().is_none() && ralt.note().unwrap().contains("AltGr"));
+        assert!(Hotkey { vk: VK_RMENU, modifiers: modifiers::SHIFT }.problem().is_some(), "only alone");
+        assert!(Hotkey { vk: 0xA2, modifiers: 0 }.problem().is_some(), "left Ctrl alone");
+        assert!(Hotkey { vk: 0xA4, modifiers: 0 }.problem().is_some(), "left Alt alone");
+        assert!(Hotkey { vk: 0x01, modifiers: 0 }.problem().is_some(), "left button");
+        assert!(SketchSettings::hotkey_problem(&back, &Hotkey::default()).is_some());
+        assert!(SketchSettings::hotkey_problem(&rctrl, &Hotkey::default()).is_some());
+    }
+
+    #[test]
+    fn hold_or_lock_and_raw_shortcut_are_opt_in() {
+        let old: Settings = serde_json::from_str(
+            r#"{"voiceDictation":{"activationMode":"toggle","hotkey":{"vk":77,"modifiers":3},"cleanupLevel":"full"}}"#,
+        )
+        .unwrap();
+        assert_eq!(old.voice_dictation.activation_mode, ActivationMode::Toggle);
+        assert_eq!(old.voice_dictation.raw_hotkey, None);
+        assert_eq!(old.usable_raw_hotkey(), None);
+        let json = serde_json::to_value(Settings::default()).unwrap();
+        assert_eq!(json["voiceDictation"]["activationMode"], "pushToTalk");
+        assert_eq!(json["voiceDictation"]["rawHotkey"], serde_json::Value::Null);
+        let new: Settings = serde_json::from_str(
+            r#"{"voiceDictation":{"activationMode":"holdOrLock","rawHotkey":{"vk":163,"modifiers":0}}}"#,
+        )
+        .unwrap();
+        assert_eq!(new.voice_dictation.activation_mode, ActivationMode::HoldOrLock);
+        assert_eq!(new.usable_raw_hotkey(), Some(Hotkey { vk: VK_RCONTROL, modifiers: 0 }));
+    }
+
+    #[test]
+    fn shortcuts_cannot_clash() {
+        let mut s = Settings::default();
+        let main = s.voice_dictation.hotkey;
+        let sketch = s.sketch.hotkey;
+        let ctrl_shift_space = Hotkey { vk: 0x20, modifiers: modifiers::CTRL | modifiers::SHIFT };
+        assert!(s.shortcut_problem(ShortcutSlot::Raw, &main).unwrap().starts_with("Dictation already"));
+        assert!(s.shortcut_problem(ShortcutSlot::Raw, &sketch).unwrap().starts_with("Sketch already"));
+        assert!(s.shortcut_problem(ShortcutSlot::Raw, &ctrl_shift_space).is_none());
+        s.voice_dictation.raw_hotkey = Some(ctrl_shift_space);
+        assert_eq!(s.usable_raw_hotkey(), Some(ctrl_shift_space));
+        assert!(s.shortcut_problem(ShortcutSlot::Dictate, &ctrl_shift_space).unwrap().starts_with("Dictate without cleanup"));
+        assert!(s.shortcut_problem(ShortcutSlot::Sketch, &ctrl_shift_space).is_some());
+        assert!(s.shortcut_problem(ShortcutSlot::Dictate, &main).is_none());
+        s.sketch.enabled = false;
+        assert!(s.shortcut_problem(ShortcutSlot::Raw, &sketch).is_none(), "Sketch off frees its shortcut");
+        s.voice_dictation.raw_hotkey = Some(main);
+        assert_eq!(s.usable_raw_hotkey(), None);
     }
 }

@@ -27,6 +27,9 @@ Quill opens a short setup:
 2. **Your shortcut**: the keys you'll hold to dictate. The default is **Ctrl+Alt+M**. Click it and press new keys to change it. Then choose:
    - **Push to talk**: hold the keys while you talk, and let go to finish.
    - **Toggle**: press once to start, and again to finish.
+   - **Hold or lock**: hold the keys while you talk, or tap them twice quickly to keep recording hands-free until you press them again. A single quick tap does nothing.
+
+   The shortcut can also be a mouse side button (back or forward), or Right Ctrl or Right Alt pressed on its own. Click the shortcut button, then press the side button, or tap Right Ctrl or Right Alt and let go. Right Ctrl or Right Alt alone waits a moment before it acts, so other shortcuts keep working. In Push to talk and Hold or lock, hold it about a fifth of a second before you speak; a shorter tap does not start a recording. In Toggle, tap it and let go. Pressed with another key, a click, or the scroll wheel (Ctrl+C, Ctrl+click) within that moment, it does nothing in Quill. If the recording had already started, a key, click, or scroll within its first second drops it without pasting; after that, Quill keeps recording and the key works as usual. On keyboards with an AltGr key, Right Alt types characters, so pick Right Ctrl instead.
 3. **Choose an engine**: the speech engine downloads once and then works offline. You must download one to continue.
    - **Parakeet + S1-mini** (recommended, 1.15 GB): the best results for English, with automatic clean-up.
    - **Whisper Tiny** (78 MB): the smallest and fastest, for slow connections or older PCs.
@@ -55,7 +58,8 @@ To hear about new versions, open [the repo](https://github.com/valenxi0/Quill) a
 ## Troubleshooting
 
 - **Nothing happens when I press the shortcut.** Check that Quill's icon is in the tray. If it isn't, open Quill from the Start menu.
-- **The shortcut stays on the default.** Click the shortcut button, hold Ctrl, Alt, Shift or Win, then press another key, such as Space. Modifier keys alone do not save a shortcut. Keep Settings in focus and check for an error below the button. If Quill reports a keyboard hook error, quit it from the tray and reopen it.
+- **I want some dictations without cleanup.** Under Settings → Dictation, set **Dictate without cleanup** to a second shortcut. It works like your main shortcut but pastes your words as spoken. Click **Clear** to remove it.
+- **The shortcut stays on the default.** Click the shortcut button, hold Ctrl, Alt, Shift or Win, then press another key, such as Space. Modifier keys alone do not save a shortcut, except Right Ctrl or Right Alt tapped and let go on their own. Keep Settings in focus and check for an error below the button. If Quill reports a keyboard hook error, quit it from the tray and reopen it.
 - **"Microphone access is off"**: open **Settings → Privacy & security → Microphone** and turn on both **Microphone access** and **Let desktop apps access your microphone**.
 - **Quill records from the wrong microphone.** Choose one under **Settings → Dictation → Audio → Microphone**. With **System default**, Quill follows the Windows default, except that it skips a Bluetooth headset's mic when another mic is connected. Turn off **Avoid Bluetooth headset mics** to use the headset anyway.
 - **The text was copied but not pasted.** Some windows, like those run as administrator, don't accept typing from other apps. The text is still on your clipboard, so press **Ctrl+V**. With **Put back what you copied** on, the text stays on the clipboard whenever the paste didn't happen.

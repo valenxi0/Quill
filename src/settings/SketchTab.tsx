@@ -31,7 +31,7 @@ export function SketchTab({ ctx }: { ctx: Ctx }) {
                   ? "Hold Ctrl, Alt, Shift or Win, then press another key. Esc cancels."
                   : "Press once to start a Sketch and again to finish. Esc twice cancels."
               }
-              right={<ShortcutButton ctx={ctx} sketch />}
+              right={<ShortcutButton ctx={ctx} slot="sketch" />}
             />
             {capturingSketchHotkey && captureError && <Warning>{captureError}</Warning>}
             {sketchHotkeyProblem && <Warning>{sketchHotkeyProblem}</Warning>}

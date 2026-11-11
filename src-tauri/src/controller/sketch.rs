@@ -32,7 +32,7 @@ impl Controller {
         if self.starting.swap(true, SeqCst) {
             return;
         }
-        self.start_inner(Some(monitor));
+        self.start_inner(Some(monitor), false);
         self.starting.store(false, SeqCst);
     }
 
