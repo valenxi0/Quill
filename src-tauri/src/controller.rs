@@ -80,6 +80,8 @@ struct Session {
     /// Fed by the monitor; `None` until it loads, or if it can't.
     vad: Option<Vad>,
     preview: Option<Preview>,
+    /// Puts other apps' audio back when the session ends, however it ends.
+    _other_audio: Option<crate::platform::other_audio::Hold>,
 }
 
 /// Live preview state for one recording.
@@ -397,7 +399,8 @@ impl Controller {
         // Automation lookup doesn't clip the first word.
         let fits_to_cursor = vd.fits_to_cursor;
         let capture = std::thread::spawn(move || target::capture(fits_to_cursor));
-        let recording = match Recording::start() {
+        let mic = crate::audio::Microphone { saved: vd.input_device.clone(), avoid_bluetooth: vd.avoid_bluetooth_mic };
+        let recording = match Recording::start(mic) {
             Ok(r) => r,
             Err(e) => {
                 let _ = capture.join();
@@ -471,6 +474,7 @@ impl Controller {
             worker,
             vad: None,
             preview,
+            _other_audio: crate::platform::other_audio::hold(generation, vd.other_audio, vd.lower_to_percent),
         });
 
         if let Some(monitor) = sketch {

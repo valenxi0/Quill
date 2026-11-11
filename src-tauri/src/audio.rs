@@ -1,4 +1,4 @@
-//! Microphone capture: shared-mode WASAPI on the default input, resampled to
+//! Microphone capture: shared-mode WASAPI on the chosen input, resampled to
 //! 16 kHz mono f32 in memory (section 4.2, step 2). Audio never touches disk.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering::SeqCst};
@@ -9,7 +9,9 @@ use std::time::Duration;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, SizedSample};
 use parking_lot::Mutex;
+use quill_core::microphone::Pick;
 use quill_core::resample::{downmix, Resampler};
+use quill_core::settings::SavedDevice;
 
 /// Recordings stop at 10 minutes.
 pub const MAX_SAMPLES: usize = 16_000 * 60 * 10;
@@ -19,6 +21,22 @@ pub enum AudioError {
     NoDevice,
     Denied,
     Failed,
+}
+
+/// Which microphone to open: the saved one, or the default.
+#[derive(Debug, Clone)]
+pub struct Microphone {
+    pub saved: Option<SavedDevice>,
+    pub avoid_bluetooth: bool,
+}
+
+fn open_device(host: &cpal::Host, mic: &Microphone) -> Option<cpal::Device> {
+    match crate::platform::audio_devices::resolve(mic.saved.as_ref(), mic.avoid_bluetooth).pick {
+        Pick::SystemDefault => host.default_input_device(),
+        Pick::Device(id) => host
+            .device_by_id(&cpal::DeviceId::new(cpal::HostId::Wasapi, id))
+            .or_else(|| host.default_input_device()),
+    }
 }
 
 pub fn has_input_device() -> bool {
@@ -84,8 +102,8 @@ fn build<T: SizedSample + Send + 'static>(
 }
 
 impl Recording {
-    /// Open the default input and start capturing.
-    pub fn start() -> Result<Recording, AudioError> {
+    /// Open the microphone and start capturing.
+    pub fn start(mic: Microphone) -> Result<Recording, AudioError> {
         let shared = Arc::new(Shared {
             samples: Mutex::new(Vec::with_capacity(16_000 * 30)),
             resampler: Mutex::new(None),
@@ -100,7 +118,7 @@ impl Recording {
             .name("quill-audio".into())
             .spawn(move || {
                 let host = cpal::default_host();
-                let Some(device) = host.default_input_device() else {
+                let Some(device) = open_device(&host, &mic) else {
                     let _ = ready_tx.send(Err(AudioError::NoDevice));
                     return;
                 };
@@ -200,5 +218,31 @@ impl Drop for Recording {
         self.halt();
         // Discard audio: nothing outlives the recording.
         self.shared.samples.lock().clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    #[test]
+    #[ignore = "opens the real microphone"]
+    fn start_latency() {
+        let saved = std::env::var("QUILL_TEST_MIC").ok().map(|id| SavedDevice { id, name: "test".into() });
+        let mic = Microphone { saved, avoid_bluetooth: std::env::var_os("QUILL_TEST_NO_AVOID").is_none() };
+        println!("{mic:?}");
+        let mut ms: Vec<f64> = (0..15)
+            .map(|_| {
+                let t = Instant::now();
+                let rec = Recording::start(mic.clone()).expect("microphone opens");
+                let elapsed = t.elapsed().as_secs_f64() * 1000.0;
+                drop(rec);
+                elapsed
+            })
+            .collect();
+        let cold = ms.remove(0);
+        ms.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        println!("Recording::start cold {cold:.1} ms, warm median {:.1} ms, min {:.1}, max {:.1}", ms[ms.len() / 2], ms[0], ms[ms.len() - 1]);
     }
 }

@@ -93,6 +93,26 @@ pub fn load_engine(q: Q) {
     q.controller.warm_selected();
 }
 
+/// Whether this run of Quill is on the CPU because a GPU start crashed.
+#[tauri::command]
+pub fn gpu_fallback() -> bool {
+    crate::engines::gpu::fallback()
+}
+
+/// Forget the GPU crash and restart, so the engines start on the GPU again.
+#[tauri::command]
+pub fn retry_gpu(app: AppHandle, q: Q) -> Result<(), String> {
+    let downloading = quill_core::models::ASSETS.iter().any(|a| q.models.state(a.id).is_busy());
+    if q.controller.phase().is_busy() || downloading || q.updates.installing() {
+        return Err("Wait for the current dictation, download, or update to finish.".into());
+    }
+    crate::engines::gpu::retry().map_err(|e| e.to_string())?;
+    // Through the event loop, so plugins (single instance) let go before the
+    // new process starts.
+    app.request_restart();
+    Ok(())
+}
+
 #[tauri::command]
 pub fn begin_hotkey_capture(app: AppHandle, q: Q, sketch: Option<bool>) {
     *q.capture_error.lock() = None;
@@ -135,6 +155,28 @@ pub fn sketch_state(q: Q) -> Option<crate::sketch::SketchView> {
 #[tauri::command]
 pub fn open_microphone_settings() {
     open_uri("ms-settings:privacy-microphone");
+}
+
+/// The Dictation page's microphone list, and which mic a recording would use.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Microphones {
+    devices: Vec<quill_core::microphone::InputDevice>,
+    /// The mic a recording opens now.
+    using: Option<String>,
+    /// The saved mic, when it isn't connected.
+    missing: Option<String>,
+    /// The Bluetooth default Quill skips.
+    avoided: Option<String>,
+}
+
+/// Takes the choice being shown, so the answer never trails a save.
+#[tauri::command(async)]
+pub fn get_microphones(input_device: Option<quill_core::settings::SavedDevice>, avoid_bluetooth: bool) -> Microphones {
+    let (devices, defaults) = crate::platform::audio_devices::inputs();
+    let defaults: Vec<&str> = defaults.iter().map(String::as_str).collect();
+    let choice = quill_core::microphone::choose(&devices, &defaults, input_device.as_ref(), avoid_bluetooth);
+    Microphones { devices, using: choice.name, missing: choice.missing, avoided: choice.avoided }
 }
 
 #[tauri::command]

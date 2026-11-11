@@ -17,7 +17,7 @@ use llama_cpp_2::sampling::LlamaSampler;
 use quill_core::text::directive::Directive;
 use quill_core::text::finish::tidy_s1;
 
-use super::TextCleaner;
+use super::{gpu, TextCleaner};
 
 const N_CTX: u32 = 4096;
 const N_BATCH: u32 = 2048;
@@ -97,7 +97,9 @@ impl TextCleaner for S1Mini {
         if !self.path.exists() {
             return Err(format!("{} is missing. Download the engine again.", self.path.display()));
         }
-        let gpu_wanted = cfg!(feature = "vulkan");
+        // Covers ggml's Vulkan start in `backend()` as well as the model.
+        let _start = gpu::start("S1-mini");
+        let gpu_wanted = gpu::use_gpu();
         let model = match self.load_model(gpu_wanted) {
             Ok(m) => m,
             Err(e) if gpu_wanted => {
@@ -184,5 +186,39 @@ mod tests {
         let d = Directive::for_recording(CleanupLevel::Compose, AppContext::Email, true).unwrap();
         assert_eq!(user_turn(d, "Hi team"), "<|im_start|>user\n[Styling: formal] [Structure: lists] [Context: email]\nHi team<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n");
         assert!(user_turn(Directive::default(), "hello").contains("[Styling: semi-formal] [Structure: prose] [Context: general]"));
+    }
+
+    /// Loads the installed S1-mini the way the app does and prints which ggml
+    /// devices this process saw. Set `QUILL_SIMULATE_GPU_CRASH=1` to abort
+    /// during the GPU start. `QUILL_GPU_PROBE_RETRY=1` then does what "Try the
+    /// GPU again" does: forget the crash and start a new process, which
+    /// inherits this one's environment as a restarted Quill would.
+    #[test]
+    #[ignore = "needs the installed S1-mini weights"]
+    fn gpu_start_probe() {
+        let models = crate::models::ModelManager::new(crate::paths::models_dir(), || {});
+        let host = crate::engines::EngineHost::new(models, crate::platform::system::inference_threads());
+        let start = std::time::Instant::now();
+        host.with_cleaner(|_| ()).expect("S1-mini loads");
+        println!("load {:.2}s", start.elapsed().as_secs_f64());
+        println!("fallback: {:?}", gpu::fallback());
+        let devices: Vec<String> =
+            llama_cpp_2::list_llama_ggml_backend_devices().into_iter().map(|d| format!("{} ({})", d.name, d.description)).collect();
+        println!("ggml devices: {devices:?}");
+        let (out, _) = host.with_cleaner(|c| c.clean("so um I wanted to say uh hello", Directive::default())).unwrap();
+        println!("clean: {:?}", out.unwrap());
+        if std::env::var_os("QUILL_GPU_PROBE_RETRY").is_some() {
+            gpu::retry().unwrap();
+            println!("cleared; GGML_DISABLE_VULKAN in the OS environment: {:?}", std::env::var_os("GGML_DISABLE_VULKAN"));
+            let child = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["engines::s1::tests::gpu_start_probe", "--exact", "--ignored", "--nocapture"])
+                .env_remove("QUILL_GPU_PROBE_RETRY")
+                .output()
+                .unwrap();
+            for line in String::from_utf8_lossy(&child.stdout).lines().filter(|l| l.starts_with("fallback") || l.starts_with("ggml devices")) {
+                println!("child {line}");
+            }
+            assert!(child.status.success(), "child probe failed");
+        }
     }
 }
