@@ -36,7 +36,8 @@ impl Phase {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
-    Start,
+    /// Start a recording for this shortcut.
+    Start(Binding),
     Stop,
     Cancel,
     /// Drop the recording without showing anything.
@@ -90,7 +91,7 @@ enum Stage {
     Idle,
     /// A lone modifier is down with nothing else. Nothing has happened yet.
     /// `due`: when holding it takes effect; `None` waits for the release.
-    Armed { since: u64, from: Rest, binding: Option<Binding>, due: Option<u64> },
+    Armed { since: u64, from: Rest, binding: Binding, due: Option<u64> },
     /// Recording while the shortcut is held, pressed at `since`.
     Held { since: u64 },
     /// After a tap: a second press before `until` locks. `recording`: the
@@ -118,17 +119,18 @@ pub struct Activation {
     stage: Stage,
     /// When a lone-modifier press last started a recording.
     lone_start: Option<u64>,
-    started_by: Option<Binding>,
 }
 
 impl Activation {
-    /// `lone`: `binding` is Right Ctrl or Right Alt alone. Returns the action
-    /// and `deadline()`.
+    /// `binding`: the shortcut a key event came from; Escape and `Tick` don't
+    /// use it (a tick start uses the binding that armed it). `lone`: that
+    /// shortcut is Right Ctrl or Right Alt alone. Returns the action and
+    /// `deadline()`.
     pub fn on(
         &mut self,
         mode: ActivationMode,
         lone: bool,
-        binding: Option<Binding>,
+        binding: Binding,
         input: Input,
         now: u64,
         phase: Phase,
@@ -159,19 +161,12 @@ impl Activation {
         }
     }
 
-    /// The shortcut whose press started the last recording, even when a
-    /// tick did the starting.
-    pub fn started_by(&self) -> Option<Binding> {
-        self.started_by
-    }
-
-    fn started(&mut self, binding: Option<Binding>, stage: Stage) -> Action {
+    fn started(&mut self, binding: Binding, stage: Stage) -> Action {
         self.stage = stage;
-        self.started_by = binding;
-        Action::Start
+        Action::Start(binding)
     }
 
-    fn plain(&mut self, mode: ActivationMode, binding: Option<Binding>, input: Input, now: u64, phase: Phase) -> Action {
+    fn plain(&mut self, mode: ActivationMode, binding: Binding, input: Input, now: u64, phase: Phase) -> Action {
         use Action::*;
         let recording = phase == Phase::Recording;
         let pressed = input == Input::Pressed;
@@ -192,7 +187,7 @@ impl Activation {
         }
     }
 
-    fn hold_or_lock(&mut self, binding: Option<Binding>, input: Input, now: u64, phase: Phase) -> Action {
+    fn hold_or_lock(&mut self, binding: Binding, input: Input, now: u64, phase: Phase) -> Action {
         use Action::*;
         let recording = phase == Phase::Recording;
         match (self.stage, input) {
@@ -224,7 +219,7 @@ impl Activation {
         }
     }
 
-    fn lone(&mut self, mode: ActivationMode, binding: Option<Binding>, input: Input, now: u64, phase: Phase) -> Action {
+    fn lone(&mut self, mode: ActivationMode, binding: Binding, input: Input, now: u64, phase: Phase) -> Action {
         let recording = phase == Phase::Recording;
         match (input, self.stage) {
             (Input::Pressed, Stage::Armed { .. }) => Action::Ignore,
@@ -258,7 +253,7 @@ impl Activation {
 
     /// A lone press takes effect: on a clean release, or once armed.
     #[allow(clippy::too_many_arguments)]
-    fn fire(&mut self, mode: ActivationMode, since: u64, from: Rest, binding: Option<Binding>, now: u64, phase: Phase, released: bool) -> Action {
+    fn fire(&mut self, mode: ActivationMode, since: u64, from: Rest, binding: Binding, now: u64, phase: Phase, released: bool) -> Action {
         use Action::*;
         let recording = phase == Phase::Recording;
         let busy = phase.is_busy();
@@ -344,7 +339,7 @@ mod tests {
     const E: Input = Input::Escape;
 
     fn once(mode: ActivationMode, phase: Phase, input: Input) -> Action {
-        let (act, deadline) = Activation::default().on(mode, false, Some(Binding::Dictate), input, 0, phase);
+        let (act, deadline) = Activation::default().on(mode, false, Binding::Dictate, input, 0, phase);
         assert_eq!(deadline, None);
         act
     }
@@ -352,15 +347,15 @@ mod tests {
     #[test]
     fn activation_table() {
         let cases = [
-            (PushToTalk, Idle, P, Action::Start),
-            (PushToTalk, Completed, P, Action::Start),
+            (PushToTalk, Idle, P, Action::Start(Binding::Dictate)),
+            (PushToTalk, Completed, P, Action::Start(Binding::Dictate)),
             (PushToTalk, Recording, P, Action::Ignore),
             (PushToTalk, Transcribing, P, Action::Ignore),
             (PushToTalk, Recording, R, Action::Stop),
             (PushToTalk, Idle, R, Action::Ignore),
             (PushToTalk, Cleaning, R, Action::Ignore),
-            (Toggle, Idle, P, Action::Start),
-            (Toggle, Failed, P, Action::Start),
+            (Toggle, Idle, P, Action::Start(Binding::Dictate)),
+            (Toggle, Failed, P, Action::Start(Binding::Dictate)),
             (Toggle, Recording, P, Action::Stop),
             (Toggle, Transcribing, P, Action::Ignore),
             (Toggle, Recording, R, Action::Ignore),
@@ -380,14 +375,12 @@ mod tests {
     }
 
     /// Feeds `(input, ms, phase, want, deadline)` steps from `binding`
-    /// through one machine; ticks and Escape carry no binding.
-    fn run_as(mode: ActivationMode, lone: bool, binding: Binding, steps: &[(Input, u64, Phase, Action, Option<u64>)]) -> Activation {
+    /// through one machine.
+    fn run_as(mode: ActivationMode, lone: bool, binding: Binding, steps: &[(Input, u64, Phase, Action, Option<u64>)]) {
         let mut m = Activation::default();
         for (i, &(input, now, phase, want, deadline)) in steps.iter().enumerate() {
-            let from = matches!(input, Input::Pressed | Input::Released | Input::Chord).then_some(binding);
-            assert_eq!(m.on(mode, lone, from, input, now, phase), (want, deadline), "step {i}: {input:?} at {now} in {phase:?}");
+            assert_eq!(m.on(mode, lone, binding, input, now, phase), (want, deadline), "step {i}: {input:?} at {now} in {phase:?}");
         }
-        m
     }
 
     fn run(mode: ActivationMode, lone: bool, steps: &[(Input, u64, Phase, Action, Option<u64>)]) {
@@ -397,7 +390,7 @@ mod tests {
     #[test]
     fn hold_or_lock_long_hold_finishes_on_release() {
         run(HoldOrLock, false, &[
-            (P, 0, Idle, Action::Start, None),
+            (P, 0, Idle, Action::Start(Binding::Dictate), None),
             (R, 300, Recording, Action::Stop, None),
             (P, 900, Transcribing, Action::Ignore, None),
             (R, 950, Transcribing, Action::Ignore, None),
@@ -407,19 +400,19 @@ mod tests {
     #[test]
     fn hold_or_lock_quick_tap_is_discarded() {
         run(HoldOrLock, false, &[
-            (P, 0, Idle, Action::Start, None),
+            (P, 0, Idle, Action::Start(Binding::Dictate), None),
             (R, 120, Recording, Action::Ignore, Some(420)),
             (Tick, 300, Recording, Action::Ignore, Some(420)),
             (Tick, 420, Recording, Action::Discard, None),
             (Tick, 500, Idle, Action::Ignore, None),
-            (P, 2000, Idle, Action::Start, None),
+            (P, 2000, Idle, Action::Start(Binding::Dictate), None),
         ]);
     }
 
     #[test]
     fn hold_or_lock_double_tap_locks_until_the_next_press() {
         run(HoldOrLock, false, &[
-            (P, 0, Idle, Action::Start, None),
+            (P, 0, Idle, Action::Start(Binding::Dictate), None),
             (R, 100, Recording, Action::Ignore, Some(400)),
             (P, 250, Recording, Action::Ignore, None),
             (R, 330, Recording, Action::Ignore, None),
@@ -433,15 +426,15 @@ mod tests {
     fn hold_or_lock_second_press_just_after_the_window() {
         // The timer went first: the tap is gone and the press starts afresh.
         run(HoldOrLock, false, &[
-            (P, 0, Idle, Action::Start, None),
+            (P, 0, Idle, Action::Start(Binding::Dictate), None),
             (R, 100, Recording, Action::Ignore, Some(400)),
             (Tick, 400, Recording, Action::Discard, None),
-            (P, 401, Idle, Action::Start, None),
+            (P, 401, Idle, Action::Start(Binding::Dictate), None),
             (R, 1500, Recording, Action::Stop, None),
         ]);
         // The press beat a late timer: it holds the running recording.
         run(HoldOrLock, false, &[
-            (P, 0, Idle, Action::Start, None),
+            (P, 0, Idle, Action::Start(Binding::Dictate), None),
             (R, 100, Recording, Action::Ignore, Some(400)),
             (P, 401, Recording, Action::Ignore, None),
             (Tick, 410, Recording, Action::Ignore, None),
@@ -454,7 +447,7 @@ mod tests {
         // The start took 600 ms, so the release and second press are handled
         // late; their stamps still make a double tap.
         run(HoldOrLock, false, &[
-            (P, 0, Idle, Action::Start, None),
+            (P, 0, Idle, Action::Start(Binding::Dictate), None),
             (R, 90, Recording, Action::Ignore, Some(390)),
             (P, 200, Recording, Action::Ignore, None),
             (R, 260, Recording, Action::Ignore, None),
@@ -464,25 +457,25 @@ mod tests {
 
     #[test]
     fn hold_or_lock_escape_in_each_state() {
-        run(HoldOrLock, false, &[(E, 0, Idle, Action::Ignore, None), (P, 10, Idle, Action::Start, None)]);
+        run(HoldOrLock, false, &[(E, 0, Idle, Action::Ignore, None), (P, 10, Idle, Action::Start(Binding::Dictate), None)]);
         run(HoldOrLock, false, &[
-            (P, 0, Idle, Action::Start, None),
+            (P, 0, Idle, Action::Start(Binding::Dictate), None),
             (E, 100, Recording, Action::Cancel, None),
             (R, 200, Cancelled, Action::Ignore, None),
         ]);
         run(HoldOrLock, false, &[
-            (P, 0, Idle, Action::Start, None),
+            (P, 0, Idle, Action::Start(Binding::Dictate), None),
             (R, 100, Recording, Action::Ignore, Some(400)),
             (E, 200, Recording, Action::Cancel, None),
             (Tick, 400, Cancelled, Action::Ignore, None),
         ]);
         run(HoldOrLock, false, &[
-            (P, 0, Idle, Action::Start, None),
+            (P, 0, Idle, Action::Start(Binding::Dictate), None),
             (R, 100, Recording, Action::Ignore, Some(400)),
             (P, 200, Recording, Action::Ignore, None),
             (R, 250, Recording, Action::Ignore, None),
             (E, 5000, Recording, Action::Cancel, None),
-            (P, 6000, Cancelled, Action::Start, None),
+            (P, 6000, Cancelled, Action::Start(Binding::Dictate), None),
         ]);
         run(HoldOrLock, true, &[
             (P, 0, Idle, Action::Ignore, Some(200)),
@@ -504,11 +497,11 @@ mod tests {
         }
         // A recording that ended on its own (the cap, an error) resets the machine.
         run(HoldOrLock, false, &[
-            (P, 0, Idle, Action::Start, None),
+            (P, 0, Idle, Action::Start(Binding::Dictate), None),
             (R, 100, Recording, Action::Ignore, Some(400)),
             (P, 200, Recording, Action::Ignore, None),
             (P, 7000, Transcribing, Action::Ignore, None),
-            (P, 9000, Completed, Action::Start, None),
+            (P, 9000, Completed, Action::Start(Binding::Dictate), None),
         ]);
     }
 
@@ -534,7 +527,7 @@ mod tests {
         run(PushToTalk, true, &[
             (P, 0, Idle, Action::Ignore, Some(200)),
             (Tick, 150, Idle, Action::Ignore, Some(200)),
-            (Tick, 200, Idle, Action::Start, None),
+            (Tick, 200, Idle, Action::Start(Binding::Dictate), None),
             (R, 2000, Recording, Action::Stop, None),
         ]);
         // Released clean before arming: a tap does nothing.
@@ -562,13 +555,13 @@ mod tests {
     fn lone_chord_soon_after_start_discards_later_ones_are_ignored() {
         run(PushToTalk, true, &[
             (P, 0, Idle, Action::Ignore, Some(200)),
-            (Tick, 200, Idle, Action::Start, None),
+            (Tick, 200, Idle, Action::Start(Binding::Dictate), None),
             (Chord, 600, Recording, Action::Discard, None),
             (R, 700, Idle, Action::Ignore, None),
         ]);
         run(PushToTalk, true, &[
             (P, 0, Idle, Action::Ignore, Some(200)),
-            (Tick, 200, Idle, Action::Start, None),
+            (Tick, 200, Idle, Action::Start(Binding::Dictate), None),
             (Chord, 30_000, Recording, Action::Ignore, None),
             (R, 31_000, Recording, Action::Stop, None),
         ]);
@@ -578,7 +571,7 @@ mod tests {
     fn lone_toggle_acts_on_a_clean_release() {
         run(Toggle, true, &[
             (P, 0, Idle, Action::Ignore, None),
-            (R, 80, Idle, Action::Start, None),
+            (R, 80, Idle, Action::Start(Binding::Dictate), None),
             (P, 3000, Recording, Action::Ignore, None),
             (Chord, 3050, Recording, Action::Ignore, None),
             (R, 3100, Recording, Action::Ignore, None),
@@ -594,7 +587,7 @@ mod tests {
             (R, 90, Idle, Action::Ignore, Some(390)),
             (Tick, 200, Idle, Action::Ignore, Some(390)),
             (P, 250, Idle, Action::Ignore, Some(450)),
-            (R, 300, Idle, Action::Start, None),
+            (R, 300, Idle, Action::Start(Binding::Dictate), None),
             (Tick, 450, Recording, Action::Ignore, None),
             (P, 5000, Recording, Action::Ignore, Some(5200)),
             (R, 5080, Recording, Action::Stop, None),
@@ -605,7 +598,7 @@ mod tests {
             (R, 90, Idle, Action::Ignore, Some(390)),
             (Tick, 390, Idle, Action::Ignore, None),
             (P, 1000, Idle, Action::Ignore, Some(1200)),
-            (Tick, 1200, Idle, Action::Start, None),
+            (Tick, 1200, Idle, Action::Start(Binding::Dictate), None),
             (R, 1500, Recording, Action::Stop, None),
         ]);
         // Tap, then Ctrl+C: nothing at all.
@@ -623,7 +616,7 @@ mod tests {
     fn lone_hold_or_lock_press_held_while_locked_stops_once_armed() {
         run(HoldOrLock, true, &[
             (P, 0, Idle, Action::Ignore, Some(200)),
-            (Tick, 200, Idle, Action::Start, None),
+            (Tick, 200, Idle, Action::Start(Binding::Dictate), None),
             (R, 250, Recording, Action::Ignore, Some(550)),
             (P, 400, Recording, Action::Ignore, Some(600)),
             (Tick, 550, Recording, Action::Ignore, Some(600)),
@@ -637,26 +630,21 @@ mod tests {
 
     #[test]
     fn a_tick_start_keeps_the_binding_that_armed_it() {
-        let m = run_as(PushToTalk, true, Binding::Raw, &[
+        let raw = Action::Start(Binding::Raw);
+        run_as(PushToTalk, true, Binding::Raw, &[(P, 0, Idle, Action::Ignore, Some(200)), (Tick, 200, Idle, raw, None)]);
+        run_as(HoldOrLock, true, Binding::Raw, &[
             (P, 0, Idle, Action::Ignore, Some(200)),
-            (Tick, 200, Idle, Action::Start, None),
-        ]);
-        assert_eq!(m.started_by(), Some(Binding::Raw));
-        let m = run_as(HoldOrLock, true, Binding::Raw, &[
-            (P, 0, Idle, Action::Ignore, Some(200)),
-            (Tick, 200, Idle, Action::Start, None),
+            (Tick, 200, Idle, raw, None),
             (R, 900, Recording, Action::Stop, None),
         ]);
-        assert_eq!(m.started_by(), Some(Binding::Raw));
-        let m = run_as(HoldOrLock, true, Binding::Raw, &[
+        run_as(HoldOrLock, true, Binding::Raw, &[
             (P, 0, Idle, Action::Ignore, Some(200)),
             (R, 90, Idle, Action::Ignore, Some(390)),
             (P, 150, Idle, Action::Ignore, Some(350)),
-            (Tick, 350, Idle, Action::Start, None),
+            (Tick, 350, Idle, raw, None),
         ]);
-        assert_eq!(m.started_by(), Some(Binding::Raw));
-        let m = run_as(Toggle, false, Binding::Raw, &[(P, 0, Idle, Action::Start, None)]);
-        assert_eq!(m.started_by(), Some(Binding::Raw));
+        run_as(Toggle, true, Binding::Raw, &[(P, 0, Idle, Action::Ignore, None), (R, 90, Idle, raw, None)]);
+        run_as(Toggle, false, Binding::Raw, &[(P, 0, Idle, raw, None)]);
     }
 
     #[test]
