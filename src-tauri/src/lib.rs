@@ -80,6 +80,13 @@ pub fn run() {
                 }
                 Err(e) => (None, Some(format!("The global shortcut is unavailable: {e}"))),
             };
+            // Clicks count as input between dictations, like typing. Order
+            // matters: a process has one Raw Input target per device type, so
+            // this takes the mouse from tao's device events, which Quill
+            // doesn't use. Anything that registers the mouse later (tao's
+            // set_device_event_filter) takes it back, and clicks() then
+            // reports None, which turns continuation off.
+            platform::clicks::start();
 
             let preferred_languages = platform::system::preferred_languages();
             let controller = Controller::new(
@@ -180,6 +187,7 @@ pub fn run() {
             commands::paste_last,
             commands::redo_history,
             commands::get_history,
+            commands::count_expiring_history,
             commands::clear_history,
             commands::get_insights,
             commands::get_known_apps,
@@ -231,7 +239,8 @@ fn spawn_history_purge(quill: Arc<Quill>, app: tauri::AppHandle) {
         if app::purge_history(&quill) {
             app::notify(&app);
         }
-        let next = quill.stores.history.read(|h| h.next_expiry());
+        let keep = quill.stores.settings.read(|s| s.voice_dictation.history_retention);
+        let next = quill.stores.history.read(|h| h.next_expiry(keep));
         let wait = next
             .map(|t| (t - chrono::Utc::now()).to_std().unwrap_or(Duration::ZERO) + Duration::from_secs(1))
             .unwrap_or(Duration::from_secs(3600))

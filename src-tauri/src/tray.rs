@@ -39,7 +39,7 @@ pub fn icon(recording: bool) -> Image<'static> {
 fn build_menu(app: &AppHandle, quill: &Quill) -> tauri::Result<Menu<Wry>> {
     let recording = quill.controller.phase() == quill_core::state::Phase::Recording;
     let toggle = MenuItem::with_id(app, "toggle", if recording { "Stop dictation" } else { "Start dictation" }, true, None::<&str>)?;
-    let has_last = quill.controller.last_transcript.lock().is_some();
+    let has_last = quill.controller.last_text().is_some();
     let copy = MenuItem::with_id(app, "copy-last", "Copy last transcript", has_last, None::<&str>)?;
     let paste_last = MenuItem::with_id(app, "paste-last", "Paste last transcript again", has_last && !recording, None::<&str>)?;
     let current = quill.controller.stores.settings.read(|s| s.voice_dictation.engine);
@@ -83,7 +83,7 @@ pub fn create(app: &AppHandle, quill: &Quill) -> tauri::Result<()> {
                 "toggle" => quill.controller.command("toggle"),
                 "paste-last" => quill.controller.command("paste-last"),
                 "copy-last" => {
-                    if let Some(t) = quill.controller.last_transcript.lock().clone() {
+                    if let Some(t) = quill.controller.last_text() {
                         crate::platform::paste::set_clipboard_text(&t);
                     }
                 }

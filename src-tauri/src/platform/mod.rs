@@ -3,6 +3,7 @@
 
 pub mod apps;
 pub mod audio_devices;
+pub mod clicks;
 pub mod hotkey;
 mod escape;
 pub mod mouse;

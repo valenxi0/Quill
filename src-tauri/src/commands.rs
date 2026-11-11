@@ -200,7 +200,7 @@ pub fn copy_text(text: String) -> bool {
 
 #[tauri::command]
 pub fn copy_last(q: Q) -> bool {
-    match q.controller.last_transcript.lock().clone() {
+    match q.controller.last_text() {
         Some(t) => crate::platform::paste::set_clipboard_text(&t),
         None => false,
     }
@@ -211,26 +211,44 @@ pub fn paste_last(q: Q) {
     q.controller.paste_last();
 }
 
+/// A history entry cleaned again.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Redone {
+    text: String,
+    /// Why cleanup kept some or all of the words as heard.
+    cleanup_note: Option<String>,
+}
+
 /// Clean a history entry's raw transcript again in another style, and copy
 /// the result.
 #[tauri::command(async)]
-pub fn redo_history(q: Q, id: uuid::Uuid, level: CleanupLevel) -> Result<String, String> {
+pub fn redo_history(q: Q, id: uuid::Uuid, level: CleanupLevel) -> Result<Redone, String> {
     let entry = q
         .stores
         .history
         .read(|h| h.entries.iter().find(|e| e.id == id).cloned())
         .ok_or("This entry has expired.")?;
-    let text = q.controller.redo(&entry.raw, level, &entry.app_exe, entry.context)?;
+    let (text, cleanup_note) = q.controller.redo(&entry.raw, level, &entry.app_exe, entry.context)?;
     if !crate::platform::paste::set_clipboard_text(&text) {
         return Err("The clipboard is busy. Try again.".into());
     }
-    Ok(text)
+    Ok(Redone { text, cleanup_note })
 }
 
+/// The newest records matching `query` (all of them when empty), at most
+/// `limit` (20 by default, 200 at most).
 #[tauri::command]
-pub fn get_history(q: Q) -> Vec<HistoryEntry> {
+pub fn get_history(q: Q, query: Option<String>, limit: Option<usize>) -> Vec<HistoryEntry> {
     app::purge_history(&q);
-    q.stores.history.read(|h| h.latest(20))
+    q.stores.history.read(|h| h.search(query.as_deref().unwrap_or(""), limit.unwrap_or(20)))
+}
+
+/// How many records keeping them for `keep` would delete now, so the
+/// Settings page can ask first.
+#[tauri::command]
+pub fn count_expiring_history(q: Q, keep: quill_core::history::Retention) -> usize {
+    q.stores.history.read(|h| h.expiring(chrono::Utc::now(), keep))
 }
 
 #[tauri::command]

@@ -1,24 +1,52 @@
 import { useEffect, useState } from "react";
-import { api, on, type CleanupLevel, type HistoryEntry } from "../lib/api";
+import { api, on, type CleanupLevel, type HistoryEntry, type HistoryRetention, type Redone } from "../lib/api";
 import { timeAgo } from "../lib/format";
 import type { Ctx } from "./App";
 import { CLEANUP } from "./SetupTab";
-import { Button, Capsule, Card, CardHeader, Icon, IconButton, Switch, useCopied, Warning } from "./ui";
+import { Button, Capsule, Card, CardHeader, Icon, IconButton, Segmented, Sheet, Switch, useCopied, Warning } from "./ui";
+
+export const RETENTION: { value: HistoryRetention; label: string; span: string }[] = [
+  { value: "day", label: "Day", span: "a day" },
+  { value: "week", label: "Week", span: "a week" },
+  { value: "month", label: "Month", span: "a month" },
+];
+
+export const retentionSpan = (r: HistoryRetention) => RETENTION.find((o) => o.value === r)?.span ?? "a day";
+
+const PAGE = 20;
+const MAX_SHOWN = 200;
 
 export function HistoryCard({ ctx }: { ctx: Ctx }) {
   const { settings, historyCount } = ctx.state;
   const enabled = settings.voiceDictation.historyEnabled;
+  const retention = settings.voiceDictation.historyRetention;
   const expanded = enabled && settings.historyExpanded;
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
+  const [query, setQuery] = useState("");
+  const [limit, setLimit] = useState(PAGE);
+  const [shorten, setShorten] = useState<{ keep: HistoryRetention; count: number } | null>(null);
+  const rank = (r: HistoryRetention) => RETENTION.findIndex((o) => o.value === r);
+  // A shorter span deletes older entries at once, so ask first.
+  const changeRetention = (keep: HistoryRetention) => {
+    if (rank(keep) >= rank(retention)) return ctx.saveVd({ historyRetention: keep });
+    api.countExpiringHistory(keep).then((count) => (count > 0 ? setShorten({ keep, count }) : ctx.saveVd({ historyRetention: keep })));
+  };
   useEffect(() => {
     if (!expanded) return;
-    const load = () => api.getHistory().then(setEntries);
+    let live = true;
+    const load = () =>
+      api.getHistory(query.trim(), limit).then((found) => {
+        if (live) setEntries(found);
+      });
     load();
     const un = on("history-changed", load);
     return () => {
+      live = false;
       un.then((f) => f());
     };
-  }, [expanded, historyCount]);
+  }, [expanded, historyCount, query, limit, retention]);
+  const span = retentionSpan(retention);
+  const searching = query.trim() !== "";
   return (
     <Card>
       <div className="flex items-start gap-2">
@@ -34,15 +62,37 @@ export function HistoryCard({ ctx }: { ctx: Ctx }) {
         <div className="flex-1">
           <CardHeader
             title={historyCount > 0 ? `Transcript history (${historyCount})` : "Transcript history"}
-            detail="Off by default. When on, Quill keeps what it heard and what it pasted on this PC for 24 hours, then deletes it. Audio is never stored."
+            detail={`Off by default. When on, Quill keeps what it heard and what it pasted on this PC for ${span}, then deletes it. Audio is never stored.`}
             right={<Switch label="Transcript history" checked={enabled} onChange={(v) => ctx.saveVd({ historyEnabled: v })} />}
           />
         </div>
       </div>
       {expanded && (
         <div className="mt-3">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <div className="flex h-[28px] min-w-[180px] flex-1 items-center gap-2 rounded-[6px] border border-card-border bg-fill px-2.5 focus-within:border-accent">
+              <svg aria-hidden="true" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" className="shrink-0 text-text-3"><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3 3" /></svg>
+              <input
+                type="search"
+                aria-label="Search history"
+                placeholder="Search transcripts and apps"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setLimit(PAGE);
+                }}
+                className="selectable min-w-0 flex-1 bg-transparent text-[12.5px] outline-none placeholder:text-text-3"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[12px] text-text-2">Keep for</span>
+              <Segmented value={retention} options={RETENTION} onChange={changeRetention} width={180} />
+            </div>
+          </div>
           {entries.length === 0 ? (
-            <p className="py-2 text-[12px] text-text-3">No transcripts yet. Each dictation shows up here for 24 hours.</p>
+            <p className="py-2 text-[12px] text-text-3">
+              {searching ? "No transcripts match." : `No transcripts yet. Each dictation shows up here for ${span}.`}
+            </p>
           ) : (
             <div className="flex flex-col">
               {entries.map((e) => (
@@ -50,12 +100,47 @@ export function HistoryCard({ ctx }: { ctx: Ctx }) {
               ))}
             </div>
           )}
-          <div className="mt-2 flex justify-end">
+          {entries.length >= MAX_SHOWN && (
+            <p className="pt-2 text-[12px] text-text-3">
+              {searching ? "Showing the newest 200 matches. Add words to narrow the search." : "Showing the newest 200. Search to find older ones."}
+            </p>
+          )}
+          <div className="mt-2 flex items-center justify-end gap-2">
+            {entries.length >= limit && limit < MAX_SHOWN && (
+              <Button small onClick={() => setLimit(Math.min(limit + PAGE, MAX_SHOWN))}>
+                Show more
+              </Button>
+            )}
             <Button kind="destructive" small disabled={historyCount === 0} onClick={() => api.clearHistory()}>
               Clear history
             </Button>
           </div>
         </div>
+      )}
+      {shorten && (
+        <Sheet
+          title={`Keep history for ${retentionSpan(shorten.keep)}?`}
+          width={380}
+          onClose={() => setShorten(null)}
+          footer={
+            <>
+              <Button onClick={() => setShorten(null)}>Cancel</Button>
+              <Button
+                kind="destructive"
+                onClick={() => {
+                  ctx.saveVd({ historyRetention: shorten.keep });
+                  setShorten(null);
+                }}
+              >
+                Delete
+              </Button>
+            </>
+          }
+        >
+          <p className="text-[12.5px] text-text-2">
+            {shorten.count === 1 ? "1 entry" : `${shorten.count} entries`} older than {retentionSpan(shorten.keep)} will be deleted.
+          </p>
+        </Sheet>
       )}
     </Card>
   );
@@ -63,14 +148,14 @@ export function HistoryCard({ ctx }: { ctx: Ctx }) {
 
 function HistoryRow({ entry }: { entry: HistoryEntry }) {
   const [copied, setCopied] = useCopied();
-  const [redo, setRedo] = useState<{ level: CleanupLevel; text?: string; error?: string } | null>(null);
+  const [redo, setRedo] = useState<{ level: CleanupLevel; done?: Redone; error?: string } | null>(null);
   const style = CLEANUP.find((c) => c.value === entry.level)?.label;
   const heard = entry.raw.trim();
   const redoAs = (level: CleanupLevel) => {
     setRedo({ level });
     api
       .redoHistory(entry.id, level)
-      .then((text) => setRedo({ level, text }))
+      .then((done) => setRedo({ level, done }))
       .catch((e) => setRedo({ level, error: String(e) }));
   };
   return (
@@ -121,11 +206,12 @@ function HistoryRow({ entry }: { entry: HistoryEntry }) {
         <div className="mt-2 rounded-[8px] bg-accent-soft px-3 py-2" aria-live="polite">
           {redo.error ? (
             <Warning>{redo.error}</Warning>
-          ) : redo.text == null ? (
+          ) : redo.done == null ? (
             <p className="text-[12px] text-text-2">Cleaning up as {CLEANUP.find((c) => c.value === redo.level)?.label}…</p>
           ) : (
             <>
-              <p className="selectable text-[12.5px] whitespace-pre-wrap">{redo.text}</p>
+              <p className="selectable text-[12.5px] whitespace-pre-wrap">{redo.done.text}</p>
+              {redo.done.cleanupNote && <p className="mt-1 text-[11px] text-text-3">{redo.done.cleanupNote}</p>}
               <p className="mt-1 text-[11px] text-text-3">
                 Copied as {CLEANUP.find((c) => c.value === redo.level)?.label}. Paste it with Ctrl+V.
               </p>
