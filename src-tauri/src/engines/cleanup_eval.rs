@@ -27,8 +27,6 @@ struct Fixture {
     guard_expected: bool,
 }
 
-/// The real model behind the pipeline, so rubrics grade what Quill would
-/// deliver, guard retries on halves included.
 struct Real<'a>(&'a mut S1Mini);
 
 impl Cleaner for Real<'_> {

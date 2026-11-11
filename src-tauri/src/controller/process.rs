@@ -120,7 +120,6 @@ impl Controller {
         let mut languages = heard.iter().map(|h| h.language.as_deref());
         let first = languages.next().flatten();
         let language = first.filter(|l| languages.all(|o| o == Some(*l)));
-        // Loaded before the cleanup clock starts, so a cold load doesn't use up the dictation's time.
         if info.has_cleanup && cfg.recipe.directive.is_some() && quill_core::langid::is_english(&raw, language) {
             if let Ok(((), Some(load))) = self.engines.with_cleaner(|_| ()) {
                 metrics.cold_start = true;
@@ -150,7 +149,6 @@ impl Controller {
 
     /// Run a history entry's raw transcript through cleanup again at
     /// `level`. Uses S1-mini when it is installed, whatever the engine.
-    /// Returns the text and why cleanup kept any words as heard.
     pub fn redo(self: &Arc<Self>, raw: &str, level: CleanupLevel, app_exe: &str, context: AppContext) -> Result<(String, Option<String>), String> {
         if raw.trim().is_empty() {
             return Err("This entry has no raw transcript to redo.".into());

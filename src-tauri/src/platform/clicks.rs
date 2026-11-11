@@ -1,6 +1,3 @@
-//! Pointer input for `input_activity`: mouse buttons, touches and pen,
-//! through Raw Input on a hidden message-only window. Unlike a low-level
-//! mouse hook, nothing here sits in the path of the cursor.
 //!
 //! Raw Input wakes this thread for every mouse move, so the devices are
 //! registered only while a continuation is possible (`watch`) and removed at
@@ -23,10 +20,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use super::input_activity::{self, QUILL_INPUT};
 
-/// The hidden window, once its thread runs.
 static WINDOW: AtomicIsize = AtomicIsize::new(0);
 static STARTED: AtomicBool = AtomicBool::new(false);
-/// The devices are registered to the hidden window.
 static WATCHING: AtomicBool = AtomicBool::new(false);
 #[cfg(test)]
 static LAST_EXTRA: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
@@ -40,10 +35,8 @@ const TOUCH_SCREEN: u16 = 0x04;
 const WM_WATCH: u32 = WM_APP + 1;
 const WM_STOP: u32 = WM_APP + 2;
 const WATCH_TIMER: usize = 1;
-/// A little past the continuation window, so the watch outlasts it.
 const WATCH_FOR: Duration = Duration::from_secs(quill_core::text::continuation::WINDOW.as_secs() + 5);
 
-/// Left, right, middle, and the two side buttons going down.
 const BUTTONS_DOWN: u16 = 0x0001 | 0x0004 | 0x0010 | 0x0040 | 0x0100;
 const SIDE_BUTTONS_DOWN: u16 = 0x0040 | 0x0100;
 
@@ -51,7 +44,6 @@ fn users_button_down(button_flags: u16, extra: u32) -> bool {
     button_flags & BUTTONS_DOWN != 0 && extra != QUILL_INPUT as u32
 }
 
-/// A large enough, aligned buffer for one Raw Input report.
 #[repr(C, align(8))]
 struct Report([u8; 1024]);
 
@@ -65,7 +57,6 @@ fn register(hwnd: HWND) -> bool {
     let [mouse, touch, pen] = devices(hwnd, RIDEV_INPUTSINK);
     let ok = unsafe { RegisterRawInputDevices(&[mouse], size) }.is_ok();
     if ok {
-        // Best effort: not every PC has a touch screen or pen.
         let _ = unsafe { RegisterRawInputDevices(&[touch, pen], size) };
     }
     ok
@@ -79,7 +70,6 @@ fn unregister() {
     }
 }
 
-/// Runs on the hidden window's thread.
 fn stop_here(hwnd: HWND) {
     if WATCHING.swap(false, SeqCst) {
         unregister();
@@ -122,7 +112,6 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                 let input = report.0.as_ptr() as *const RAWINPUT;
                 let kind = unsafe { (*input).header.dwType };
                 if kind == RIM_TYPEHID.0 {
-                    // A touch or pen report.
                     input_activity::pointer_input();
                     stop_here(hwnd);
                 } else if kind == RIM_TYPEMOUSE.0 {
@@ -132,8 +121,6 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                     LAST_EXTRA.store(mouse.ulExtraInformation, SeqCst);
                     if users_button_down(flags, mouse.ulExtraInformation) {
                         input_activity::pointer_input();
-                        // A side button may be Quill's shortcut, taken back
-                        // out of the count by the mouse hook: keep watching.
                         if flags & SIDE_BUTTONS_DOWN == 0 {
                             stop_here(hwnd);
                         }
@@ -151,8 +138,6 @@ fn window() -> Option<HWND> {
     (hwnd != 0).then_some(HWND(hwnd as *mut _))
 }
 
-/// Create the hidden window on a thread of its own. Nothing is registered
-/// until `watch`. Returns whether the window exists.
 pub fn start() -> bool {
     if STARTED.swap(true, SeqCst) {
         return window().is_some();
@@ -199,13 +184,10 @@ pub fn start() -> bool {
     spawned.is_ok() && ready_rx.recv().unwrap_or(false)
 }
 
-/// Register the devices and count pointer input for the continuation
-/// window. Waits until they are registered.
 pub fn watch() -> bool {
     window().is_some_and(|hwnd| unsafe { SendMessageW(hwnd, WM_WATCH, None, None) }.0 != 0)
 }
 
-/// Unregister the devices. Cheap enough to call from the keyboard hook.
 pub fn stop_watching() {
     if let (true, Some(hwnd)) = (WATCHING.load(SeqCst), window()) {
         let _ = unsafe { PostMessageW(Some(hwnd), WM_STOP, WPARAM(0), LPARAM(0)) };
@@ -228,8 +210,6 @@ fn still_registered() -> bool {
     devices[..read as usize].iter().any(|d| d.usUsagePage == GENERIC_DESKTOP && d.usUsage == MOUSE && d.hwndTarget == window)
 }
 
-/// Pointer input is being counted: the devices are registered and still
-/// report to the hidden window.
 pub fn watching() -> bool {
     WATCHING.load(SeqCst) && still_registered()
 }

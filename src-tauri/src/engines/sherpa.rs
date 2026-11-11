@@ -35,8 +35,6 @@ fn decode_with(rec: &OfflineRecognizer, samples: &[f32], language: Option<&str>,
     Ok(result.text.trim().to_string())
 }
 
-/// Measured on the hotword set (docs/DEVELOPMENT.md): 3.0 caught a few more
-/// terms but capitalized ordinary words that start like one.
 pub(crate) const HOTWORDS_SCORE: f32 = 1.5;
 
 #[cfg(windows)]
@@ -59,9 +57,6 @@ fn short_path(_: &Path) -> Option<String> {
     None
 }
 
-/// Writes the hotword vocabulary beside Parakeet's `tokens.txt` and returns
-/// a path sherpa-onnx can open, with the characters the model can spell.
-/// `None` when either fails; Parakeet then stays on greedy search.
 pub(crate) fn hotword_vocab(dir: &Path) -> Option<(String, HashSet<char>)> {
     let tokens = std::fs::read_to_string(dir.join("tokens.txt")).ok()?;
     let path = dir.join("bpe.vocab");
@@ -76,8 +71,6 @@ pub(crate) fn hotword_vocab(dir: &Path) -> Option<(String, HashSet<char>)> {
     Some((usable, single_char_pieces(&tokens)))
 }
 
-/// Parakeet's recognizer settings: greedy search, or with `hotword_vocab`'s
-/// path, modified beam search ready for hotwords.
 pub(crate) fn parakeet_config(dir: &Path, threads: usize, hotword_vocab: Option<String>) -> Result<OfflineRecognizerConfig, String> {
     let mut c = OfflineRecognizerConfig::default();
     c.model_config.transducer = OfflineTransducerModelConfig {
@@ -99,13 +92,10 @@ pub(crate) fn parakeet_config(dir: &Path, threads: usize, hotword_vocab: Option<
     Ok(c)
 }
 
-/// How the loaded Parakeet recognizer decodes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Decoding {
     Greedy,
-    /// Modified beam search with each dictation's terms as hotwords.
     Hotwords,
-    /// Hotwords were turned on but could not start: greedy until unloaded.
     Unavailable,
 }
 
@@ -125,7 +115,6 @@ impl Parakeet {
 
     fn target(&self) -> Decoding {
         match (self.hotwords.on.load(Relaxed), self.decoding) {
-            // Already greedy, so turning the switch off needs no rebuild.
             (_, Decoding::Unavailable) => Decoding::Unavailable,
             (false, _) => Decoding::Greedy,
             (true, _) => Decoding::Hotwords,
@@ -148,7 +137,6 @@ impl SpeechEngine for Parakeet {
         if self.is_loaded() {
             return Ok(());
         }
-        // Free the old recognizer first so two never sit in memory at once.
         self.rec = None;
         let mut decoding = self.target();
         let mut rec = None;
@@ -176,9 +164,6 @@ impl SpeechEngine for Parakeet {
     }
 
     fn transcribe(&mut self, samples: &[f32], request: &TranscribeRequest) -> Result<Transcript, String> {
-        // Parakeet detects the language itself and takes no prompt. With the
-        // switch on, terms bias decoding as hotwords; they are always applied
-        // to the transcript afterwards.
         let hotwords = match self.decoding {
             Decoding::Hotwords => hotword_terms(&request.vocabulary_terms, |t| spellable(t, &self.pieces), MAX_HOTWORDS),
             _ => Vec::new(),
@@ -274,7 +259,6 @@ mod tests {
         assert_eq!(p.target(), Decoding::Greedy);
     }
 
-    /// Needs the installed Parakeet model and `scripts/make-hotword-set.ps1`.
     #[test]
     #[ignore]
     fn installed_parakeet_uses_hotwords_only_when_switched_on() {

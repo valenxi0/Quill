@@ -24,8 +24,6 @@ use crate::vad::Vad;
 use super::{Controller, DictationView, Job, Preview, Session, SessionConfig};
 
 impl Controller {
-    /// A shortcut event, stamped `at` on the hook's clock. `binding` is
-    /// `None` for Escape and timer ticks. Returns when to send the next tick.
     pub fn on_hotkey(self: &Arc<Self>, input: Input, binding: Option<Binding>, at: u64) -> Option<u64> {
         let (mode, lone) = self.stores.settings.read(|s| {
             let vd = &s.voice_dictation;
@@ -39,13 +37,11 @@ impl Controller {
         let (act, deadline) = {
             let mut shortcut = self.shortcut.lock();
             let phase = self.phase();
-            // While a session runs, only the shortcut that started it drives it.
             if let (Some(b), Some((owner, generation))) = (binding, shortcut.owner) {
                 if b != owner && phase.is_busy() && self.is_current(generation) {
                     return shortcut.machine.deadline();
                 }
             }
-            // Escape and ticks carry no binding, and the machine doesn't read one for them.
             shortcut.machine.on(mode, lone, binding.unwrap_or(Binding::Dictate), input, at, phase)
         };
         match act {
@@ -107,7 +103,6 @@ impl Controller {
         self.start_as(false);
     }
 
-    /// `raw`: dictate without cleanup, whatever the style.
     fn start_as(self: &Arc<Self>, raw: bool) {
         // One start at a time (the hotkey and a launcher may race).
         if self.phase().is_busy() || self.starting.swap(true, SeqCst) {
@@ -117,7 +112,6 @@ impl Controller {
         self.starting.store(false, SeqCst);
     }
 
-    /// `raw`: dictate without cleanup.
     pub(super) fn start_inner(self: &Arc<Self>, sketch: Option<crate::platform::screen::Monitor>, raw: bool) {
         if self.phase().is_busy() {
             return;
@@ -157,7 +151,6 @@ impl Controller {
         let context = classify(&target.exe, &target.focused_name, target.aumid.as_deref(), vd.adapts_to_app);
         let info = vd.engine.info();
         let vocabulary = for_app(&vd.vocabulary, &target.exe);
-        // Parakeet caps its hotwords, so this app's terms go first.
         let terms = if info.recognizer == Recognizer::Parakeet { app_terms_first(&vocabulary) } else { vocabulary_terms(&vocabulary) };
         self.engines.set_hotwords(vd.wants_hotwords());
         let protected = protected_terms(&vocabulary);
@@ -350,9 +343,6 @@ impl Controller {
         let _ = s.worker.send(Job::Finish { stopped, audio_seconds, rms_dbfs: rms_dbfs(&samples) });
     }
 
-    /// Drop the recording and go straight back to idle, with no outcome on
-    /// screen: a quick tap in hold-or-lock, or a lone-modifier shortcut that
-    /// turned out to be part of a key chord.
     pub fn discard(self: &Arc<Self>) {
         if self.session.lock().as_ref().is_none_or(|s| s.sketch) {
             return;

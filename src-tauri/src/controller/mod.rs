@@ -81,7 +81,6 @@ struct Session {
     /// Fed by the monitor; `None` until it loads, or if it can't.
     vad: Option<Vad>,
     preview: Option<Preview>,
-    /// Puts other apps' audio back when the session ends, however it ends.
     _other_audio: Option<crate::platform::other_audio::Hold>,
 }
 
@@ -128,12 +127,9 @@ struct SessionConfig {
     preview_committed: Option<Arc<Mutex<Vec<String>>>>,
 }
 
-/// Turns shortcut presses into actions, and remembers which shortcut
-/// started the session it is driving.
 #[derive(Default)]
 struct Shortcut {
     machine: Activation,
-    /// The binding and generation of the session the shortcut started.
     owner: Option<(Binding, u64)>,
 }
 
@@ -155,8 +151,6 @@ pub struct Controller {
     watch_generation: AtomicU64,
     starting: std::sync::atomic::AtomicBool,
     shortcut: Mutex<Shortcut>,
-    /// The last transcript and where it went: for "Paste last transcript",
-    /// and for continuing it in apps that don't report their caret.
     last_paste: Mutex<Option<LastPaste<target::Target>>>,
     pub last_metrics: Mutex<Option<Metrics>>,
     pub warm_error: Mutex<Option<String>>,
@@ -194,7 +188,6 @@ impl Controller {
         })
     }
 
-    /// The last transcript delivered, if any.
     pub fn last_text(&self) -> Option<String> {
         self.last_paste.lock().as_ref().map(|l| l.text.clone())
     }

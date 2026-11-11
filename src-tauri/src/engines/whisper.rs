@@ -41,7 +41,6 @@ impl SpeechEngine for Whisper {
         if !self.path.exists() {
             return Err(format!("{} is missing. Download the engine again.", self.path.display()));
         }
-        // Covers ggml's Vulkan start and the warm-up pass below.
         let _start = gpu::start("Whisper");
         let gpu = gpu::use_gpu();
         // GPU first; CPU if the GPU backend can't start.

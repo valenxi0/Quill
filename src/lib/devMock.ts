@@ -14,7 +14,6 @@ const settings: Settings = {
   onboarded: new URLSearchParams(location.search).has("onboarded"),
   voiceDictation: {
     engine: "parakeetS1",
-    // ?shortcuts previews hold-or-lock, a side-button shortcut without cleanup, and the Right Alt note.
     activationMode: shortcuts ? "holdOrLock" : "pushToTalk",
     hotkey: shortcuts ? { vk: 0xa5, modifiers: 0 } : { vk: 0x4d, modifiers: 3 },
     rawHotkey: shortcuts ? { vk: 0x05, modifiers: 0 } : null,
@@ -36,7 +35,6 @@ const settings: Settings = {
     spokenEnter: false,
     splitsTerminalPastes: true,
     livePreview: false,
-    // ?missingmic previews a saved mic that isn't plugged in.
     inputDevice: new URLSearchParams(location.search).has("missingmic") ? { id: "{0.0.1.00000000}.{gone}", name: "Yeti Nano" } : null,
     avoidBluetoothMic: true,
     otherAudio: "nothing",
@@ -95,7 +93,6 @@ const state: UiState = {
   updateError: null,
 };
 
-// ?btdefault previews a Bluetooth headset as the Windows default.
 const mics: InputDevice[] = [
   { id: "{0.0.1.00000000}.{457aaca4}", name: "Microphone (Scarlett Solo USB)", bluetooth: false, isMic: true },
   { id: "{0.0.1.00000000}.{9c1e22b0}", name: "Headset (WH-1000XM5 Hands-Free)", bluetooth: true, isMic: true },
@@ -148,7 +145,6 @@ export async function installDevMock() {
   };
   apps = apps.filter((a) => !/\.|runtime|settings|host/i.test(a.name)).sort((a, b) => rank(a.exe) - rank(b.exe));
   insights.apps = apps.map((app, index) => ({ ...app, words: [5200, 3100, 1400, 960, 300, 156][index] ?? 78 }));
-  // Three samples, then filler so "Show more" has something to show.
   const history = [
     { id: "1", text: "Can we move the meeting to Thursday afternoon instead?", raw: "Um, can we move the meeting to, uh, Thursday afternoon instead?", level: "full", context: "chat", engine: "parakeetS1", appName: "Slack", appExe: "slack.exe", secondsSpoken: 3.1, releaseToPasteMs: 410, createdAt: new Date().toISOString() },
     { id: "2", text: "git commit -m \"fix the build\"", raw: "git commit dash m quote fix the build quote", level: "full", context: "terminal", engine: "parakeetS1", appName: "Windows Terminal", appExe: "WindowsTerminal.exe", secondsSpoken: 2.2, releaseToPasteMs: 180, createdAt: new Date().toISOString() },
@@ -179,7 +175,6 @@ export async function installDevMock() {
         return history.filter((e) => Date.now() - Date.parse(e.createdAt) >= days * 86_400_000).length;
       }
       case "animations_enabled": return true;
-      // ?gpucrash previews the CPU fallback note.
       case "gpu_fallback": return new URLSearchParams(location.search).has("gpucrash");
       case "parse_vocabulary_list": return [];
       case "test_vocabulary_entry": return "";

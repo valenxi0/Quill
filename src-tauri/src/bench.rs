@@ -415,7 +415,6 @@ pub fn hotwords(args: &[String]) -> Result<(), String> {
     let dir = models.dir(quill_core::engines::AssetId::ParakeetTdt06bV3);
     let out_dir = std::env::temp_dir().join("quill");
     std::fs::create_dir_all(&out_dir).map_err(|e| e.to_string())?;
-    // The vocabulary file, path, and term list a dictation would use.
     let shipped = crate::engines::hotword_vocab(&dir);
     match &shipped {
         Some((path, _)) => println!("hotword vocabulary: {path}"),
@@ -474,8 +473,6 @@ pub fn hotwords(args: &[String]) -> Result<(), String> {
         Ok(rec)
     };
     if paired {
-        // Both recognizers stay loaded and alternate clip by clip, so load
-        // from other processes lands on both sides of each comparison.
         let (a_cfg, b_cfg) = (&configs[0], configs.get(2).ok_or("--paired needs hotwords, which are unavailable")?);
         let (a, b) = (build(a_cfg)?, build(b_cfg)?);
         let mut deltas: Vec<f64> = Vec::new();

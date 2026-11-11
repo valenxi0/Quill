@@ -1,10 +1,7 @@
-//! Hesitation sounds, shared by cleanup, the cleanup guard, and voice insights.
 
 /// Sounds that are never words. Cleanup strips them.
 pub const HESITATIONS: &[&str] = &["um", "umm", "uh", "uhh", "uhm", "erm"];
 
-/// Counted as hesitations, but left in the text: "hmm" and "ah" can be
-/// meant, and "er" can be "the ER".
 const MAYBE_HESITATIONS: &[&str] = &["er", "hmm", "mm", "ah"];
 
 /// Lowercase, without punctuation.

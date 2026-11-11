@@ -1,12 +1,4 @@
-//! Other apps' audio while recording: lower or mute their WASAPI sessions,
-//! or pause media players, then put everything back.
 //!
-//! One worker thread owns all of it. Commands run in order, so a recording
-//! that starts right after another ends reads the restored volumes, never
-//! Quill's lowered ones. What Quill changed is written to a file before the
-//! first change and stays there until it is put back: after a crash, or when
-//! an app closed while lowered (Windows keeps its lowered volume for its next
-//! run), Quill restores it when a session of that app next appears.
 
 use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
@@ -29,22 +21,14 @@ use windows::Win32::Media::Audio::{
 };
 use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CoTaskMemFree, CLSCTX_ALL, COINIT_MULTITHREADED};
 
-/// How often a recording that lowers or mutes looks for audio that started
-/// after it did.
 const RECORDING_RESCAN: Duration = Duration::from_millis(500);
-/// A second look after a session appears: its volume and state can settle
-/// a moment after creation.
 const SECOND_LOOK: Duration = Duration::from_secs(1);
-/// How often Quill checks for a playback device plugged in since it started
-/// watching, while it still has volumes to put back.
 const DEVICE_CHECK: Duration = Duration::from_secs(5);
-/// How long a short recording waits for its pause to land before resuming.
 const PAUSE_LANDING: Duration = Duration::from_millis(300);
 
 enum Cmd {
     Begin { generation: u64, mode: OtherAudio, percent: u8 },
     End(u64),
-    /// Restore everything now, then acknowledge.
     Flush(Sender<()>),
     RestoreFile,
     SessionCreated,
@@ -52,7 +36,6 @@ enum Cmd {
 
 static WORKER: OnceLock<Sender<Cmd>> = OnceLock::new();
 
-/// Tests touch only their own player's sessions, never the user's apps.
 #[cfg(test)]
 static ONLY_APP: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 
@@ -65,7 +48,6 @@ fn send(cmd: Cmd) {
     let _ = tx.send(cmd);
 }
 
-/// Held by a recording. Dropping it puts other apps' audio back.
 pub struct Hold {
     generation: u64,
 }
@@ -76,8 +58,6 @@ impl Drop for Hold {
     }
 }
 
-/// Apply `mode` for the recording `generation`. Returns at once: the work
-/// happens on the worker, off the microphone's start path.
 pub fn hold(generation: u64, mode: OtherAudio, percent: u8) -> Option<Hold> {
     if mode == OtherAudio::Nothing {
         return None;
@@ -86,7 +66,6 @@ pub fn hold(generation: u64, mode: OtherAudio, percent: u8) -> Option<Hold> {
     Some(Hold { generation })
 }
 
-/// Put everything back before Quill exits.
 pub fn restore_all() {
     if WORKER.get().is_none() {
         return;
@@ -96,7 +75,6 @@ pub fn restore_all() {
     let _ = rx.recv_timeout(Duration::from_secs(2));
 }
 
-/// Restore what an earlier run left changed, now and as its apps reappear.
 pub fn restore_pending() {
     if crate::paths::audio_restore_file().exists() {
         send(Cmd::RestoreFile);
@@ -115,7 +93,6 @@ impl IAudioSessionNotification_Impl for Notifier_Impl {
     }
 }
 
-/// A player Quill paused, and whether its playback changed afterwards.
 struct Paused {
     session: MediaSession,
     token: i64,
@@ -123,7 +100,6 @@ struct Paused {
     changed: Arc<AtomicBool>,
 }
 
-/// What Quill changed for the recording `generation`.
 struct Active {
     generation: u64,
     mode: OtherAudio,
@@ -141,10 +117,8 @@ impl Active {
 #[derive(Default)]
 struct Worker {
     active: Option<Active>,
-    /// Changes whose app closed before Quill could put them back.
     unresolved: Vec<VolumeChange>,
     second_look: Option<Instant>,
-    /// Playback devices by endpoint id, with the notifier registered on each.
     watching: Vec<(String, IAudioSessionManager2, IAudioSessionNotification)>,
 }
 
@@ -186,8 +160,6 @@ impl Worker {
         [recording, self.second_look, devices].into_iter().flatten().min()
     }
 
-    /// Watch every active playback device for new sessions, re-registering
-    /// when the set of devices changed.
     fn refresh_watch(&mut self) {
         let devices = render_devices();
         let ids: Vec<&String> = devices.iter().map(|(id, _)| id).collect();
@@ -212,7 +184,6 @@ impl Worker {
     fn handle(&mut self, cmd: Cmd) {
         match cmd {
             Cmd::Begin { generation, mode, percent } => {
-                // A recording whose end never arrived keeps its originals.
                 let mut a = self.active.take().unwrap_or(Active { generation, mode, percent, changes: Vec::new(), paused: Vec::new() });
                 a.generation = generation;
                 a.mode = mode;
@@ -280,8 +251,6 @@ impl Worker {
         }
     }
 
-    /// Restore unresolved changes whose app is back. Sessions the current
-    /// recording holds are left to it. Returns whether anything was set.
     fn resolve(&mut self, sessions: &Sessions) -> bool {
         if self.unresolved.is_empty() {
             return false;
@@ -332,8 +301,6 @@ impl Worker {
             let changed = Arc::new(AtomicBool::new(false));
             let seen_paused = Arc::new(AtomicBool::new(false));
             let (flag, seen) = (changed.clone(), seen_paused.clone());
-            // Events before Quill's pause lands are ignored; any change after
-            // it is the user's, and that player is then left alone.
             let handler = TypedEventHandler::<MediaSession, PlaybackInfoChangedEventArgs>::new(move |sender, _| {
                 if let Some(s) = sender.as_ref() {
                     if status_of(s) == MediaStatus::Paused {
@@ -377,7 +344,6 @@ impl Worker {
         }
     }
 
-    /// Everything Quill still has to put back.
     fn pending(&self) -> Vec<VolumeChange> {
         self.active.iter().flat_map(|a| a.changes.iter().cloned()).chain(self.unresolved.iter().cloned()).collect()
     }
@@ -391,8 +357,6 @@ fn now_secs() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
-/// Apply restores; returns the changes whose restore didn't take, to try
-/// again later.
 fn put_back(sessions: &Sessions, restores: &[Restore]) -> Vec<VolumeChange> {
     let mut failed: Vec<VolumeChange> = Vec::new();
     for r in restores {
@@ -421,7 +385,6 @@ fn write(changes: &[VolumeChange]) {
     }
 }
 
-/// Sets what is given; returns which parts applied.
 fn set(volume: &ISimpleAudioVolume, level: Option<f32>, muted: Option<bool>) -> (bool, bool) {
     unsafe {
         let volume_ok = level.is_some_and(|l| volume.SetMasterVolume(l.clamp(0.0, 1.0), std::ptr::null()).is_ok());
@@ -430,7 +393,6 @@ fn set(volume: &ISimpleAudioVolume, level: Option<f32>, muted: Option<bool>) -> 
     }
 }
 
-/// Active playback devices: endpoint id and session manager.
 fn render_devices() -> Vec<(String, IAudioSessionManager2)> {
     unsafe {
         let Ok(e) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL) else { return Vec::new() };
@@ -453,7 +415,6 @@ fn take_string(p: windows::core::PWSTR) -> String {
     }
 }
 
-/// Every audio session on every active playback device.
 fn sessions() -> Sessions {
     let mut out = Vec::new();
     for (_, manager) in render_devices() {
@@ -494,7 +455,6 @@ fn status_of(s: &MediaSession) -> MediaStatus {
     }
 }
 
-/// Media players: app id, status, session.
 fn media_sessions() -> Vec<(String, MediaStatus, MediaSession)> {
     let Ok(manager) = MediaManager::RequestAsync().and_then(|op| op.join()) else { return Vec::new() };
     let Ok(list) = manager.GetSessions() else { return Vec::new() };

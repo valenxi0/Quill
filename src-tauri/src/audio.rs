@@ -23,7 +23,6 @@ pub enum AudioError {
     Failed,
 }
 
-/// Which microphone to open: the saved one, or the default.
 #[derive(Debug, Clone)]
 pub struct Microphone {
     pub saved: Option<SavedDevice>,
@@ -102,7 +101,6 @@ fn build<T: SizedSample + Send + 'static>(
 }
 
 impl Recording {
-    /// Open the microphone and start capturing.
     pub fn start(mic: Microphone) -> Result<Recording, AudioError> {
         let shared = Arc::new(Shared {
             samples: Mutex::new(Vec::with_capacity(16_000 * 30)),

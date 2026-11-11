@@ -14,7 +14,6 @@ pub const MAX_ENTRIES: usize = 10_000;
 /// The most records one history request returns.
 pub const MAX_RESULTS: usize = 200;
 
-/// How long a record is kept.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum Retention {

@@ -32,10 +32,8 @@ pub struct Quill {
     pub stores: Arc<Stores>,
     pub hook: Option<HotkeyHook>,
     pub hook_error: Option<String>,
-    /// The shortcut Settings is capturing, if any.
     pub capturing: Mutex<Option<ShortcutSlot>>,
     pub capture_error: Mutex<Option<String>>,
-    /// The mouse hook for a side-button shortcut, while one is needed.
     pub buttons: Mutex<Option<ButtonHook>>,
     pub preferred_languages: Vec<String>,
     pub updates: crate::updates::Updates,
@@ -270,14 +268,10 @@ impl Quill {
         }
     }
 
-    /// Which shortcut Settings is capturing, if any.
     pub fn capture_slot(&self) -> Option<ShortcutSlot> {
         *self.capturing.lock()
     }
 
-    /// Run the mouse hook only while a dictation shortcut needs the mouse (a
-    /// side button, or a lone modifier that clicks turn into chords), or
-    /// Settings is capturing.
     pub fn sync_buttons(&self) {
         let settings = self.stores.settings.get();
         let needs_mouse = |h: Hotkey| h.is_mouse() || h.is_lone_modifier();
@@ -325,7 +319,6 @@ impl Quill {
             self.stores.history.update(|h| h.clear());
         }
         if p.history_retention != n.history_retention {
-            // Settings asked before shortening; the notify below updates the count.
             purge_history(self);
         }
         if !next.enabled && self.controller.phase().is_busy() {
@@ -379,8 +372,6 @@ pub fn spawn_hook_consumer(app: AppHandle, rx: std::sync::mpsc::Receiver<HookEve
         .name("quill-hotkey-events".into())
         .spawn(move || {
             use std::sync::mpsc::RecvTimeoutError;
-            // The shortcut's next timer. Waiting here, instead of on a timer
-            // thread, handles a tick only after every key event before it.
             let mut deadline: Option<u64> = None;
             loop {
                 let event = match deadline {

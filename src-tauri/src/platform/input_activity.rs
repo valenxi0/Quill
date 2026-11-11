@@ -1,11 +1,4 @@
-//! The user's input between dictations: keys typed, mouse buttons pressed,
-//! touches and pen. A dictation continues Quill's last paste only when this
-//! count hasn't moved since that paste.
 //!
-//! Keys are counted by the keyboard hook all the time. Pointer input is
-//! counted through Raw Input (`clicks`) only while a continuation is
-//! possible: from just before a paste until the first input, or until the
-//! continuation window ends.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering::SeqCst};
 
@@ -13,7 +6,6 @@ use quill_core::settings::is_modifier_vk;
 
 use super::clicks;
 
-/// Tags input Quill sends (`dwExtraInfo`), so it isn't counted as the user's.
 pub const QUILL_INPUT: usize = 0x5155_494C;
 
 static KEYBOARD_HOOKED: AtomicBool = AtomicBool::new(false);
@@ -30,9 +22,6 @@ pub fn keyboard_hooked() {
     KEYBOARD_HOOKED.store(true, SeqCst);
 }
 
-/// A key-down that reached an app (Quill's shortcuts are swallowed before
-/// this). Keys other tools send (remappers, the on-screen keyboard, remote
-/// control) count; Quill's own and modifiers alone don't.
 pub fn key_down(vk: u32, extra: usize) {
     if extra != QUILL_INPUT && !is_modifier_vk(vk) {
         KEYS.fetch_add(1, SeqCst);
@@ -40,41 +29,31 @@ pub fn key_down(vk: u32, extra: usize) {
     }
 }
 
-/// A mouse button, touch or pen report seen by Raw Input.
 pub fn pointer_input() {
     POINTER.fetch_add(1, SeqCst);
 }
 
-/// A mouse side button went down as Quill's shortcut. Raw Input sees it
-/// too, so it is taken back out of the count.
 pub fn shortcut_button_down() {
     SHORTCUT_BUTTONS.fetch_add(1, SeqCst);
 }
 
-/// A watch ended: at the first input, when the window ran out, or on a stop.
 pub fn watch_ended() {
     WATCH_ENDS.fetch_add(1, SeqCst);
 }
 
-/// Start counting pointer input, just before a paste.
 pub fn watch() {
     clicks::watch();
 }
 
-/// Stop counting pointer input: no continuation is possible.
 pub fn stop() {
     clicks::stop_watching();
 }
 
-/// The input count; `None` unless keys and pointer input are both being
-/// counted, which turns continuation off.
 pub fn count() -> Option<u32> {
     (KEYBOARD_HOOKED.load(SeqCst) && clicks::watching())
         .then(|| combine(KEYS.load(SeqCst), POINTER.load(SeqCst), SHORTCUT_BUTTONS.load(SeqCst), WATCH_ENDS.load(SeqCst)))
 }
 
-/// A side button that is the dictation shortcut is pressed to dictate, not
-/// to click into the app, so it never stops a continuation.
 fn combine(keys: u32, pointer: u32, shortcut_buttons: u32, watch_ends: u32) -> u32 {
     keys.wrapping_add(pointer).wrapping_sub(shortcut_buttons).wrapping_add(watch_ends)
 }

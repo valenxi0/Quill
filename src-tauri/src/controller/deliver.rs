@@ -44,7 +44,6 @@ impl Controller {
         if delivery.text.is_empty() {
             let pressed = paste::focus(&cfg.target, &own) && still_current() && paste::press_enter();
             if pressed {
-                // The field moved on: the next dictation doesn't continue the last.
                 if let Some(last) = self.last_paste.lock().as_mut() {
                     last.pasted = false;
                 }
@@ -69,8 +68,6 @@ impl Controller {
         let mut written = match paste::try_write_clipboard_text(&delivery.text) {
             Ok(sequence) => sequence,
             Err(failed) => {
-                // The saved copy may be the only one left: a snapshot taken
-                // over an earlier transcript replaced that one's restore.
                 if let Some(saved) = saved {
                     saved.restore_after_failed_write(failed);
                 }
@@ -88,9 +85,6 @@ impl Controller {
             vec![delivery.text.clone()]
         };
         // Checked again right before each keystroke: Esc can land while the
-        // paste waits for the shortcut's modifiers to come up. The user's
-        // input count is read there too, so input during the waits after the
-        // paste (Enter, the next piece) counts as input since.
         let input_at_paste = Cell::new(None);
         let before_keys = || {
             input_at_paste.set(input_activity::count());
@@ -118,11 +112,9 @@ impl Controller {
             (true, Some(saved)) => {
                 saved.restore_after(paste::restore_delay(&cfg.target), written);
             }
-            // Cancelled before the paste: the user's copy comes back now.
             (false, Some(saved)) if !still_current() => {
                 saved.restore_now(written);
             }
-            // A failed paste leaves the transcript, so it can be pasted by hand.
             _ => {}
         }
         if !pasted {
@@ -186,7 +178,6 @@ impl Controller {
                 saved.restore_after(paste::restore_delay(&last.target), written);
             }
             let mut stored = me.last_paste.lock();
-            // Only if no newer dictation replaced it meanwhile.
             if let Some(current) = stored.as_mut().filter(|c| c.at == last.at) {
                 *current = LastPaste { at: Instant::now(), input: input_at_paste.get(), pasted: true, entered: false, ..last };
             }

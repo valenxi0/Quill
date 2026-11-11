@@ -8,7 +8,6 @@ use super::insertion::Surroundings;
 
 /// How long a paste stays the text before the caret.
 pub const WINDOW: Duration = Duration::from_secs(120);
-/// How much of the last paste stands in for the text before the caret.
 const TAIL_CHARS: usize = 200;
 
 /// Whether two captured targets are the same window of the same app.
