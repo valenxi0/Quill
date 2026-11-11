@@ -82,6 +82,17 @@ button {
   cursor: default;
 }
 
+/* Windows draws an open select's list from the options' colours. Without
+   these it is white, with the light text colour on it. */
+select {
+  color-scheme: dark;
+}
+select option,
+select optgroup {
+  background-color: var(--card);
+  color: var(--text);
+}
+
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;

@@ -195,6 +195,7 @@ pub fn run() {
             commands::hide_overlay,
             commands::dictation_command,
             commands::animations_enabled,
+            commands::pill_style,
             commands::last_metrics,
             commands::pending_suggestion,
             commands::check_for_updates,

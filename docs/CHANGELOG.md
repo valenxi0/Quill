@@ -11,7 +11,7 @@
 - "Dictate without cleanup": an optional second shortcut that pastes your words as spoken, with vocabulary, snippets, and numbers still applied. Set it under Settings → Dictation.
 - The dictation shortcut can be a mouse side button, or Right Ctrl or Right Alt pressed alone. A side button used as the shortcut no longer makes the browser go back. Right Ctrl or Right Alt alone starts recording after about 0.2 seconds held on its own (in Toggle, on a clean tap). Pressed with another key, a click, or the wheel (Ctrl+C, Ctrl+click), it works as usual: before the recording starts, or within its first second, Quill pastes nothing; later chords are typed while dictation continues.
 - Back-to-back dictations join up in apps that don't report their cursor. If you dictate into the same window within two minutes of Quill's last paste, without typing or clicking in between, the new text continues it: lowercase after a sentence that hasn't ended, a capital after one that has, and a space between.
-- "Put back what you copied" under Settings → Cleanup → Formatting: after a paste, Quill puts back what was on the clipboard before, text and images included, unless you copied something new meanwhile. Off by default, so the transcript stays on the clipboard as before.
+- "Put back what you copied" under Settings → Cleanup → Pasting: after a paste, Quill puts back what was on the clipboard before, text and images included, unless you copied something new meanwhile. Off by default, so the transcript stays on the clipboard as before.
 - Transcript history can keep entries for a day, a week, or a month (a day by default), up to 10,000 entries. Choosing a shorter time asks before it deletes older entries. Search history by text, the words heard, or the app, and use Show more to see up to 200 entries.
 - Vocabulary has an experimental "Listen for these terms" switch, off by default. With it on, Parakeet listens for up to 26 of your vocabulary terms while it recognizes, so names and jargon come out spelled your way more often. It can miss words after long pauses.
 
@@ -24,6 +24,11 @@
 - Pasting into Remote Desktop (mstsc and the Windows App) waits a moment after focusing the window, so the paste isn't lost.
 - Text Quill puts on the clipboard stays out of clipboard history (Win+V) and isn't synced to your other devices.
 - Transcript history says why an entry kept your words, such as "Kept your words: cleanup took too long.", and so does redoing an entry.
+- Settings → Cleanup has a new Pasting section. The "press enter" option, Split long pastes in terminals, and Put back what you copied moved there from Formatting. They work as before.
+
+### Fixed
+
+- Dropdowns in Settings, such as Microphone and Other audio while dictating, open as a dark list you can read. They used to show light grey text on white.
 
 ## [0.3.1] - 2026-11-09
 

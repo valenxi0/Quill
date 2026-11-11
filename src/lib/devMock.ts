@@ -2,7 +2,7 @@
 // http://localhost:1420). Never loaded inside the Tauri app.
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { emit } from "@tauri-apps/api/event";
-import type { InputDevice, Insights, KnownApp, Microphones, SavedDevice, Settings, UiState } from "./api";
+import type { InputDevice, Insights, KnownApp, Microphones, PillStyle, SavedDevice, Settings, UiState } from "./api";
 import pkg from "../../package.json";
 
 const shortcuts = new URLSearchParams(location.search).has("shortcuts");
@@ -42,6 +42,8 @@ const settings: Settings = {
     vocabularyBoost: false,
     restoreClipboard: false,
     historyRetention: "week",
+    // ?pill=dither previews another pill style.
+    pillStyle: (new URLSearchParams(location.search).get("pill") as PillStyle | null) ?? "bars",
   },
   sketch: { enabled: true, hotkey: { vk: 0x53, modifiers: 3 }, drawKey: "shift" },
 };
@@ -175,6 +177,7 @@ export async function installDevMock() {
         return history.filter((e) => Date.now() - Date.parse(e.createdAt) >= days * 86_400_000).length;
       }
       case "animations_enabled": return true;
+      case "pill_style": return settings.voiceDictation.pillStyle;
       case "gpu_fallback": return new URLSearchParams(location.search).has("gpucrash");
       case "parse_vocabulary_list": return [];
       case "test_vocabulary_entry": return "";

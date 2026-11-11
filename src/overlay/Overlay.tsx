@@ -1,6 +1,6 @@
 // The status pill. Redraws only on level updates; nothing animates while idle.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { api, on, type AppContext, type CorrectionPair, type DictationView, type UpdateInfo } from "../lib/api";
+import { api, on, type AppContext, type CorrectionPair, type DictationView, type PillStyle, type UpdateInfo } from "../lib/api";
 
 export default function Overlay({ preview }: { preview?: DictationView }) {
   const [view, setView] = useState<DictationView | null>(preview ?? null);
@@ -8,14 +8,21 @@ export default function Overlay({ preview }: { preview?: DictationView }) {
   const [reduced, setReduced] = useState(false);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [heard, setHeard] = useState("");
+  const [pillStyle, setPillStyle] = useState<PillStyle>("bars");
 
   useEffect(() => {
+    // Read again at every recording start, so a new choice in Settings shows next time.
+    const readStyle = () => api.pillStyle().then(setPillStyle).catch(() => {});
+    readStyle();
     const subs = [
       on<DictationView>("dictation", (v) => {
         setView(v);
         if (v.phase !== "idle") setSuggestion(null);
         if (v.phase !== "recording") setHeard("");
-        if (v.phase === "recording") api.animationsEnabled().then((a) => setReduced(!a));
+        if (v.phase === "recording") {
+          api.animationsEnabled().then((a) => setReduced(!a));
+          readStyle();
+        }
       }),
       on<CorrectionPair>("suggestion", (p) => {
         setSuggestion(p);
@@ -41,7 +48,7 @@ export default function Overlay({ preview }: { preview?: DictationView }) {
   return (
     <div className="flex h-screen items-end justify-center pb-2">
       <Pill recording={phase === "recording"}>
-        {phase === "recording" && <Listening context={view.context} heard={heard} />}
+        {phase === "recording" && <Listening context={view.context} heard={heard} pillStyle={pillStyle} />}
         {(phase === "transcribing" || phase === "cleaning") && (
           <>
             <Orb />
@@ -142,7 +149,7 @@ function Orb() {
 
 const BARS = 12;
 
-function Listening({ context, heard }: { context: AppContext; heard: string }) {
+function Listening({ context, heard, pillStyle }: { context: AppContext; heard: string; pillStyle: PillStyle }) {
   // The last 12 voice readings, newest on the right: a rolling waveform.
   const [bars, setBars] = useState<number[]>(() => Array(BARS).fill(0));
 
@@ -162,7 +169,7 @@ function Listening({ context, heard }: { context: AppContext; heard: string }) {
 
   return (
     <>
-      <div className="flex h-6 shrink-0 items-center gap-[2px]">
+      <div data-pill-style={pillStyle} className="flex h-6 shrink-0 items-center gap-[2px]">
         {bars.map((v, i) => (
           <span
             key={i}
