@@ -530,6 +530,7 @@ struct Mark<'a> {
 /// Drop expired history records; writes the file only when one expired.
 pub fn purge_history(q: &Quill) -> bool {
     let now = chrono::Utc::now();
-    let due = q.stores.history.read(|h| h.next_expiry().is_some_and(|t| t <= now));
-    due && q.stores.history.update(|h| h.purge(now))
+    let keep = q.stores.settings.read(|s| s.voice_dictation.history_retention);
+    let due = q.stores.history.read(|h| h.next_expiry(keep).is_some_and(|t| t <= now));
+    due && q.stores.history.update(|h| h.purge(now, keep))
 }

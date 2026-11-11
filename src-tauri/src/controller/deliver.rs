@@ -5,11 +5,34 @@ use quill_core::context::AppContext;
 use quill_core::errors::DictationError;
 use quill_core::pipeline::{prepare, DeliveryOptions, SegmentResult};
 use quill_core::state::Phase;
+use quill_core::text::continuation::{LastPaste, Window};
 use quill_core::text::spoken::paste_chunks;
 
-use crate::platform::{paste, target};
+use parking_lot::Mutex;
+
+use crate::platform::{hotkey, paste, target};
 
 use super::{Controller, DictationView, Metrics, SessionConfig};
+
+/// Quill's last paste, which the next dictation into the same window
+/// continues when the app doesn't report its caret.
+pub(super) static LAST_PASTE: Mutex<Option<LastPaste>> = Mutex::new(None);
+
+pub(super) fn window_of(target: &target::Target) -> Window {
+    Window { hwnd: target.hwnd, exe: target.exe.clone() }
+}
+
+/// Remember what was pasted into `target`, or forget the last paste.
+fn remember_paste(target: &target::Target, pasted: Option<String>) {
+    *LAST_PASTE.lock() =
+        pasted.map(|text| LastPaste { text, window: window_of(target), at: Instant::now(), typed: hotkey::typed_keys() });
+}
+
+/// Save the clipboard before a transcript replaces it, when the user asked
+/// for it back.
+fn save_clipboard(restore: bool) -> Option<paste::SavedClipboard> {
+    if restore { paste::SavedClipboard::take() } else { None }
+}
 
 impl Controller {
     pub(super) fn deliver(self: &Arc<Self>, cfg: &SessionConfig, result: SegmentResult, mut metrics: Metrics, stopped: Instant, rms: f32) {
@@ -35,6 +58,9 @@ impl Controller {
         // Only "press enter" was said: press it and deliver no text.
         if delivery.text.is_empty() {
             let pressed = paste::focus(&cfg.target, &own) && still_current() && paste::press_enter();
+            if pressed {
+                remember_paste(&cfg.target, None);
+            }
             self.outcome(
                 Some(cfg.generation),
                 DictationView {
@@ -51,6 +77,7 @@ impl Controller {
         let text = delivery.text.trim().to_string();
         *self.last_transcript.lock() = Some(text.clone());
         *self.last_target.lock() = Some(cfg.target.clone());
+        let saved = save_clipboard(self.stores.settings.read(|s| s.voice_dictation.restore_clipboard));
         if !paste::set_clipboard_text(&delivery.text) {
             self.fail_session(cfg.generation, DictationError::ClipboardFailed);
             return;
@@ -76,6 +103,11 @@ impl Controller {
             paste::press_enter()
         };
         let release_to_paste = stopped.elapsed();
+        remember_paste(&cfg.target, pasted.then(|| if entered { format!("{}\n", delivery.text) } else { delivery.text.clone() }));
+        // A failed paste leaves the transcript, so it can be pasted by hand.
+        if let (true, Some(saved)) = (pasted, saved) {
+            saved.restore_after(paste::restore_delay(&cfg.target));
+        }
 
         let outcome = match (pasted, entered) {
             (true, true) => "Pasted and sent",
@@ -107,9 +139,14 @@ impl Controller {
         let Some(text) = self.last_transcript.lock().clone() else { return };
         let target = self.last_target.lock().clone().unwrap_or_default();
         let own = self.shell.own_windows();
+        let restore = self.stores.settings.read(|s| s.voice_dictation.restore_clipboard);
         std::thread::spawn(move || {
-            if paste::set_clipboard_text(&text) {
-                paste::paste(&target, &own, || true);
+            let saved = save_clipboard(restore);
+            if paste::set_clipboard_text(&text) && paste::paste(&target, &own, || true) {
+                remember_paste(&target, Some(text));
+                if let Some(saved) = saved {
+                    saved.restore_after(paste::restore_delay(&target));
+                }
             }
         });
     }

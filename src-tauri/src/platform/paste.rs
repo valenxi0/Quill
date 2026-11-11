@@ -1,14 +1,18 @@
 //! Delivery: the clipboard is authoritative, the paste is best effort
 //! (section 4.2, step 6).
 
+use std::sync::atomic::{AtomicU64, Ordering::SeqCst};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use windows::Win32::Foundation::{GlobalFree, HANDLE, HWND};
+use parking_lot::Mutex;
+use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL, HWND};
 use windows::core::w;
 use windows::Win32::System::DataExchange::{
-    CloseClipboard, EmptyClipboard, OpenClipboard, RegisterClipboardFormatW, SetClipboardData,
+    CloseClipboard, EmptyClipboard, EnumClipboardFormats, GetClipboardData, GetClipboardSequenceNumber, OpenClipboard,
+    RegisterClipboardFormatW, SetClipboardData,
 };
-use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE};
 use windows::Win32::System::Ole::{CF_DIB, CF_UNICODETEXT};
 use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -81,6 +85,140 @@ unsafe fn put(format: u32, bytes: &[u8]) -> bool {
             false
         }
     }
+}
+
+/// The clipboard's contents, format by format.
+struct Snapshot {
+    formats: Vec<(u32, Vec<u8>)>,
+}
+
+/// A snapshot bigger than this isn't taken; the transcript then stays.
+const MAX_SNAPSHOT_BYTES: usize = 64 << 20;
+
+/// Formats whose data is a GDI or private handle rather than memory, so it
+/// can't be copied. Windows makes CF_BITMAP and the metafile formats again
+/// from the DIB and text formats that are copied.
+fn handle_format(format: u32) -> bool {
+    matches!(format, 2 | 3 | 9 | 14 | 0x80 | 0x82 | 0x83 | 0x8E) || (0x200..=0x3FF).contains(&format)
+}
+
+fn take_snapshot() -> Option<Snapshot> {
+    if !open_clipboard() {
+        return None;
+    }
+    let mut formats = Vec::new();
+    let mut total = 0usize;
+    unsafe {
+        let mut format = 0;
+        loop {
+            format = EnumClipboardFormats(format);
+            if format == 0 {
+                break;
+            }
+            if handle_format(format) {
+                continue;
+            }
+            let Ok(h) = GetClipboardData(format) else { continue };
+            let mem = HGLOBAL(h.0);
+            let size = GlobalSize(mem);
+            if size == 0 {
+                continue;
+            }
+            let ptr = GlobalLock(mem) as *const u8;
+            if ptr.is_null() {
+                continue;
+            }
+            total += size;
+            if total <= MAX_SNAPSHOT_BYTES {
+                formats.push((format, std::slice::from_raw_parts(ptr, size).to_vec()));
+            }
+            let _ = GlobalUnlock(mem);
+        }
+        let _ = CloseClipboard();
+    }
+    (total <= MAX_SNAPSHOT_BYTES).then_some(Snapshot { formats })
+}
+
+/// Put `snapshot` back, unless the clipboard changed since `sequence`.
+fn put_back(snapshot: &Snapshot, sequence: u32) -> bool {
+    if !open_clipboard() {
+        return false;
+    }
+    // Nothing else can change the clipboard while it's open.
+    let unchanged = unsafe { GetClipboardSequenceNumber() } == sequence;
+    if unchanged {
+        unsafe {
+            let _ = EmptyClipboard();
+            // The original copy is already in Win+V history; don't add it twice.
+            // The snapshot's own markers, if any, replace these.
+            mark_private();
+            for (format, bytes) in &snapshot.formats {
+                put(*format, bytes);
+            }
+        }
+    }
+    unsafe {
+        let _ = CloseClipboard();
+    }
+    unchanged
+}
+
+struct Pending {
+    snapshot: Arc<Snapshot>,
+    sequence: u32,
+    id: u64,
+}
+
+/// The restore waiting to run, if any.
+static PENDING: Mutex<Option<Pending>> = Mutex::new(None);
+static NEXT_RESTORE: AtomicU64 = AtomicU64::new(0);
+
+/// What was on the clipboard before Quill wrote a transcript, to put back
+/// after the paste.
+pub struct SavedClipboard(Arc<Snapshot>);
+
+impl SavedClipboard {
+    /// Save the clipboard. Taken while an earlier restore is still waiting,
+    /// the clipboard holds Quill's last transcript: that restore is
+    /// cancelled and its snapshot kept instead.
+    pub fn take() -> Option<Self> {
+        if let Some(p) = PENDING.lock().take() {
+            if p.sequence == unsafe { GetClipboardSequenceNumber() } {
+                return Some(Self(p.snapshot));
+            }
+        }
+        take_snapshot().map(|s| Self(Arc::new(s)))
+    }
+
+    /// Put the saved clipboard back after `delay`, unless something newer
+    /// was copied by then. Returns whether it was put back.
+    pub fn restore_after(self, delay: Duration) -> std::thread::JoinHandle<bool> {
+        let id = NEXT_RESTORE.fetch_add(1, SeqCst) + 1;
+        let sequence = unsafe { GetClipboardSequenceNumber() };
+        *PENDING.lock() = Some(Pending { snapshot: self.0, sequence, id });
+        std::thread::spawn(move || {
+            std::thread::sleep(delay);
+            let mut pending = PENDING.lock();
+            match pending.take() {
+                Some(p) if p.id == id => put_back(&p.snapshot, p.sequence),
+                other => {
+                    *pending = other;
+                    false
+                }
+            }
+        })
+    }
+}
+
+/// Remote Desktop forwards keys and the clipboard to another PC, which
+/// needs time to catch up.
+pub fn remote_desktop(exe: &str) -> bool {
+    ["mstsc.exe", "msrdc.exe"].iter().any(|e| exe.eq_ignore_ascii_case(e))
+}
+
+/// How long after the paste the clipboard is put back.
+pub fn restore_delay(target: &Target) -> Duration {
+    Duration::from_millis(if remote_desktop(&target.exe) { 3000 } else { 500 })
 }
 
 /// An image on the clipboard, as PNG (browsers and Electron apps) and as a
@@ -200,6 +338,9 @@ pub fn paste(target: &Target, own_windows: &[isize], still_current: impl Fn() ->
         return false;
     }
     wait_for_modifiers_up(Duration::from_millis(600));
+    if remote_desktop(&target.exe) {
+        std::thread::sleep(Duration::from_millis(400));
+    }
     if !still_current() {
         return false;
     }
@@ -271,6 +412,108 @@ mod tests {
         assert_private(&registered_formats());
         let rgba = [255u8, 0, 0, 255];
         assert!(set_clipboard_image(&[], 1, 1, &rgba), "image written");
+        assert_private(&registered_formats());
+    }
+
+    #[test]
+    fn remote_desktop_targets() {
+        assert!(remote_desktop("mstsc.exe") && remote_desktop("MSRDC.EXE"));
+        assert!(!remote_desktop("notepad.exe"));
+        let rdp = Target { exe: "mstsc.exe".into(), ..Default::default() };
+        assert_eq!(restore_delay(&rdp), Duration::from_secs(3));
+        assert_eq!(restore_delay(&Target::default()), Duration::from_millis(500));
+    }
+
+    /// A 2x1 DIB: a red and a blue pixel.
+    fn sample_dib() -> Vec<u8> {
+        let mut dib = Vec::new();
+        for v in [40u32, 2, 1] {
+            dib.extend_from_slice(&v.to_le_bytes());
+        }
+        dib.extend_from_slice(&1u16.to_le_bytes());
+        dib.extend_from_slice(&32u16.to_le_bytes());
+        dib.extend_from_slice(&0u32.to_le_bytes());
+        dib.extend_from_slice(&8u32.to_le_bytes());
+        dib.extend_from_slice(&[0u8; 16]);
+        dib.extend_from_slice(&[0, 0, 255, 255, 255, 0, 0, 255]);
+        dib
+    }
+
+    /// A copy made by the user, as another app would: text and an image,
+    /// no privacy markers.
+    fn user_copy(text: &str) {
+        let utf16: Vec<u8> = text.encode_utf16().chain([0]).flat_map(u16::to_le_bytes).collect();
+        assert!(open_clipboard(), "clipboard opened");
+        unsafe {
+            let _ = EmptyClipboard();
+            assert!(put(CF_UNICODETEXT.0 as u32, &utf16), "user text written");
+            assert!(put(CF_DIB.0 as u32, &sample_dib()), "user image written");
+            let _ = CloseClipboard();
+        }
+    }
+
+    fn read(format: u32) -> Option<Vec<u8>> {
+        assert!(open_clipboard(), "clipboard opened");
+        let out = unsafe {
+            GetClipboardData(format).ok().and_then(|h| {
+                let mem = HGLOBAL(h.0);
+                let size = GlobalSize(mem);
+                let ptr = GlobalLock(mem) as *const u8;
+                let v = (!ptr.is_null()).then(|| std::slice::from_raw_parts(ptr, size).to_vec());
+                let _ = GlobalUnlock(mem);
+                v
+            })
+        };
+        unsafe {
+            let _ = CloseClipboard();
+        }
+        out
+    }
+
+    fn text() -> String {
+        let bytes = read(CF_UNICODETEXT.0 as u32).unwrap_or_default();
+        let units: Vec<u16> = bytes.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).take_while(|u| *u != 0).collect();
+        String::from_utf16_lossy(&units)
+    }
+
+    fn image() -> Option<Vec<u8>> {
+        read(CF_DIB.0 as u32).map(|d| d[..sample_dib().len().min(d.len())].to_vec())
+    }
+
+    #[test]
+    #[ignore = "replaces the clipboard's contents"]
+    fn restores_the_users_clipboard_but_never_over_a_newer_copy() {
+        user_copy("The user's own copy");
+        let saved = SavedClipboard::take().expect("snapshot taken");
+        assert!(set_clipboard_text("Quill transcript"), "transcript written");
+        assert_eq!(text(), "Quill transcript");
+        assert!(saved.restore_after(Duration::from_millis(50)).join().unwrap(), "restored");
+        println!("after restore: text={:?} image={:?}", text(), image());
+        assert_eq!(text(), "The user's own copy");
+        assert_eq!(image(), Some(sample_dib()), "image back byte for byte");
+
+        user_copy("The user's own copy");
+        let saved = SavedClipboard::take().expect("snapshot taken");
+        assert!(set_clipboard_text("Quill transcript"), "transcript written");
+        let restore = saved.restore_after(Duration::from_millis(400));
+        std::thread::sleep(Duration::from_millis(100));
+        user_copy("A newer copy");
+        assert!(!restore.join().unwrap(), "skipped");
+        println!("newer copy kept: text={:?}", text());
+        assert_eq!(text(), "A newer copy");
+
+        user_copy("The user's own copy");
+        let first = SavedClipboard::take().expect("snapshot taken");
+        assert!(set_clipboard_text("First transcript"), "first written");
+        let first = first.restore_after(Duration::from_millis(400));
+        let second = SavedClipboard::take().expect("pending snapshot adopted");
+        assert!(set_clipboard_text("Second transcript"), "second written");
+        let second = second.restore_after(Duration::from_millis(50));
+        assert!(second.join().unwrap(), "second restored");
+        assert!(!first.join().unwrap(), "first cancelled");
+        println!("back-to-back dictations: text={:?} image={:?}", text(), image());
+        assert_eq!(text(), "The user's own copy");
+        assert_eq!(image(), Some(sample_dib()));
         assert_private(&registered_formats());
     }
 }

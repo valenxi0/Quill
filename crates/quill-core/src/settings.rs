@@ -192,6 +192,11 @@ pub struct VoiceDictation {
     /// Parakeet listens for vocabulary terms while it recognizes. Experimental:
     /// the beam search it needs can drop words after long pauses.
     pub vocabulary_boost: bool,
+    /// Put back what was on the clipboard after a paste. Off: the
+    /// transcript stays on the clipboard.
+    pub restore_clipboard: bool,
+    /// How long transcript history keeps a record.
+    pub history_retention: crate::history::Retention,
 }
 
 impl VoiceDictation {
@@ -264,6 +269,8 @@ impl Default for VoiceDictation {
             other_audio: OtherAudio::Nothing,
             lower_to_percent: DEFAULT_LOWER_TO_PERCENT,
             vocabulary_boost: false,
+            restore_clipboard: false,
+            history_retention: crate::history::Retention::Day,
         }
     }
 }
@@ -449,6 +456,20 @@ mod tests {
         assert_eq!(picked.voice_dictation.input_device.unwrap().id, "{0.0.1.00000000}.{abc}");
         assert_eq!(picked.voice_dictation.other_audio, OtherAudio::Lower);
         assert_eq!(picked.voice_dictation.lower_to_percent, 35);
+    }
+
+    #[test]
+    fn paste_and_history_fields_default_for_old_files() {
+        use crate::history::Retention;
+        let old: Settings = serde_json::from_str(r#"{"voiceDictation":{"engine":"parakeetS1","historyEnabled":true}}"#).unwrap();
+        assert!(!old.voice_dictation.restore_clipboard, "the transcript stays on the clipboard");
+        assert_eq!(old.voice_dictation.history_retention, Retention::Day);
+        let json = serde_json::to_value(Settings::default()).unwrap();
+        assert_eq!(json["voiceDictation"]["restoreClipboard"], false);
+        assert_eq!(json["voiceDictation"]["historyRetention"], "day");
+        let set: Settings = serde_json::from_str(r#"{"voiceDictation":{"restoreClipboard":true,"historyRetention":"week"}}"#).unwrap();
+        assert!(set.voice_dictation.restore_clipboard);
+        assert_eq!(set.voice_dictation.history_retention, Retention::Week);
     }
 
     #[test]

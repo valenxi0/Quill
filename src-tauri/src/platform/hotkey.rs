@@ -221,9 +221,27 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
             if info.flags.0 & LLKHF_INJECTED.0 == 0 && handle(s, info.vkCode, wparam.0 as u32) {
                 return LRESULT(1);
             }
+            count_typing(info, wparam.0 as u32);
         }
     }
     CallNextHookEx(None, code, wparam, lparam)
+}
+
+/// Keys the user pressed that reached an app: not Quill's shortcuts, not
+/// keys Quill sent, not modifiers alone.
+static TYPED_KEYS: AtomicU32 = AtomicU32::new(0);
+
+fn count_typing(info: &KBDLLHOOKSTRUCT, msg: u32) {
+    let down = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
+    if down && info.flags.0 & LLKHF_INJECTED.0 == 0 && !is_modifier_vk(info.vkCode) {
+        TYPED_KEYS.fetch_add(1, SeqCst);
+    }
+}
+
+/// How many keys the user has typed into other apps; `None` without the
+/// keyboard hook.
+pub fn typed_keys() -> Option<u32> {
+    SHARED.get().map(|_| TYPED_KEYS.load(SeqCst))
 }
 
 /// Returns true to swallow the key.

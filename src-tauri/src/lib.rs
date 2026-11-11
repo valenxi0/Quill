@@ -231,7 +231,8 @@ fn spawn_history_purge(quill: Arc<Quill>, app: tauri::AppHandle) {
         if app::purge_history(&quill) {
             app::notify(&app);
         }
-        let next = quill.stores.history.read(|h| h.next_expiry());
+        let keep = quill.stores.settings.read(|s| s.voice_dictation.history_retention);
+        let next = quill.stores.history.read(|h| h.next_expiry(keep));
         let wait = next
             .map(|t| (t - chrono::Utc::now()).to_std().unwrap_or(Duration::ZERO) + Duration::from_secs(1))
             .unwrap_or(Duration::from_secs(3600))
