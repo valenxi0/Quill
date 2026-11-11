@@ -43,13 +43,9 @@ pub fn corrections_file() -> PathBuf {
     config_dir().join("corrections.json")
 }
 
-/// `%LOCALAPPDATA%\Quill\gpu-starting.json`: present only while a GPU
-/// backend is starting. Machine-specific, so it does not roam.
+/// `%LOCALAPPDATA%\Quill\gpu-starting.json`: present while a GPU backend
+/// is starting, and after a start that crashed. Machine-specific, so it does
+/// not roam.
 pub fn gpu_marker_file() -> PathBuf {
     env_dir("LOCALAPPDATA").join("Quill").join("gpu-starting.json")
-}
-
-/// `%LOCALAPPDATA%\Quill\gpu-disabled.json`: a GPU start crashed; use the CPU.
-pub fn gpu_disabled_file() -> PathBuf {
-    env_dir("LOCALAPPDATA").join("Quill").join("gpu-disabled.json")
 }

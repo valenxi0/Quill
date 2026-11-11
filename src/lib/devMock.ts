@@ -126,7 +126,7 @@ export async function installDevMock() {
       ];
       case "animations_enabled": return true;
       // ?gpucrash previews the CPU fallback note.
-      case "gpu_fallback": return new URLSearchParams(location.search).has("gpucrash") ? { version: pkg.version, engine: "S1-mini" } : null;
+      case "gpu_fallback": return new URLSearchParams(location.search).has("gpucrash");
       case "parse_vocabulary_list": return [];
       case "test_vocabulary_entry": return "";
       case "redo_history": return "Could we move the meeting to Thursday afternoon?";

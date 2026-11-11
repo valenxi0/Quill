@@ -6,131 +6,157 @@
 //! once per process, before either engine touches ggml.
 
 use std::io::{self, Write};
-use std::path::Path;
-use std::sync::{Mutex, OnceLock};
+use std::path::PathBuf;
+use std::sync::{LazyLock, Mutex, OnceLock};
 
-use quill_core::gpu::{gpu_plan, GpuChoice, GpuRecord};
+use quill_core::gpu::{gpu_plan, GpuChoice, GpuMarker};
 
 use crate::paths;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-static CHOICE: OnceLock<GpuChoice> = OnceLock::new();
-/// GPU starts in flight. The marker exists while this is above zero.
-static STARTING: Mutex<usize> = Mutex::new(0);
+/// The marker file, and how many GPU starts are in flight. The file exists
+/// while the count is above zero, or after a start never returned.
+struct Marker {
+    path: PathBuf,
+    starting: Mutex<usize>,
+}
 
-fn read(path: &Path) -> Option<GpuRecord> {
-    let text = std::fs::read_to_string(path).ok()?;
-    match serde_json::from_str(&text) {
-        Ok(r) => Some(r),
-        Err(_) => {
-            let _ = remove(path);
-            None
+impl Marker {
+    fn new(path: PathBuf) -> Self {
+        Self { path, starting: Mutex::new(0) }
+    }
+
+    fn count(&self) -> std::sync::MutexGuard<'_, usize> {
+        self.starting.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Reads the marker left by an earlier run, deleting it if it is stale.
+    fn decide(&self, version: &str) -> GpuChoice {
+        let text = std::fs::read_to_string(&self.path).ok();
+        let plan = gpu_plan(text.as_deref(), version);
+        if plan.remove_marker {
+            let _ = self.remove();
+        }
+        plan.choice
+    }
+
+    /// Flushed before the GPU starts: a driver crash can take the whole
+    /// machine down with it.
+    fn write(&self, version: &str) -> io::Result<()> {
+        if let Some(dir) = self.path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        let mut f = std::fs::File::create(&self.path)?;
+        f.write_all(GpuMarker::new(version).to_json().as_bytes())?;
+        f.sync_all()
+    }
+
+    fn remove(&self) -> io::Result<()> {
+        match std::fs::remove_file(&self.path) {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        }
+    }
+
+    fn begin(&self, version: &str) {
+        let mut n = self.count();
+        if *n == 0 {
+            if let Err(e) = self.write(version) {
+                log::warn!("could not write the GPU start marker: {e}");
+            }
+        }
+        *n += 1;
+    }
+
+    fn end(&self) {
+        let mut n = self.count();
+        *n = n.saturating_sub(1);
+        if *n == 0 {
+            let _ = self.remove();
+        }
+    }
+
+    /// Quitting mid-start is not a driver crash.
+    fn release_on_exit(&self) {
+        if *self.count() > 0 {
+            let _ = self.remove();
         }
     }
 }
 
-/// Written whole or not at all, and flushed: a driver crash can take the
-/// whole machine down with it.
-fn write(path: &Path, record: &GpuRecord) -> io::Result<()> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let tmp = path.with_extension("json.tmp");
-    let mut f = std::fs::File::create(&tmp)?;
-    f.write_all(serde_json::to_string(record)?.as_bytes())?;
-    f.sync_all()?;
-    drop(f);
-    std::fs::rename(&tmp, path)
-}
-
-fn remove(path: &Path) -> io::Result<()> {
-    match std::fs::remove_file(path) {
-        Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
-        _ => Ok(()),
-    }
-}
+static MARKER: LazyLock<Marker> = LazyLock::new(|| Marker::new(paths::gpu_marker_file()));
+static CHOICE: OnceLock<GpuChoice> = OnceLock::new();
 
 /// Keeps ggml from registering its Vulkan backend, so nothing in this
-/// process loads the graphics driver.
-fn disable_vulkan() {
+/// process loads the graphics driver. Returns whether that worked.
+fn disable_vulkan() -> bool {
     // ggml reads this with the C runtime's getenv, which never sees
-    // SetEnvironmentVariable (std::env::set_var). _putenv_s updates both.
+    // SetEnvironmentVariable (std::env::set_var). _putenv_s sets both copies.
+    // Clearing the OS copy afterwards keeps it out of child processes, so a
+    // restarted Quill tries the GPU again.
     #[cfg(windows)]
     {
         extern "C" {
             fn _putenv_s(name: *const std::ffi::c_char, value: *const std::ffi::c_char) -> i32;
         }
         // SAFETY: both arguments are NUL-terminated literals.
-        unsafe { _putenv_s(c"GGML_DISABLE_VULKAN".as_ptr(), c"1".as_ptr()) };
+        let ok = unsafe { _putenv_s(c"GGML_DISABLE_VULKAN".as_ptr(), c"1".as_ptr()) } == 0;
+        std::env::remove_var("GGML_DISABLE_VULKAN");
+        ok
     }
     #[cfg(not(windows))]
-    std::env::set_var("GGML_DISABLE_VULKAN", "1");
+    false
 }
 
 /// Decided once per process, on first use.
-pub fn choice() -> &'static GpuChoice {
-    CHOICE.get_or_init(|| {
-        let (marker, disabled) = (paths::gpu_marker_file(), paths::gpu_disabled_file());
-        let plan = gpu_plan(read(&marker), read(&disabled), VERSION);
-        // The marker goes only once the disabled record is safely written.
-        let recorded = plan.write_disabled.as_ref().map_or(Ok(()), |r| write(&disabled, r));
-        if let Err(e) = &recorded {
-            log::warn!("could not record the GPU crash: {e}");
+pub fn choice() -> GpuChoice {
+    *CHOICE.get_or_init(|| match MARKER.decide(VERSION) {
+        GpuChoice::CpuAfterCrash if disable_vulkan() => {
+            log::warn!("a GPU start crashed Quill {VERSION}; using the CPU");
+            GpuChoice::CpuAfterCrash
         }
-        if plan.remove_marker && recorded.is_ok() {
-            let _ = remove(&marker);
+        GpuChoice::CpuAfterCrash => {
+            log::warn!("a GPU start crashed Quill {VERSION}, but the GPU could not be turned off");
+            GpuChoice::Gpu
         }
-        if plan.remove_disabled {
-            let _ = remove(&disabled);
-        }
-        if let GpuChoice::CpuAfterCrash { crash } = &plan.choice {
-            log::warn!("{} {} crashed while starting the GPU; using the CPU", crash.engine, crash.version);
-            disable_vulkan();
-        }
-        plan.choice
+        GpuChoice::Gpu => GpuChoice::Gpu,
     })
 }
 
 /// Whether engines should start on the GPU.
 pub fn use_gpu() -> bool {
-    cfg!(feature = "vulkan") && *choice() == GpuChoice::Gpu
+    cfg!(feature = "vulkan") && choice() == GpuChoice::Gpu
 }
 
-/// The crash that moved this process to the CPU, if any.
-pub fn fallback() -> Option<GpuRecord> {
-    match choice() {
-        GpuChoice::CpuAfterCrash { crash } => Some(crash.clone()),
-        GpuChoice::Gpu => None,
-    }
+/// Whether this run of Quill is on the CPU because a GPU start crashed.
+pub fn fallback() -> bool {
+    choice() == GpuChoice::CpuAfterCrash
 }
 
 /// Forget the crash. Takes effect at the next launch, since ggml's backend
 /// list is fixed for the life of the process.
 pub fn retry() -> io::Result<()> {
-    remove(&paths::gpu_disabled_file())?;
-    remove(&paths::gpu_marker_file())
+    MARKER.remove()
+}
+
+/// Call from the app's exit event.
+pub fn release_on_exit() {
+    MARKER.release_on_exit();
 }
 
 /// Hold for the whole GPU start; the marker is removed when the last one
 /// drops, on success or error.
 pub struct GpuStart(bool);
 
-pub fn start(engine: &str) -> GpuStart {
+pub fn start(_engine: &str) -> GpuStart {
     if !use_gpu() {
         return GpuStart(false);
     }
-    let mut starting = STARTING.lock().unwrap_or_else(|e| e.into_inner());
-    if *starting == 0 {
-        if let Err(e) = write(&paths::gpu_marker_file(), &GpuRecord::new(VERSION, engine)) {
-            log::warn!("could not write the GPU start marker: {e}");
-        }
-    }
-    *starting += 1;
-    drop(starting);
+    MARKER.begin(VERSION);
     #[cfg(debug_assertions)]
     if std::env::var_os("QUILL_SIMULATE_GPU_CRASH").is_some() {
-        eprintln!("QUILL_SIMULATE_GPU_CRASH: aborting during the {engine} GPU start");
+        eprintln!("QUILL_SIMULATE_GPU_CRASH: aborting during the {_engine} GPU start");
         std::process::abort();
     }
     GpuStart(true)
@@ -138,13 +164,94 @@ pub fn start(engine: &str) -> GpuStart {
 
 impl Drop for GpuStart {
     fn drop(&mut self) {
-        if !self.0 {
-            return;
+        if self.0 {
+            MARKER.end();
         }
-        let mut starting = STARTING.lock().unwrap_or_else(|e| e.into_inner());
-        *starting -= 1;
-        if *starting == 0 {
-            let _ = remove(&paths::gpu_marker_file());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct TempMarker(Marker);
+
+    impl std::ops::Deref for TempMarker {
+        type Target = Marker;
+        fn deref(&self) -> &Marker {
+            &self.0
         }
+    }
+
+    impl Drop for TempMarker {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(self.0.path.parent().unwrap());
+        }
+    }
+
+    fn marker(name: &str) -> TempMarker {
+        let dir = std::env::temp_dir().join(format!("quill-gpu-test-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        TempMarker(Marker::new(dir.join("gpu-starting.json")))
+    }
+
+    #[test]
+    fn a_start_that_returns_leaves_nothing() {
+        let m = marker("returns");
+        m.begin("1.0.0");
+        assert_eq!(std::fs::read_to_string(&m.path).unwrap(), r#"{"version":"1.0.0"}"#);
+        m.end();
+        assert!(!m.path.exists());
+        assert_eq!(m.decide("1.0.0"), GpuChoice::Gpu);
+    }
+
+    #[test]
+    fn overlapping_starts_keep_the_marker_until_the_last_ends() {
+        let m = marker("overlap");
+        m.begin("1.0.0");
+        m.begin("1.0.0");
+        m.end();
+        assert!(m.path.exists());
+        m.end();
+        assert!(!m.path.exists());
+    }
+
+    #[test]
+    fn a_start_that_never_returns_means_cpu_until_retry() {
+        let m = marker("crash");
+        m.begin("1.0.0");
+        let next = Marker::new(m.path.clone());
+        assert_eq!(next.decide("1.0.0"), GpuChoice::CpuAfterCrash);
+        assert_eq!(Marker::new(m.path.clone()).decide("1.0.0"), GpuChoice::CpuAfterCrash);
+        next.remove().unwrap();
+        next.remove().unwrap();
+        assert_eq!(Marker::new(m.path.clone()).decide("1.0.0"), GpuChoice::Gpu);
+    }
+
+    #[test]
+    fn a_new_version_deletes_the_marker() {
+        let m = marker("version");
+        m.begin("1.0.0");
+        assert_eq!(Marker::new(m.path.clone()).decide("1.1.0"), GpuChoice::Gpu);
+        assert!(!m.path.exists());
+    }
+
+    #[test]
+    fn quitting_mid_start_is_not_a_crash() {
+        let m = marker("quit");
+        m.release_on_exit();
+        m.begin("1.0.0");
+        m.release_on_exit();
+        assert_eq!(Marker::new(m.path.clone()).decide("1.0.0"), GpuChoice::Gpu);
+    }
+
+    #[test]
+    fn exit_without_a_start_keeps_a_crash_marker() {
+        let m = marker("cpu-exit");
+        m.write("1.0.0").unwrap();
+        let cpu_run = Marker::new(m.path.clone());
+        assert_eq!(cpu_run.decide("1.0.0"), GpuChoice::CpuAfterCrash);
+        cpu_run.release_on_exit();
+        assert!(m.path.exists());
     }
 }

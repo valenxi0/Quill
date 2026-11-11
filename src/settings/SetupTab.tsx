@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, LINKS, type AppStyle, type AssetView, type CleanupLevel, type EngineView, type GpuRecord } from "../lib/api";
+import { api, LINKS, type AppStyle, type AssetView, type CleanupLevel, type EngineView } from "../lib/api";
 import { bytes } from "../lib/format";
 import type { Ctx } from "./App";
 import { AppIcon, AppScope, scopeName, useKnownApps } from "./AppScope";
@@ -284,7 +284,7 @@ function EngineCard({ ctx }: { ctx: Ctx }) {
   const selected = ctx.state.engines.find((e) => e.id === vd.engine);
   const run = (p: Promise<unknown>) => p.catch((e) => setError(String(e)));
   // Fixed for the life of the process, so one read is enough.
-  const [gpuCrash, setGpuCrash] = useState<GpuRecord | null>(null);
+  const [gpuCrash, setGpuCrash] = useState(false);
   useEffect(() => {
     api.gpuFallback().then(setGpuCrash).catch(() => {});
   }, []);
