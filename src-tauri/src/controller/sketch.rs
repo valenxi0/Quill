@@ -17,6 +17,7 @@ use super::deliver::paste_in_pieces;
 use super::{Controller, DictationView, Metrics, SessionConfig};
 
 impl Controller {
+    /// The Sketch shortcut: start a Sketch, or finish the one running.
     pub fn sketch(self: &Arc<Self>) {
         if self.sketch.lock().is_some() {
             if self.phase() == Phase::Recording {
@@ -35,6 +36,7 @@ impl Controller {
         self.starting.store(false, SeqCst);
     }
 
+    /// The Sketch bar's buttons and Ctrl+Z.
     pub fn sketch_action(self: &Arc<Self>, action: &str) {
         let Some(session) = self.sketch.lock().clone() else { return };
         match action {
@@ -57,6 +59,9 @@ impl Controller {
         self.sketch.lock().take()
     }
 
+    /// Transcribes the pieces between marks, stitches them with the mark
+    /// numbers, draws the marks onto their screenshots, and pastes both into
+    /// the field the Sketch was started from: images first, then the text.
     pub(super) fn deliver_sketch(
         self: &Arc<Self>,
         cfg: &SessionConfig,
@@ -72,6 +77,8 @@ impl Controller {
         }
         let seconds = samples.len() as f64 / SAMPLE_RATE as f64;
         let mut metrics = Metrics { audio_seconds: seconds, ..Default::default() };
+        // Marks, clicks and settled screen changes, cut down to the
+        // screenshots worth sending.
         let moments = qs::pick(capture.moments, seconds);
         let anchors = qs::anchors(&moments);
         let marks: Vec<(usize, usize)> = anchors.iter().enumerate().map(|(i, a)| (i, a.sample)).collect();
@@ -85,6 +92,8 @@ impl Controller {
                 texts.push(String::new());
                 continue;
             }
+            // Long stretches between marks are recognized in pause-aware
+            // parts, then cleaned together.
             let mut heard = Vec::new();
             for part in split(piece, 20.0) {
                 match self.recognize(cfg, &piece[part], &mut metrics) {
@@ -105,6 +114,7 @@ impl Controller {
             return self.fail_session(cfg.generation, DictationError::NoSpeech);
         }
         let rate = SAMPLE_RATE as f64;
+        // A single screenshot of an untouched screen needs no list.
         let listed = moments.len() > 1 || moments.iter().any(|m| m.kind != MomentKind::Start);
         let frames: Vec<FrameLine> = if listed {
             moments
@@ -116,6 +126,8 @@ impl Controller {
         };
         let body = qs::compose(&texts, &cuts, &anchors, &frames);
 
+        // Every screenshot full size, each marked one followed by a crop
+        // around its ink; the sheet of all of them is saved as well.
         let renderer = Renderer::new(std::fs::read(r"C:\Windows\Fonts\segoeuib.ttf").ok());
         let mut images: Vec<(String, qs::Image)> = Vec::new();
         let mut rendered = Vec::new();
@@ -147,6 +159,8 @@ impl Controller {
             return;
         }
 
+        // Copied first, with the screenshot folder in the text, so nothing
+        // is lost if the paste can't happen.
         *self.last_paste.lock() = Some(quill_core::text::continuation::LastPaste::delivered(text.clone(), cfg.target.clone()));
         if !paste::set_clipboard_text(&text) {
             return self.fail_session(cfg.generation, DictationError::ClipboardFailed);
@@ -159,6 +173,8 @@ impl Controller {
         // A GUI composer takes PNG data as an attachment; a terminal agent
         // such as Claude Code takes a pasted image path.
         let mut pasted = !encoded.is_empty() && paste::focus(&cfg.target, &own) && still_current();
+        // Clicks while sketching move focus around the app; put it back in
+        // the field the Sketch started from.
         if let (true, Some(id)) = (pasted, cfg.target.element_id) {
             if uia::run(400, move |u| u.set_focus(id)) == Some(true) {
                 std::thread::sleep(Duration::from_millis(150));
@@ -184,6 +200,7 @@ impl Controller {
             let chunks = if terminal && cfg.splits_terminal_pastes { paste_chunks(&text) } else { vec![text.clone()] };
             pasted = paste_in_pieces(&cfg.target, &own, &chunks, still_current);
         }
+        // Leave the whole text on the clipboard.
         paste::set_clipboard_text(&text);
         let release_to_paste = stopped.elapsed();
         if encoded.is_empty() {
@@ -202,6 +219,8 @@ impl Controller {
         if !shown {
             return;
         }
+        // History and stats get what was said; nothing is learned from a
+        // Sketch's field.
         self.record(cfg, &results, &raw, &body, &metrics, release_to_paste, false);
         *self.last_metrics.lock() = Some(metrics);
         self.shell.state_changed();

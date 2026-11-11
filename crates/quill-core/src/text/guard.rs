@@ -159,6 +159,9 @@ pub fn negation_count(text: &str) -> usize {
         .count()
 }
 
+/// The words with stutters said once: "I'm not, I'm not going" keeps one
+/// "I'm not", so cleaning the repeat away doesn't read as a lost negation.
+/// A single repeated word stays, since "not not bad" means something.
 fn unstuttered(words: &[String]) -> Vec<&String> {
     let mut out: Vec<&String> = Vec::new();
     let mut i = 0;

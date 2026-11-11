@@ -1,3 +1,5 @@
+//!
+
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering::SeqCst};
 
 use quill_core::settings::is_modifier_vk;

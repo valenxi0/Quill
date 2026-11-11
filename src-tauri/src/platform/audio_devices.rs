@@ -1,3 +1,4 @@
+
 use quill_core::microphone::{choose, is_bluetooth_instance, InputDevice, MicChoice};
 use quill_core::settings::SavedDevice;
 use windows::core::{HSTRING, PCWSTR, PWSTR};

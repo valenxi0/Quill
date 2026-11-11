@@ -1,3 +1,4 @@
+//!
 //! whisper.cpp and llama.cpp share one ggml. ggml creates the Vulkan instance
 //! the first time anything asks for its backend list (`LlamaBackend::init`,
 //! or whisper's context), and only once per process. So the choice is made

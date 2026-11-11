@@ -14,6 +14,7 @@ impl Controller {
         });
     }
 
+    /// Settings → "Load Engine", and the warm-up after a download.
     pub fn warm_selected(self: &Arc<Self>) {
         let (engine, hotwords) = self.stores.settings.read(|s| (s.voice_dictation.engine, s.voice_dictation.wants_hotwords()));
         self.engines.set_hotwords(hotwords);

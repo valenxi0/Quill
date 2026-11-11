@@ -1,3 +1,4 @@
+
 /// Sounds that are never words. Cleanup strips them.
 pub const HESITATIONS: &[&str] = &["um", "umm", "uh", "uhh", "uhm", "erm"];
 

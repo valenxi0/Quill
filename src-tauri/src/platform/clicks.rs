@@ -1,3 +1,4 @@
+//!
 //! Raw Input wakes this thread for every mouse move, so the devices are
 //! registered only while a continuation is possible (`watch`) and removed at
 //! the first input or when the continuation window ends.

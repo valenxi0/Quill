@@ -40,6 +40,7 @@ impl Controller {
         let own = self.shell.own_windows();
         let still_current = || self.is_current(cfg.generation);
 
+        // Only "press enter" was said: press it and deliver no text.
         if delivery.text.is_empty() {
             let pressed = paste::focus(&cfg.target, &own) && still_current() && paste::press_enter();
             if pressed {
@@ -59,6 +60,7 @@ impl Controller {
             return;
         }
 
+        // The clipboard is authoritative: write it first.
         let text = delivery.text.trim().to_string();
         *self.last_paste.lock() = Some(LastPaste::delivered(text.clone(), cfg.target.clone()));
         let (restore, fits) = self.stores.settings.read(|s| (s.voice_dictation.restore_clipboard, s.voice_dictation.fits_to_cursor));
@@ -79,6 +81,7 @@ impl Controller {
         } else {
             vec![delivery.text.clone()]
         };
+        // Checked again right before each keystroke: Esc can land while the
         let input_at_paste = Cell::new(None);
         let before_keys = || {
             input_at_paste.set(input_activity::count());
@@ -86,6 +89,7 @@ impl Controller {
         };
         let pasted = if chunks.len() > 1 {
             let sent = paste_in_pieces(&cfg.target, &own, &chunks, before_keys);
+            // Leave the whole text on the clipboard, not the last piece.
             written = paste::write_clipboard_text(&delivery.text).unwrap_or(written);
             sent
         } else {
@@ -130,6 +134,7 @@ impl Controller {
             },
         );
         if !shown {
+            // Cancelled during delivery: nothing is recorded or learned.
             return;
         }
         self.record(cfg, std::slice::from_ref(&result), &raw, &text, &metrics, release_to_paste, pasted);
@@ -138,6 +143,7 @@ impl Controller {
         self.schedule_idle_unload();
     }
 
+    /// Paste the last transcript again, into the app it went to.
     pub fn paste_last(self: &Arc<Self>) {
         let Some(last) = self.last_paste.lock().clone() else { return };
         let own = self.shell.own_windows();
@@ -173,6 +179,8 @@ impl Controller {
     }
 }
 
+/// Pieces of a long terminal paste, one after another. Returns whether all
+/// were sent.
 pub(super) fn paste_in_pieces(target: &target::Target, own: &[isize], chunks: &[String], still_current: impl Fn() -> bool) -> bool {
     for (i, chunk) in chunks.iter().enumerate() {
         if i > 0 {
