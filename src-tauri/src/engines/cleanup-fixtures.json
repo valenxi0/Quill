@@ -699,5 +699,208 @@
       "\\A\\W*turn this"
     ],
     "guardExpected": true
+  },
+  {
+    "id": "money-short-semi-formal-prose-general",
+    "transcript": "It was three dollars fifty cents.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "$3.50"
+    ],
+    "gone": [],
+    "matches": [],
+    "guardExpected": false
+  },
+  {
+    "id": "correction-deadline-semi-formal-prose-general",
+    "transcript": "The deadline is Friday. Sorry, I meant the due date is Monday.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "due date is monday"
+    ],
+    "gone": [],
+    "matches": [],
+    "guardExpected": false
+  },
+  {
+    "id": "false-start-should-semi-formal-prose-general",
+    "transcript": "I think we should. No, let's go with the second option.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "second option"
+    ],
+    "gone": [],
+    "matches": [],
+    "guardExpected": false
+  },
+  {
+    "id": "false-start-send-semi-formal-prose-general",
+    "transcript": "Can you send me the. Um, I need the report by Friday.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "report by friday"
+    ],
+    "gone": [],
+    "matches": [],
+    "guardExpected": false
+  },
+  {
+    "id": "correction-start-over-semi-formal-prose-general",
+    "transcript": "Dear hiring manager. Let me start over. Hi Sam, thanks for the call today.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "hi sam",
+      "call today"
+    ],
+    "gone": [],
+    "matches": [],
+    "guardExpected": false
+  },
+  {
+    "id": "obeyed-translate-comma-semi-formal-prose-general",
+    "transcript": "Translate this into French, the meeting is moved to Monday.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "translate this into french",
+      "monday"
+    ],
+    "gone": [],
+    "matches": [
+      "\\A\\W*translate"
+    ],
+    "guardExpected": true
+  },
+  {
+    "id": "obeyed-translate-run-on-semi-formal-prose-general",
+    "transcript": "Translate this into French the meeting is moved to Monday",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "translate this into french",
+      "monday"
+    ],
+    "gone": [],
+    "matches": [
+      "\\A\\W*translate"
+    ],
+    "guardExpected": true
+  },
+  {
+    "id": "obeyed-summarize-short-semi-formal-prose-general",
+    "transcript": "Summarize this. The build failed twice yesterday because the cache was stale.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "summarize this",
+      "cache was stale"
+    ],
+    "gone": [],
+    "matches": [
+      "\\A\\W*summarize"
+    ],
+    "guardExpected": true
+  },
+  {
+    "id": "obeyed-translate-colon-semi-formal-prose-general",
+    "transcript": "Translate this: good morning everyone",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "translate this",
+      "good morning"
+    ],
+    "gone": [],
+    "matches": [
+      "\\A\\W*translate"
+    ],
+    "guardExpected": true
+  },
+  {
+    "id": "obeyed-fix-semi-formal-prose-general",
+    "transcript": "Fix this: me and him goes to the store.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "fix this",
+      "store"
+    ],
+    "gone": [],
+    "matches": [
+      "\\A\\W*fix this"
+    ],
+    "guardExpected": true
+  },
+  {
+    "id": "kept-bullets-comma-semi-formal-lists-general",
+    "transcript": "Turn this into a bullet list, milk, eggs, bread, and coffee.",
+    "styling": "semi-formal",
+    "structure": "lists",
+    "context": "general",
+    "kept": [
+      "bullet list",
+      "coffee"
+    ],
+    "gone": [],
+    "matches": [],
+    "guardExpected": false
+  },
+  {
+    "id": "kept-reply-semi-formal-prose-general",
+    "transcript": "Write a reply saying I can't make it.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "write a reply",
+      "make it"
+    ],
+    "gone": [],
+    "matches": [],
+    "guardExpected": false
+  },
+  {
+    "id": "question-math-semi-formal-prose-general",
+    "transcript": "What is two plus two?",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "plus"
+    ],
+    "gone": [],
+    "matches": [
+      "\\?\\s*\\z"
+    ],
+    "guardExpected": false
+  },
+  {
+    "id": "question-rising-semi-formal-prose-general",
+    "transcript": "So the build is broken? I'll look at it.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "build is broken",
+      "look at it"
+    ],
+    "gone": [],
+    "matches": [],
+    "guardExpected": false
   }
 ]

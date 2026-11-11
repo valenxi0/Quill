@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use parking_lot::Mutex;
 #[allow(unused_imports)]
 use quill_core::engines::{AssetId, EngineId, Recognizer};
+use quill_core::pipeline::CleanError;
 use quill_core::text::directive::Directive;
 
 use crate::models::ModelManager;
@@ -47,12 +48,8 @@ pub trait SpeechEngine: Send {
 pub trait TextCleaner: Send {
     fn load(&mut self) -> Result<(), String>;
     fn is_loaded(&self) -> bool;
-    fn clean(&mut self, text: &str, directive: Directive) -> Result<String, String>;
-    /// `clean`, returning `Err(quill_core::pipeline::TIMED_OUT)` once `deadline` passes.
-    fn clean_by(&mut self, text: &str, directive: Directive, deadline: Instant) -> Result<String, String> {
-        let _ = deadline;
-        self.clean(text, directive)
-    }
+    /// Gives up with `CleanError::TimedOut` at `deadline`.
+    fn clean(&mut self, text: &str, directive: Directive, deadline: Instant) -> Result<String, CleanError>;
     fn unload(&mut self);
 }
 

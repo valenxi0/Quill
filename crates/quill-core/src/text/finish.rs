@@ -82,11 +82,8 @@ pub fn join_seams(pieces: &[String]) -> String {
     join(&out)
 }
 
-/// Sounds that are never words. S1-mini's casual style keeps them.
-const HESITATIONS: &[&str] = &["um", "umm", "uh", "uhh", "uhm", "erm"];
-
 /// Drop "um" and "uh", with the comma after one, keeping a capital that
-/// started the sentence.
+/// started the sentence. S1-mini's casual style keeps them.
 pub fn strip_hesitations(text: &str) -> String {
     text.split('\n').map(strip_line).collect::<Vec<_>>().join("\n")
 }
@@ -96,7 +93,7 @@ fn strip_line(line: &str) -> String {
     let mut capitalize = false;
     for word in line.split(' ').filter(|w| !w.is_empty()) {
         let bare = word.trim_end_matches([',', '.', '!', '?']);
-        if !HESITATIONS.contains(&bare.to_lowercase().as_str()) {
+        if !crate::text::fillers::HESITATIONS.contains(&bare.to_lowercase().as_str()) {
             let mut word = word.to_string();
             if std::mem::take(&mut capitalize) {
                 word = crate::text::layout::capitalize(&word);

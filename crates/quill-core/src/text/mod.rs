@@ -2,6 +2,7 @@
 
 pub mod chunker;
 pub mod command;
+pub mod fillers;
 pub mod finish;
 pub mod guard;
 pub mod insertion;

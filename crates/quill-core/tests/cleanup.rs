@@ -1,6 +1,6 @@
 use quill_core::{
     context::{classify, AppContext},
-    pipeline::{process_segment, Cleaner, Recipe},
+    pipeline::{process_segment, CleanError, Cleaner, Recipe},
     settings::{CleanupLevel, VoiceDictation},
     text::{
         directive::Directive,
@@ -110,7 +110,7 @@ fn joins_and_segment_edges() {
 fn cues_and_snippets_bypass_cleaner() {
     struct Echo(Vec<String>);
     impl Cleaner for Echo {
-        fn clean(&mut self, text: &str, _: Directive) -> Result<String, String> {
+        fn clean(&mut self, text: &str, _: Directive, _: std::time::Instant) -> Result<String, CleanError> {
             self.0.push(text.into());
             Ok(text.into())
         }
@@ -218,7 +218,7 @@ fn settings_migration_and_email_context() {
 fn casual_cleanup_cannot_lowercase_a_cue_boundary() {
     struct Lower;
     impl Cleaner for Lower {
-        fn clean(&mut self, text: &str, _: Directive) -> Result<String, String> {
+        fn clean(&mut self, text: &str, _: Directive, _: std::time::Instant) -> Result<String, CleanError> {
             Ok(text.to_lowercase())
         }
     }

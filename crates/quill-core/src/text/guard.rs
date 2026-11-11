@@ -43,6 +43,7 @@ fn unstuttered(words: &[String]) -> Vec<&String> {
     out
 }
 
+use super::fillers::{correction_len, is_dangling, is_light, FILLER_PAIRS};
 use super::numbers::{format_numbers, Itn};
 use regex::Regex;
 use std::{collections::HashSet, sync::LazyLock};
@@ -110,7 +111,6 @@ const NUMBER_WORDS: &[(&str, &str)] = &[
     ("half", "5"),
     ("quarter", "25"),
 ];
-const FILLERS: &str = "like know just really actually basically literally kind sort mean well okay yeah right that this with have what when then they them there here were been will would could should about from into your their which because think going gonna wanna thing things some very also still wait sorry scratch dollars dollar percent cents point";
 
 fn words(text: &str) -> Vec<String> {
     text.split_whitespace().map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase()).collect()
@@ -164,7 +164,7 @@ pub fn dropped_sentence(raw: &str, cleaned: &str) -> Option<String> {
                         && !NUMBER_WORDS.iter().any(|(word, _)| word == w)
                         && !NEGATIONS.contains(&w.as_str())
                         && !BARE_CONTRACTIONS.contains(&w.as_str())
-                        && !FILLERS.split_whitespace().any(|f| f == w)
+                        && !is_light(w)
                 })
                 .collect();
             if content.len() < 5 {
@@ -182,29 +182,9 @@ pub fn dropped_sentence(raw: &str, cleaned: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-pub fn is_number_word(w: &str) -> bool {
-    NUMBER_WORDS.iter().any(|(word, _)| *word == w)
-}
-
 static LIST_MARKERS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\s*(?:\d+[.)]|[-*\u{2022}])\s+").unwrap());
-
-const HESITATION_WORDS: &[&str] = &["um", "umm", "uh", "uhh", "uhm", "erm", "er", "ah", "hmm", "mm"];
-
-/// Words cleanup is meant to drop, self-corrections included. They don't
-/// count as input that went missing.
-const SPOKEN_FILLERS: &[&str] = &[
-    "so", "okay", "ok", "well", "like", "basically", "actually", "literally", "honestly", "just", "really", "yeah",
-    "right", "maybe", "no", "sorry", "wait", "scratch", "oops",
-];
-const FILLER_PAIRS: &[(&str, &str)] = &[("you", "know"), ("i", "mean"), ("kind", "of"), ("sort", "of"), ("kinda", ""), ("sorta", "")];
-
-/// Short words cleanup adds or drops freely; they say nothing about whether
-/// the output is the same text.
-const GLUE: &[&str] = &[
-    "a", "an", "the", "and", "or", "but", "to", "of", "in", "on", "at", "for", "with", "by", "as", "is", "are", "am",
-    "was", "be", "it", "this", "that", "i", "we", "you", "he", "she", "they", "do", "not", "have", "has", "will",
-    "would", "can", "if", "then", "there", "here", "also", "very",
-];
+static CLAUSES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[.!?:;]\s+").unwrap());
+static SENTENCE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[^.!?]+[.!?]*").unwrap());
 
 /// Lowercase words with contractions spelled out and list markers left
 /// out, so "don't" matches "do not" and "1. Update" matches "update".
@@ -245,6 +225,8 @@ fn tokens(text: &str) -> Vec<String> {
                 "gonna" => out.extend(["going".into(), "to".into()]),
                 "wanna" => out.extend(["want".into(), "to".into()]),
                 "gotta" => out.extend(["got".into(), "to".into()]),
+                "gimme" => out.extend(["give".into(), "me".into()]),
+                "lemme" => out.extend(["let".into(), "me".into()]),
                 "cannot" => out.extend(["can".into(), "not".into()]),
                 _ => out.push(word),
             },
@@ -253,91 +235,141 @@ fn tokens(text: &str) -> Vec<String> {
     out
 }
 
-/// Words that matter for the overlap checks: no figures, number words,
-/// hesitations, or fillers.
-fn countable(tokens: &[String]) -> Vec<&str> {
+/// The words that carry meaning: no figures, number words, fillers, units,
+/// or common short words.
+fn meaning(tokens: &[String]) -> Vec<&str> {
     let mut out = Vec::new();
     let mut i = 0;
     while i < tokens.len() {
         let w = tokens[i].as_str();
-        if let Some((_, second)) = FILLER_PAIRS.iter().find(|(a, b)| *a == w && (b.is_empty() || tokens.get(i + 1).is_some_and(|n| n == b))) {
-            i += if second.is_empty() { 1 } else { 2 };
+        if FILLER_PAIRS.iter().any(|(a, b)| *a == w && tokens.get(i + 1).is_some_and(|n| n == b)) {
+            i += 2;
             continue;
         }
         i += 1;
-        if w.chars().any(|c| c.is_ascii_digit())
-            || is_number_word(w)
-            || HESITATION_WORDS.contains(&w)
-            || SPOKEN_FILLERS.contains(&w)
-        {
-            continue;
+        if !(w.chars().any(|c| c.is_ascii_digit()) || is_number_word(w) || is_light(w)) {
+            out.push(w);
         }
-        out.push(w);
     }
     out
 }
 
-/// Whether `word` appears in `pool`, allowing a different ending
-/// ("frustrating", "frustrated").
-fn appears(word: &str, pool: &HashSet<&str>) -> bool {
-    pool.contains(word)
-        || (word.chars().count() >= 6 && {
-            let stem: String = word.chars().take(5).collect();
-            pool.iter().any(|p| p.starts_with(&stem))
+/// A text's words, for asking whether another text's words appear in it.
+struct Pool {
+    words: HashSet<String>,
+    /// Lowercase letters and digits only, so "git hub" finds "GitHub".
+    squashed: String,
+}
+
+impl Pool {
+    fn new(text: &str) -> Self {
+        let words = tokens(text).into_iter().collect();
+        Self { words, squashed: text.to_lowercase().chars().filter(|c| c.is_alphanumeric()).collect() }
+    }
+
+    /// Allows a different ending ("frustrating", "frustrated"), British
+    /// spelling ("colour", "centre"), and words written together.
+    fn has(&self, word: &str) -> bool {
+        let american = word.strip_suffix("our").map(|s| format!("{s}or")).or_else(|| word.strip_suffix("tre").map(|s| format!("{s}ter")));
+        [Some(word.to_string()), american].into_iter().flatten().any(|w| {
+            self.words.contains(&w)
+                || (w.chars().count() >= 3 && self.squashed.contains(&w))
+                || (w.chars().count() >= 6 && {
+                    let stem: String = w.chars().take(5).collect();
+                    self.words.iter().any(|p| p.starts_with(&stem))
+                })
         })
+    }
 }
 
-/// Output words the input doesn't have, and input words the output lost,
-/// over the words that carry meaning.
-struct Overlap {
-    input: usize,
-    output: usize,
-    added: usize,
-    lost: usize,
+/// How many meaning words `said` has, and how many of them `kept` lost.
+/// One test for a whole chunk and for each clause, with different bars.
+fn loss(said: &[String], kept: &Pool) -> (usize, usize) {
+    let words = meaning(said);
+    (words.len(), words.iter().filter(|w| !kept.has(w)).count())
 }
-
-fn overlap(raw: &str, cleaned: &str) -> Overlap {
-    let (raw_tokens, out_tokens) = (tokens(raw), tokens(cleaned));
-    let raw_pool: HashSet<&str> = raw_tokens.iter().map(String::as_str).collect();
-    let out_pool: HashSet<&str> = out_tokens.iter().map(String::as_str).collect();
-    let input = countable(&raw_tokens);
-    let output = countable(&out_tokens);
-    let added = output.iter().filter(|w| !GLUE.contains(w) && !appears(w, &raw_pool)).count();
-    let lost = input.iter().filter(|w| !GLUE.contains(w) && !appears(w, &out_pool)).count();
-    Overlap { input: input.len(), output: output.len(), added, lost }
-}
-
-static CLAUSES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[.!?:;]\s+").unwrap());
 
 /// The output says much more than was dictated: an answer, a poem, a reply.
 pub fn added_text(raw: &str, cleaned: &str) -> bool {
-    let o = overlap(raw, cleaned);
-    o.output > 2 * o.input + 4 || (o.added >= 4 && o.added * 2 >= o.output)
+    let (input, _) = loss(&tokens(raw), &Pool::new(cleaned));
+    let (output, added) = loss(&tokens(cleaned), &Pool::new(raw));
+    output > 2 * input + 4 || (added >= 4 && added * 2 >= output)
 }
 
-/// Most of what was said is gone, or a whole sentence or clause of it.
-/// S1-mini follows a dictated "Translate this into French:" or "Summarize
-/// this." by deleting it, which the longer-sentence check misses.
+/// Most of what was said is gone, a whole clause of it, or the opening
+/// instruction. S1-mini follows a dictated "Translate this into French" or
+/// "Summarize this." by deleting it. Clauses taken back are left out: a
+/// false start ("I think we should.") or one a correction follows
+/// ("Friday. Sorry, I meant Monday."), and the correction's own cue.
 pub fn dropped_words(raw: &str, cleaned: &str) -> Option<String> {
-    let o = overlap(raw, cleaned);
-    if o.input >= 3 && o.lost * 2 > o.input {
-        return Some(raw.trim().to_string());
+    let kept = Pool::new(cleaned);
+    if let Some(run) = dropped_instruction(raw, &kept) {
+        return Some(run);
     }
-    let out_tokens = tokens(cleaned);
-    let out_pool: HashSet<&str> = out_tokens.iter().map(String::as_str).collect();
-    CLAUSES
-        .split(raw)
-        .find(|clause| {
-            let clause_tokens = tokens(clause);
-            let words: Vec<&str> = countable(&clause_tokens).into_iter().filter(|w| !GLUE.contains(w)).collect();
-            words.len() >= 2 && words.iter().all(|w| !appears(w, &out_pool))
-        })
-        .map(|clause| clause.trim().to_string())
+    let clauses: Vec<Vec<String>> = CLAUSES.split(raw).map(tokens).collect();
+    let (mut said, mut lost) = (0, 0);
+    for (i, clause) in clauses.iter().enumerate() {
+        let false_start = clause.last().is_some_and(|w| is_dangling(w));
+        if false_start || clauses.get(i + 1).is_some_and(|next| correction_len(next) > 0) {
+            continue;
+        }
+        let (n, l) = loss(&clause[correction_len(clause)..], &kept);
+        if n >= 2 && l == n {
+            return Some(CLAUSES.split(raw).nth(i).unwrap_or(raw).trim().to_string());
+        }
+        said += n;
+        lost += l;
+    }
+    let (_, added) = loss(&tokens(cleaned), &Pool::new(raw));
+    ((said >= 3 && lost * 2 > said) || (said >= 1 && lost == said && added > 0)).then(|| raw.trim().to_string())
 }
 
-/// A question came back as a statement with something new in it.
-pub fn question_answered(raw: &str, cleaned: &str) -> bool {
-    raw.contains('?') && !cleaned.contains('?') && overlap(raw, cleaned).added > 0
+/// Verbs that open an instruction about the text itself.
+const INSTRUCTIONS: &[&str] = &[
+    "translate", "summarize", "summarise", "rewrite", "rephrase", "reword", "paraphrase", "proofread", "shorten",
+    "convert", "format",
+];
+
+/// An opening instruction about the text that S1-mini carried out by
+/// deleting it: a verb, gone from the output, that is an instruction verb
+/// or is followed within a few words by "this", "that", or "the following"
+/// ("Translate good morning into Spanish", "Fix this:").
+fn dropped_instruction(raw: &str, kept: &Pool) -> Option<String> {
+    let words = tokens(raw);
+    let start = words.iter().position(|w| !is_light(w))?;
+    let verb = words[start].as_str();
+    if is_number_word(verb) || kept.has(verb) {
+        return None;
+    }
+    let pointer = words[start + 1..].iter().take(5).position(|w| w == "this" || w == "that" || w == "following");
+    match pointer {
+        Some(p) => Some(words[start..=start + 1 + p].join(" ")),
+        None => INSTRUCTIONS.contains(&verb).then(|| verb.to_string()),
+    }
+}
+
+/// A question came back as a statement that adds something: an answer.
+/// Only the output sentence closest to the question counts, so a tidied
+/// "So it's broken? I'll look." isn't one. Number words count as added.
+pub fn question_answered(raw: &str, cleaned: &str, itn: Option<&dyn Itn>) -> bool {
+    let sentences: Vec<&str> = SENTENCE.find_iter(cleaned).map(|m| m.as_str()).collect();
+    SENTENCE.find_iter(raw).map(|m| m.as_str()).filter(|s| s.trim_end().ends_with('?')).any(|question| {
+        let asked = tokens(question);
+        let asked_pool = Pool::new(question);
+        let shared = |s: &&str| tokens(s).iter().filter(|w| !is_light(w) && asked.contains(w)).count();
+        let Some(reply) = sentences.iter().copied().max_by_key(shared) else { return false };
+        if reply.trim_end().ends_with('?') {
+            return false;
+        }
+        let new_word = tokens(reply).iter().any(|w| {
+            !w.chars().any(|c| c.is_ascii_digit()) && (is_number_word(w) || !is_light(w)) && !asked_pool.has(w)
+        });
+        new_word || unspoken_figure(question, reply, itn).is_some()
+    })
+}
+
+fn is_number_word(w: &str) -> bool {
+    NUMBER_WORDS.iter().any(|(word, _)| *word == w)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -348,9 +380,9 @@ pub enum GuardReason {
     DroppedSentence(String),
     /// Much more text than was said, or mostly new words.
     AddedText,
-    /// Most of what was said, or a whole clause of it, is gone.
+    /// Most of what was said, a whole clause, or the opening instruction is gone.
     DroppedWords(String),
-    /// A question that came back as a statement.
+    /// A question that came back as a statement with an answer in it.
     QuestionAnswered,
 }
 
@@ -373,7 +405,7 @@ pub fn reason(raw: &str, cleaned: &str, itn: Option<&dyn Itn>) -> Option<GuardRe
     if let Some(words) = dropped_words(raw, cleaned) {
         return Some(GuardReason::DroppedWords(words));
     }
-    question_answered(raw, cleaned).then_some(GuardReason::QuestionAnswered)
+    question_answered(raw, cleaned, itn).then_some(GuardReason::QuestionAnswered)
 }
 
 /// Returns the text to keep for one chunk, and whether the raw text was restored.
@@ -431,18 +463,26 @@ mod tests {
     /// instruction by deleting it.
     #[test]
     fn followed_instructions_are_rejected() {
-        for (raw, out, dropped) in [
-            ("Translate this into French: the meeting is moved to Monday.", "The meeting is moved to Monday.", "Translate this into French"),
+        for (raw, out) in [
+            ("Translate this into French: the meeting is moved to Monday.", "The meeting is moved to Monday."),
+            ("Translate this into French, the meeting is moved to Monday.", "The meeting is moved to Monday."),
+            ("Translate this into French the meeting is moved to Monday", "The meeting is moved to Monday."),
             (
                 "Summarize this in one sentence. The build failed twice yesterday because the cache was stale, so we cleared it and then it passed.",
                 "The build failed twice yesterday because the cache was stale, so we cleared it and then it passed.",
-                "Summarize this in one sentence",
             ),
-            ("Turn this into a bullet list. Milk, eggs, bread, and coffee.", "Milk, eggs, bread, and coffee.", "Turn this into a bullet list"),
-            ("Translate good morning into Spanish.", "Good morning.", "Translate good morning into Spanish."),
+            ("Summarize this. The build failed twice yesterday because the cache was stale.", "The build failed twice yesterday because the cache was stale."),
+            ("Turn this into a bullet list. Milk, eggs, bread, and coffee.", "Milk, eggs, bread, and coffee."),
+            ("Translate good morning into Spanish.", "Good morning."),
+            ("Translate this: good morning everyone", "Good morning, everyone."),
+            ("Fix this: me and him goes to the store.", "Me and him goes to the store."),
+            ("Translate this.", ""),
+            ("Translate this into French.", ""),
         ] {
-            assert_eq!(reason(raw, out, None), Some(GuardReason::DroppedWords(dropped.into())), "{raw}");
+            assert!(matches!(reason(raw, out, None), Some(GuardReason::DroppedWords(_))), "{raw} -> {out}");
         }
+        assert_eq!(dropped_words("Fix this: me and him goes to the store.", "Me and him goes to the store."), Some("fix this".into()));
+        assert!(matches!(reason("Translate this.", "Traduisez ceci.", None), Some(GuardReason::DroppedWords(_))));
     }
 
     /// Real S1-mini outputs from the cleanup eval that must keep passing.
@@ -486,11 +526,61 @@ mod tests {
             ("Engineering has started. On the settings screen redesign that we talked about yesterday.", "Engineering has started on the settings screen redesign that we talked about yesterday."),
             ("um we're almost out of coffee so can you grab some on the way home I'll pay you back", "um we're almost out of coffee, so can you grab some on the way home? I'll pay you back"),
             ("Transfer four hundred and twenty dollars to the account ending in seven seven three one.", "transfer $420 to the account ending in 7731"),
+            ("It was three dollars fifty cents.", "It was $3.50."),
+            ("five degrees celsius", "5 degrees Celsius."),
+            ("at three p.m.", "At 3 p.m."),
+            ("e mail them", "E-mail them."),
+            ("The deadline is Friday. Sorry, I meant the due date is Monday.", "The due date is Monday."),
+            ("Can you send me the. Um, I need the report by Friday.", "Can you send me the report by Friday?"),
+            ("Dear hiring manager. Let me start over. Hi Sam, thanks for the call today.", "Dear Hiring Manager. Let me start over. Hi Sam, thanks for the call today."),
+            ("Turn this into a bullet list, milk, eggs, bread, and coffee.", "Turn this into a bullet list:\n- Milk\n- Eggs\n- Bread\n- Coffee"),
+            ("Write a reply saying I can't make it.", "Write a reply saying I can't make it."),
+            ("What is two plus two?", "What is 2 plus 2?"),
+            ("Is it twenty five?", "Is it 25?"),
             ("okay thanks", "Okay, thanks."),
             ("um, sounds good", "Sounds good."),
         ] {
             assert_eq!(reason(raw, out, itn.as_deref()), None, "{raw}");
         }
+    }
+
+    /// Outputs a reviewer expected S1-mini might write. It didn't in the
+    /// eval, but they are fair cleanups.
+    #[test]
+    fn units_spellings_and_corrections_pass() {
+        let itn = crate::text::numbers::default_itn();
+        for (raw, out) in [
+            ("ten dollars and fifty cents", "$10.50"),
+            ("five degrees celsius", "5°C"),
+            ("twenty kilometers per hour", "20 km/h"),
+            ("at three p.m.", "At 3 PM."),
+            ("check git hub", "Check GitHub."),
+            ("e mail them", "Email them."),
+            ("gimme a sec", "Give me a second."),
+            ("the colour of the centre", "The color of the center."),
+            ("The deadline is Friday. Sorry, I meant the due date is Monday.", "The due date is Monday."),
+            ("I think we should. No, let's go with the second option.", "Let's go with the second option."),
+            ("Can you send me the. Um, I need the report by Friday.", "I need the report by Friday."),
+            ("Dear hiring manager. Let me start over. Hi Sam, thanks for the call today.", "Hi Sam, thanks for the call today."),
+            ("So the build is broken? I'll look at it.", "The build is broken. I'll take a look at it."),
+            ("I wonder if we should go?", "I wonder whether we should go."),
+            ("It was frustrating, you know?", "It was frustrating."),
+            ("Tuesday, no, Thursday", "Thursday"),
+            ("um, okay, so, yeah", "Okay."),
+            ("I'm gonna be late", "I am going to be late."),
+            ("we can't go", "We cannot go."),
+            ("the meetings are moved", "The meeting is moved."),
+        ] {
+            assert_eq!(reason(raw, out, itn.as_deref()), None, "{raw} -> {out}");
+        }
+    }
+
+    #[test]
+    fn corrections_still_need_the_correction() {
+        assert!(matches!(
+            reason("The deadline is Friday. Sorry, I meant the due date is Monday.", "The deadline is Friday.", None),
+            Some(GuardReason::DroppedWords(_))
+        ));
     }
 
     #[test]
@@ -500,17 +590,12 @@ mod tests {
         let reply = "Sure! Here are some ideas: a picnic in the park, a pizza place downtown, or a taco bar.";
         assert_eq!(reason("Give me ideas for a team lunch.", reply, None), Some(GuardReason::AddedText));
         assert_eq!(reason("What is the capital of France?", "The capital of France is Paris.", None), Some(GuardReason::QuestionAnswered));
-        assert_eq!(reason("What is the capital of France?", "Paris.", None), Some(GuardReason::DroppedWords("What is the capital of France?".into())));
-    }
-
-    #[test]
-    fn small_edits_are_not_answers() {
-        assert_eq!(reason("It was frustrating, you know?", "It was frustrating.", None), None);
-        assert_eq!(reason("Tuesday, no, Thursday", "Thursday", None), None);
-        assert_eq!(reason("um, okay, so, yeah", "Okay.", None), None);
-        assert_eq!(reason("I'm gonna be late", "I am going to be late.", None), None);
-        assert_eq!(reason("we can't go", "We cannot go.", None), None);
-        assert_eq!(reason("the meetings are moved", "The meeting is moved.", None), None);
+        assert_eq!(reason("What is two plus two?", "Two plus two is four.", None), Some(GuardReason::QuestionAnswered));
+        assert_eq!(
+            reason("Ship it. What is the capital of France?", "Ship it. The capital of France is Paris.", None),
+            Some(GuardReason::QuestionAnswered)
+        );
+        assert!(matches!(reason("What is the capital of France?", "Paris.", None), Some(GuardReason::DroppedWords(_))));
     }
 
     #[test]

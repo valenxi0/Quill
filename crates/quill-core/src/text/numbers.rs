@@ -562,6 +562,24 @@ pub fn format_numbers(text: &str, terminal: bool, itn: &dyn Itn) -> String {
     detokenize(&out)
 }
 
+/// A text of only numbers, number words, and punctuation, formatted, when
+/// formatting turns all of it into figures: cleanup has nothing left to do.
+/// "one, two, three" stays words, so it isn't one.
+pub fn only_figures(text: &str, terminal: bool, itn: &dyn Itn) -> Option<String> {
+    let numeric = text.split_whitespace().all(|w| {
+        let w = w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
+        w.is_empty()
+            || w.chars().all(|c| c.is_ascii_digit() || ",.:%$".contains(c))
+            || ["and", "point", "a", "half", "quarter"].contains(&w.as_str())
+            || w.split('-').all(|part| is_number_word(part) || ordinal(part).is_some())
+    });
+    if !numeric {
+        return None;
+    }
+    let formatted = format_numbers(text, terminal, itn);
+    (!formatted.chars().any(char::is_alphabetic)).then_some(formatted)
+}
+
 #[cfg(all(test, feature = "itn"))]
 mod tests {
     use super::*;

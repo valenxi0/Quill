@@ -16,7 +16,7 @@ use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::model::{AddBos, LlamaModel};
 use llama_cpp_2::sampling::LlamaSampler;
 use quill_core::text::directive::Directive;
-use quill_core::pipeline::TIMED_OUT;
+use quill_core::pipeline::{cleanup_budget, CleanError};
 use quill_core::text::finish::tidy_s1;
 
 use super::TextCleaner;
@@ -86,6 +86,10 @@ impl S1Mini {
     }
 }
 
+fn failed(e: impl ToString) -> CleanError {
+    CleanError::Failed(e.to_string())
+}
+
 fn decode_tokens(ctx: &mut LlamaContext, tokens: &[llama_cpp_2::token::LlamaToken], start: usize) -> Result<(), String> {
     let mut batch = LlamaBatch::new(N_BATCH as usize, 1);
     for chunk_start in (0..tokens.len()).step_by(N_BATCH as usize) {
@@ -132,7 +136,7 @@ impl TextCleaner for S1Mini {
         decode_tokens(&mut ctx, &prefix, 0)?;
         self.loaded = Some(Loaded { ctx, model, prefix_len: prefix.len() });
         // Warm the generation path once.
-        let _ = self.clean("okay so this is a test", Directive::default());
+        let _ = self.clean("okay so this is a test", Directive::default(), Instant::now() + cleanup_budget(6));
         Ok(())
     }
 
@@ -140,26 +144,25 @@ impl TextCleaner for S1Mini {
         self.loaded.is_some()
     }
 
-    fn clean(&mut self, text: &str, directive: Directive) -> Result<String, String> {
-        self.clean_by(text, directive, Instant::now() + Duration::from_secs(24 * 3600))
-    }
-
-    fn clean_by(&mut self, text: &str, directive: Directive, deadline: Instant) -> Result<String, String> {
+    fn clean(&mut self, text: &str, directive: Directive, deadline: Instant) -> Result<String, CleanError> {
         let start = Instant::now();
-        let l = self.loaded.as_mut().ok_or("S1-mini is not loaded.")?;
+        let l = self.loaded.as_mut().ok_or_else(|| failed("S1-mini is not loaded."))?;
         let model: &LlamaModel = &l.model;
-        l.ctx.clear_kv_cache_seq(Some(0), Some(l.prefix_len as u32), None).map_err(|e| e.to_string())?;
+        l.ctx.clear_kv_cache_seq(Some(0), Some(l.prefix_len as u32), None).map_err(failed)?;
 
         let budget = {
-            let n = model.str_to_token(text, AddBos::Never).map_err(|e| e.to_string())?.len();
+            let n = model.str_to_token(text, AddBos::Never).map_err(failed)?.len();
             ((n as f64 * 1.3 + 32.0) as usize).min(MAX_OUTPUT)
         };
-        let user = model.str_to_token(&user_turn(directive, text), AddBos::Never).map_err(|e| e.to_string())?;
+        let user = model.str_to_token(&user_turn(directive, text), AddBos::Never).map_err(failed)?;
         if l.prefix_len + user.len() + budget > N_CTX as usize {
-            return Err("The text is too long for S1-mini.".into());
+            return Err(failed("The text is too long for S1-mini."));
         }
         let deadline = deadline.min(start + time_limit(user.len(), budget));
-        decode_tokens(&mut l.ctx, &user, l.prefix_len)?;
+        if Instant::now() >= deadline {
+            return Err(CleanError::TimedOut);
+        }
+        decode_tokens(&mut l.ctx, &user, l.prefix_len).map_err(CleanError::Failed)?;
 
         let mut sampler = LlamaSampler::greedy();
         let mut decoder = encoding_rs::UTF_8.new_decoder();
@@ -170,20 +173,20 @@ impl TextCleaner for S1Mini {
         let mut logits_index = ((user.len() - 1) % N_BATCH as usize) as i32;
         for _ in 0..budget {
             if Instant::now() >= deadline {
-                return Err(TIMED_OUT.into());
+                return Err(CleanError::TimedOut);
             }
             let token = sampler.sample(&l.ctx, logits_index);
             sampler.accept(token);
             if model.is_eog_token(token) {
                 break;
             }
-            out.push_str(&model.token_to_piece(token, &mut decoder, true, None).map_err(|e| e.to_string())?);
+            out.push_str(&model.token_to_piece(token, &mut decoder, true, None).map_err(failed)?);
             if out.contains("<|im_end|>") {
                 break;
             }
             batch.clear();
-            batch.add(token, pos as i32, &[0], true).map_err(|e| e.to_string())?;
-            l.ctx.decode(&mut batch).map_err(|e| e.to_string())?;
+            batch.add(token, pos as i32, &[0], true).map_err(failed)?;
+            l.ctx.decode(&mut batch).map_err(failed)?;
             pos += 1;
             logits_index = 0;
         }

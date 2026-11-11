@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use quill_core::context::AppContext;
 use quill_core::engines::{EngineId, Recognizer, ENGINES};
-use quill_core::pipeline::{finish, process_segment, Cleaner, Recipe};
+use quill_core::pipeline::{cleanup_budget, finish, process_segment, CleanError, Cleaner, Recipe};
 use quill_core::resample::{downmix, Resampler};
 use quill_core::segments::{pad, split};
 use quill_core::text::directive::Directive;
@@ -133,8 +133,8 @@ struct Machine {
 struct BenchCleaner<'a>(&'a EngineHost);
 
 impl Cleaner for BenchCleaner<'_> {
-    fn clean(&mut self, text: &str, directive: Directive) -> Result<String, String> {
-        self.0.with_cleaner(|c| c.clean(text, directive)).map(|(r, _)| r)?
+    fn clean(&mut self, text: &str, directive: Directive, deadline: Instant) -> Result<String, CleanError> {
+        self.0.with_cleaner(|c| c.clean(text, directive, deadline)).map_err(CleanError::Failed).and_then(|(r, _)| r)
     }
 }
 
@@ -352,8 +352,9 @@ pub fn s1_speed() -> Result<(), String> {
     println!("load {:.2}s", start.elapsed().as_secs_f64());
     for _ in 0..3 {
         let t = Instant::now();
-        let (out, _) = host.with_cleaner(|c| c.clean(text, Directive::default()))?;
-        let out = out?;
+        let deadline = Instant::now() + cleanup_budget(text.split_whitespace().count());
+        let (out, _) = host.with_cleaner(|c| c.clean(text, Directive::default(), deadline))?;
+        let out = out.map_err(|e| e.to_string())?;
         println!("clean {:.3}s, {} words out", t.elapsed().as_secs_f64(), out.split_whitespace().count());
     }
     Ok(())

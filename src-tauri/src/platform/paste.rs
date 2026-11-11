@@ -49,15 +49,11 @@ pub fn set_clipboard_text(text: &str) -> bool {
     ok
 }
 
-/// Keep what Quill puts on the clipboard out of Win+V history, cloud
-/// clipboard sync, and clipboard monitors. The clipboard must be open.
+/// Keep what Quill puts on the clipboard out of Win+V history and cloud
+/// clipboard sync. The clipboard must be open.
 unsafe fn mark_private() {
     unsafe {
-        for name in [
-            w!("ExcludeClipboardContentFromMonitorProcessing"),
-            w!("CanIncludeInClipboardHistory"),
-            w!("CanUploadToCloudClipboard"),
-        ] {
+        for name in [w!("CanIncludeInClipboardHistory"), w!("CanUploadToCloudClipboard")] {
             let format = RegisterClipboardFormatW(name);
             if format != 0 {
                 put(format, &0u32.to_le_bytes());
@@ -262,13 +258,10 @@ mod tests {
 
     fn assert_private(formats: &[(String, Option<u32>)]) {
         println!("{formats:?}");
-        for (name, value) in [
-            ("ExcludeClipboardContentFromMonitorProcessing", Some(0)),
-            ("CanIncludeInClipboardHistory", Some(0)),
-            ("CanUploadToCloudClipboard", Some(0)),
-        ] {
-            assert!(formats.iter().any(|(n, v)| n == name && *v == value), "{name} = {value:?} in {formats:?}");
+        for name in ["CanIncludeInClipboardHistory", "CanUploadToCloudClipboard"] {
+            assert!(formats.iter().any(|(n, v)| n == name && *v == Some(0)), "{name} = 0 in {formats:?}");
         }
+        assert!(!formats.iter().any(|(n, _)| n == "ExcludeClipboardContentFromMonitorProcessing"), "{formats:?}");
     }
 
     #[test]

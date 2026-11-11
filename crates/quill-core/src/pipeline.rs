@@ -11,33 +11,38 @@ use crate::text::directive::Directive;
 use crate::text::chunker::{chunk, halve, WORD_BUDGET};
 use crate::text::command::format_command;
 use crate::text::finish::{chat_style, is_hallucination, join, join_segment, strip_hesitations};
-use crate::text::guard::{is_number_word, reason, GuardReason};
+use crate::text::guard::{reason, GuardReason};
 use crate::text::insertion::{fit, Surroundings};
-use crate::text::numbers::{format_numbers, Itn};
+use crate::text::numbers::{format_numbers, only_figures, Itn};
 use crate::text::spoken::{emoji_names, strip_press_enter};
 use crate::text::vocabulary::{apply, protect_layout, EntryKind, Piece, VocabEntry};
 
-/// Rewrites a chunk of English speech (S1-mini).
+/// Rewrites a chunk of English speech (S1-mini), giving up at `deadline`.
 pub trait Cleaner {
-    fn clean(&mut self, text: &str, directive: Directive) -> Result<String, String>;
-
-    /// `clean`, giving up with `Err(TIMED_OUT)` once `deadline` passes.
-    /// A cleaner that can't stop early ignores the deadline.
-    fn clean_by(&mut self, text: &str, directive: Directive, deadline: Instant) -> Result<String, String> {
-        let _ = deadline;
-        self.clean(text, directive)
-    }
+    fn clean(&mut self, text: &str, directive: Directive, deadline: Instant) -> Result<String, CleanError>;
 }
 
-/// The error a cleaner returns when it runs out of time.
-pub const TIMED_OUT: &str = "Cleanup timed out.";
+#[derive(Debug, Clone, PartialEq)]
+pub enum CleanError {
+    TimedOut,
+    Failed(String),
+}
+
+impl std::fmt::Display for CleanError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CleanError::TimedOut => f.write_str("Cleanup timed out."),
+            CleanError::Failed(e) => f.write_str(e),
+        }
+    }
+}
 
 /// Cleanup time for a whole dictation of `words` words, retries included.
 pub fn cleanup_budget(words: usize) -> Duration {
     CLEANUP_BASE + CLEANUP_PER_WORD * words as u32
 }
 
-/// Covers a cold S1-mini load as well as the first chunk.
+/// Generous next to measured CPU speed; see docs/DEVELOPMENT.md.
 const CLEANUP_BASE: Duration = Duration::from_secs(20);
 const CLEANUP_PER_WORD: Duration = Duration::from_millis(100);
 
@@ -45,8 +50,7 @@ const CLEANUP_PER_WORD: Duration = Duration::from_millis(100);
 #[derive(Debug, Clone, PartialEq)]
 pub enum KeptReason {
     Guard(GuardReason),
-    Failed(String),
-    TimedOut,
+    Cleaner(CleanError),
 }
 
 /// How one dictation is processed, fixed at recording start.
@@ -67,17 +71,25 @@ pub struct SegmentResult {
     pub raw: String,
     pub text: String,
     pub english: bool,
-    /// Chunks the cleaner failed on, delivered raw.
-    pub fallbacks: usize,
-    /// Chunks the cleanup guard restored.
-    pub restored: usize,
-    /// Why each fallback or restore happened, in order.
+    /// Why each chunk delivered as heard was kept, in order.
     pub kept: Vec<KeptReason>,
     /// Chunks whose cleanup was delivered.
     pub accepted: usize,
     pub hits: Vec<Uuid>,
     /// Whether the cleaner ran on any chunk.
     pub cleaned: bool,
+}
+
+impl SegmentResult {
+    /// Chunks the cleaner failed on or ran out of time for.
+    pub fn fallbacks(&self) -> usize {
+        self.kept.iter().filter(|k| matches!(k, KeptReason::Cleaner(_))).count()
+    }
+
+    /// Chunks the cleanup guard restored.
+    pub fn restored(&self) -> usize {
+        self.kept.iter().filter(|k| matches!(k, KeptReason::Guard(_))).count()
+    }
 }
 
 /// Process one recognized segment. `cleaner` is `None` for engines without
@@ -130,7 +142,7 @@ pub fn process_segment_until(
             let directive = recipe.directive.expect("checked above");
             let mut cleaned = Vec::new();
             for c in chunk(&speech, WORD_BUDGET) {
-                if let Some(digits) = only_numbers(&c, recipe, itn, terminal) {
+                if let Some(digits) = itn.filter(|_| recipe.writes_numbers).and_then(|itn| only_figures(&c, terminal, itn)) {
                     cleaned.push(digits);
                     continue;
                 }
@@ -169,25 +181,6 @@ pub fn process_segment_until(
 /// extra cleaner calls after release.
 const RETRIES: u32 = 3;
 
-/// A chunk of only numbers, number words, and punctuation, formatted, when
-/// the number formatter turns it all into figures: cleanup has nothing left
-/// to do. "one, two, three" stays words, so it still goes to the cleaner.
-fn only_numbers(text: &str, recipe: &Recipe, itn: Option<&dyn Itn>, terminal: bool) -> Option<String> {
-    let itn = itn.filter(|_| recipe.writes_numbers)?;
-    let numeric = text.split_whitespace().all(|w| {
-        let w = w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
-        w.is_empty()
-            || w.chars().all(|c| c.is_ascii_digit() || ",.:%$".contains(c))
-            || ["and", "point", "a"].contains(&w.as_str())
-            || w.split('-').all(is_number_word)
-    });
-    if !numeric {
-        return None;
-    }
-    let formatted = format_numbers(text, terminal, itn);
-    (!formatted.chars().any(char::is_alphabetic)).then_some(formatted)
-}
-
 /// Clean one chunk. When the guard rejects the result, retry each half, so
 /// only the sentences it objects to go out raw. Nothing new starts after
 /// `deadline`, so retries can't stack up past the dictation's budget.
@@ -200,16 +193,11 @@ fn clean_guarded(
     out: &mut SegmentResult,
     retries: u32,
 ) -> String {
-    let result = if Instant::now() >= deadline {
-        Err(TIMED_OUT.to_string())
-    } else {
-        cleaner.clean_by(text, directive, deadline)
-    };
+    let result = if Instant::now() >= deadline { Err(CleanError::TimedOut) } else { cleaner.clean(text, directive, deadline) };
     let result = match result {
         Ok(r) => r,
         Err(e) => {
-            out.fallbacks += 1;
-            out.kept.push(if e == TIMED_OUT { KeptReason::TimedOut } else { KeptReason::Failed(e) });
+            out.kept.push(KeptReason::Cleaner(e));
             return text.to_string();
         }
     };
@@ -223,7 +211,6 @@ fn clean_guarded(
             clean_guarded(cleaner, &b, directive, itn, deadline, out, retries - 1),
         ]),
         None => {
-            out.restored += 1;
             out.kept.push(KeptReason::Guard(why));
             text.to_string()
         }
@@ -235,8 +222,8 @@ pub fn cleanup_note(results: &[SegmentResult]) -> Option<String> {
     let mut why: Vec<&str> = Vec::new();
     for k in results.iter().flat_map(|r| &r.kept) {
         let text = match k {
-            KeptReason::TimedOut => "cleanup took too long",
-            KeptReason::Failed(_) => "cleanup failed",
+            KeptReason::Cleaner(CleanError::TimedOut) => "cleanup took too long",
+            KeptReason::Cleaner(CleanError::Failed(_)) => "cleanup failed",
             KeptReason::Guard(GuardReason::EmptyOutput) => "cleanup returned nothing",
             KeptReason::Guard(GuardReason::NegationDropped) => "cleanup dropped a \"not\"",
             KeptReason::Guard(GuardReason::UnspokenFigure(_)) => "cleanup added a number you didn't say",
@@ -328,10 +315,10 @@ mod tests {
     }
 
     impl Cleaner for Fake {
-        fn clean(&mut self, text: &str, directive: Directive) -> Result<String, String> {
+        fn clean(&mut self, text: &str, directive: Directive, _: Instant) -> Result<String, CleanError> {
             self.calls.push((text.to_string(), directive));
             if text.contains("boom") {
-                return Err("failed".into());
+                return Err(CleanError::Failed("failed".into()));
             }
             let mut t = text.replace("um ", "").replace(" um", "");
             if t.contains("drop") {
@@ -365,10 +352,10 @@ mod tests {
         let r = recipe(CleanupLevel::Light, AppContext::General);
         let mut fake = Fake { calls: vec![] };
         let out = process_segment("please do not drop it", None, &r, Some(&mut fake), None);
-        assert_eq!((out.text.as_str(), out.restored), ("please do not drop it", 1));
+        assert_eq!((out.text.as_str(), out.restored()), ("please do not drop it", 1));
         let out = process_segment("boom goes it", None, &r, Some(&mut fake), None);
-        assert_eq!((out.text.as_str(), out.fallbacks), ("boom goes it", 1));
-        assert_eq!(out.kept, vec![KeptReason::Failed("failed".into())]);
+        assert_eq!((out.text.as_str(), out.fallbacks()), ("boom goes it", 1));
+        assert_eq!(out.kept, vec![KeptReason::Cleaner(CleanError::Failed("failed".into()))]);
         assert_eq!(cleanup_note(&[out]).as_deref(), Some("Kept your words: cleanup failed."));
     }
 
@@ -378,8 +365,8 @@ mod tests {
         let mut fake = Fake { calls: vec![] };
         let out = process_segment_until("um ship it today", None, &r, Some(&mut fake), None, Instant::now());
         assert!(fake.calls.is_empty());
-        assert_eq!((out.text.as_str(), out.fallbacks), ("um ship it today", 1));
-        assert_eq!(out.kept, vec![KeptReason::TimedOut]);
+        assert_eq!((out.text.as_str(), out.fallbacks()), ("um ship it today", 1));
+        assert_eq!(out.kept, vec![KeptReason::Cleaner(CleanError::TimedOut)]);
         assert_eq!(cleanup_note(&[out]).as_deref(), Some("Kept your words: cleanup took too long."));
     }
 
@@ -387,7 +374,7 @@ mod tests {
     struct Slow(usize);
 
     impl Cleaner for Slow {
-        fn clean(&mut self, text: &str, _: Directive) -> Result<String, String> {
+        fn clean(&mut self, text: &str, _: Directive, _: Instant) -> Result<String, CleanError> {
             self.0 += 1;
             std::thread::sleep(std::time::Duration::from_millis(50));
             Ok(text.replace(" not", ""))
@@ -402,24 +389,24 @@ mod tests {
         let out = process_segment_until(raw, None, &r, Some(&mut slow), None, Instant::now() + Duration::from_millis(20));
         assert_eq!(slow.0, 1, "the halves start after the deadline");
         assert_eq!(out.text, raw);
-        assert_eq!(out.kept, vec![KeptReason::TimedOut, KeptReason::TimedOut]);
+        assert_eq!(out.kept, vec![KeptReason::Cleaner(CleanError::TimedOut); 2]);
         let mut slow = Slow(0);
         let out = process_segment(raw, None, &r, Some(&mut slow), None);
         assert_eq!(slow.0, 7, "within the budget every half is retried");
-        assert_eq!(out.restored, 4);
+        assert_eq!(out.restored(), 4);
     }
 
     #[test]
     fn a_cleaner_timeout_is_a_timeout() {
         struct Late;
         impl Cleaner for Late {
-            fn clean(&mut self, _: &str, _: Directive) -> Result<String, String> {
-                Err(TIMED_OUT.into())
+            fn clean(&mut self, _: &str, _: Directive, _: Instant) -> Result<String, CleanError> {
+                Err(CleanError::TimedOut)
             }
         }
         let r = recipe(CleanupLevel::Full, AppContext::General);
         let out = process_segment("ship it today", None, &r, Some(&mut Late), None);
-        assert_eq!(out.kept, vec![KeptReason::TimedOut]);
+        assert_eq!(out.kept, vec![KeptReason::Cleaner(CleanError::TimedOut)]);
     }
 
     #[test]
@@ -465,7 +452,7 @@ mod tests {
         let r = recipe(CleanupLevel::Full, AppContext::General);
         let mut fake = Fake { calls: vec![] };
         let out = process_segment("um ship it today. um do not drop the table. um call me after.", None, &r, Some(&mut fake), None);
-        assert_eq!(out.restored, 1);
+        assert_eq!(out.restored(), 1);
         assert!(out.text.starts_with("Ship it today."), "{}", out.text);
         assert!(out.text.contains("um do not drop the table."), "{}", out.text);
         assert!(out.text.ends_with("Call me after."), "{}", out.text);
