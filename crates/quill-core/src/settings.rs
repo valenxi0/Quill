@@ -275,7 +275,7 @@ pub enum PillStyle {
     #[default]
     Bars,
     Waveform,
-    Dither,
+    Dots,
     Glow,
 }
 
@@ -570,7 +570,7 @@ mod tests {
         for (name, style) in [
             ("bars", PillStyle::Bars),
             ("waveform", PillStyle::Waveform),
-            ("dither", PillStyle::Dither),
+            ("dots", PillStyle::Dots),
             ("glow", PillStyle::Glow),
         ] {
             let set: Settings = serde_json::from_str(&format!(r#"{{"voiceDictation":{{"pillStyle":"{name}"}}}}"#)).unwrap();

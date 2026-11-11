@@ -831,7 +831,7 @@ const LICENSES: [string, string, string][] = [
   ["Whisper tiny.en, base.en, large-v3-turbo", "MIT", "By OpenAI. Notice kept."],
   ["Cohere Transcribe 03-2026", "Apache 2.0", "By Cohere Labs. README kept with the weights."],
   ["Silero VAD", "MIT", "By Silero. Built into Quill to skip silence."],
-  ["dithercn", "MIT", "By OpenCore. Draws the Dither recording pill."],
+  ["Hex", "MIT", "By Christopher Langton. The Dots recording pill is ported from its Dot scope."],
 ];
 
 function LicensesCard() {

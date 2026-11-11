@@ -42,7 +42,7 @@ const settings: Settings = {
     vocabularyBoost: false,
     restoreClipboard: false,
     historyRetention: "week",
-    // ?pill=dither previews another pill style.
+    // ?pill=dots previews another pill style.
     pillStyle: (new URLSearchParams(location.search).get("pill") as PillStyle | null) ?? "bars",
   },
   sketch: { enabled: true, hotkey: { vk: 0x53, modifiers: 3 }, drawKey: "shift" },

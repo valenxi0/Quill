@@ -2,11 +2,9 @@
 // Each takes recent voice readings (0..1, newest last). Nothing here runs
 // once the meter unmounts. Under reduced motion the meters still follow the
 // voice, but the waves stop travelling on their own.
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement } from "react";
-import { DitherShader } from "@/lib/dither/shader";
-import { useDocumentVisible } from "@/lib/dither/motion";
-import type { DitherPalette } from "@/lib/dither/tokens";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import type { PillStyle } from "../lib/api";
+import { onTick, useDocumentVisible } from "./ticker";
 
 export interface MeterProps {
   levels: number[];
@@ -53,33 +51,11 @@ function useCanvas() {
   return { begin, element };
 }
 
-// One 30 Hz timer shared by every moving meter. A timer, not
-// requestAnimationFrame, so a 240 Hz display doesn't wake the page 240
-// times a second for 30 drawn frames.
-const TICK_MS = 33;
-const tickListeners = new Set<() => void>();
-let tickTimer: number | undefined;
-
-function onTick(listener: () => void) {
-  tickListeners.add(listener);
-  tickTimer ??= window.setInterval(() => tickListeners.forEach((l) => l()), TICK_MS);
-  return () => {
-    tickListeners.delete(listener);
-    if (tickListeners.size === 0) {
-      window.clearInterval(tickTimer);
-      tickTimer = undefined;
-    }
-  };
-}
-
 /**
  * The wave's phase in seconds and its level. While `moving` (and the window
  * is visible) both update on the shared tick, the level easing a quarter of
  * the way to the newest reading per 60 Hz frame. Otherwise the phase holds
- * and the level is the newest reading. The phase counts from when the wave
- * starts moving: it reaches the shader as a 32-bit float, and seconds since
- * the overlay loaded (days, in a long session) would lose the precision a
- * smooth wave needs.
+ * and the level is the newest reading.
  */
 function useWave(target: number, moving: boolean) {
   const visible = useDocumentVisible();
@@ -100,7 +76,7 @@ function useWave(target: number, moving: boolean) {
       setWave((w) => ({ t: STILL_TIME + (now - start) / 1000, level: w.level + (targetRef.current - w.level) * (1 - Math.pow(0.75, frames)) }));
     });
   }, [running]);
-  return running ? { ...wave, running } : { t: STILL_TIME, level: target, running };
+  return running ? wave : { t: STILL_TIME, level: target };
 }
 
 /** Thin bars mirrored around the centre line, fading at both ends. Redraws only when a reading arrives. */
@@ -125,93 +101,6 @@ export function WaveformMeter({ levels }: MeterProps) {
     g.globalAlpha = 1;
   }, [levels]);
   return canvas.element;
-}
-
-// Three sine lines that swell in the middle and taper at both ends; the
-// voice level sets their height and line weight.
-const DITHER_FIELD = `
-float field(vec2 uv, vec2 res, float t) {
-  float taper = pow(sin(3.14159265 * uv.x), 1.6);
-  float tone = 0.0;
-  for (int k = 0; k < 3; k++) {
-    float fk = float(k);
-    float amp = (0.08 + 0.38 * pillLevel) * taper * (1.0 - fk * 0.22);
-    float y = 0.5 + amp * sin(uv.x * (7.0 + fk * 3.0) + pillTime * (2.2 + fk * 0.9) + fk * 1.7);
-    float d = (uv.y - y) * res.y;
-    tone += exp(-(d * d) / (0.55 + 0.25 * pillLevel)) * (1.0 - fk * 0.25);
-  }
-  return min(1.0, tone * (0.55 + 0.45 * taper));
-}
-`;
-
-const DITHER_PALETTE: DitherPalette = ["transparent", "#ffffff"];
-const DITHER_CELL = 2;
-
-/**
- * The engine fills whole cells, so neighbouring cells merge into solid
- * lines. This mask leaves one device pixel between cells so they read as
- * dots. The engine rounds a cell to whole device pixels; so does the mask.
- * At 100% scaling a cell is two device pixels and a gap would halve every
- * dot, so cells stay solid there.
- */
-function dotMask(): CSSProperties {
-  const dpr = window.devicePixelRatio || 1;
-  const device = Math.max(1, Math.round(DITHER_CELL * dpr));
-  if (device < 3) return {};
-  const cell = device / dpr;
-  const dot = (device - 1) / dpr;
-  const image = `linear-gradient(to right, #000 ${dot}px, transparent ${dot}px), linear-gradient(to bottom, #000 ${dot}px, transparent ${dot}px)`;
-  return {
-    maskImage: image,
-    WebkitMaskImage: image,
-    maskSize: `${cell}px ${cell}px`,
-    WebkitMaskSize: `${cell}px ${cell}px`,
-    maskComposite: "intersect",
-    WebkitMaskComposite: "source-in",
-  };
-}
-
-let webgl: boolean | undefined;
-
-function hasWebGL() {
-  if (webgl === undefined) {
-    const gl = document.createElement("canvas").getContext("webgl");
-    webgl = gl !== null;
-    gl?.getExtension("WEBGL_lose_context")?.loseContext();
-  }
-  return webgl;
-}
-
-/**
- * A sound wave drawn as dither dots, on the dithercn engine. The engine's
- * own loop stays off: the shared tick sets the phase and level uniforms,
- * and the engine redraws a still shader whenever its props change, so the
- * shader element changes only when the wave does. Without WebGL it shows
- * the Waveform instead.
- */
-export function DitherMeter({ levels, reduced }: MeterProps) {
-  const gl = hasWebGL();
-  const wave = useWave(levels.at(-1) ?? 0, !reduced && gl);
-  // While the wave moves, new readings reach the fallback with the next tick.
-  const fallbackKey = wave.running ? wave.t : levels;
-  const fallback = useMemo(() => <WaveformMeter levels={levels} reduced={reduced} />, [fallbackKey, reduced]);
-  const shader = useMemo(
-    () => (
-      <DitherShader
-        field={DITHER_FIELD}
-        uniforms={{ pillLevel: wave.level, pillTime: wave.t }}
-        palette={DITHER_PALETTE}
-        matrix="bayer4"
-        cell={DITHER_CELL}
-        animate={false}
-        fallback={fallback}
-        className="pill-dither shrink-0"
-        style={{ width: WIDTH, height: HEIGHT, ...dotMask() }}
-      />
-    ),
-    [wave.level, wave.t, fallback],
-  );
-  return gl ? shader : fallback;
 }
 
 const GLOW_COLORS = ["#ff9f0a", "#30d158", "#0a84ff", "#bf5af2"];
@@ -257,9 +146,9 @@ export function GlowMeter({ levels, reduced }: MeterProps) {
   return canvas.element;
 }
 
-export const METERS: Record<PillStyle, (props: MeterProps) => ReactElement> = {
+/** Every style but Dots, which draws the whole pill itself (see dotScope). */
+export const METERS: Record<Exclude<PillStyle, "dots">, (props: MeterProps) => ReactElement> = {
   bars: BarsMeter,
   waveform: WaveformMeter,
-  dither: DitherMeter,
   glow: GlowMeter,
 };

@@ -1,6 +1,8 @@
 // The status pill. Redraws only on level updates; nothing animates while idle.
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { api, on, type AppContext, type CorrectionPair, type DictationView, type PillStyle, type UpdateInfo } from "../lib/api";
+import { DotScope } from "./dotScope/DotScope";
+import type { Stage } from "./dotScope/scope";
 import { METER_HISTORY, METERS } from "./meters";
 
 export default function Overlay({ preview }: { preview?: DictationView }) {
@@ -10,6 +12,9 @@ export default function Overlay({ preview }: { preview?: DictationView }) {
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [heard, setHeard] = useState("");
   const [pillStyle, setPillStyle] = useState<PillStyle>("bars");
+  // Counts recordings, so each one starts a fresh Dots plate.
+  const [take, setTake] = useState(0);
+  const lastPhase = useRef(preview?.phase ?? "idle");
 
   useEffect(() => {
     // Read again at every recording start, so a new choice in Settings shows next time.
@@ -24,6 +29,8 @@ export default function Overlay({ preview }: { preview?: DictationView }) {
         if (v.phase !== "idle") setSuggestion(null);
         if (v.phase !== "recording") setHeard("");
         if (v.phase === "recording") readLook();
+        if (v.phase === "recording" && lastPhase.current !== "recording") setTake((t) => t + 1);
+        lastPhase.current = v.phase;
       }),
       on<CorrectionPair>("suggestion", (p) => {
         setSuggestion(p);
@@ -45,6 +52,7 @@ export default function Overlay({ preview }: { preview?: DictationView }) {
   if (update && phase === "idle") return <UpdatePrompt info={update} onDone={() => setUpdate(null)} />;
   if (suggestion && phase === "idle") return <Suggestion pair={suggestion} onDone={() => setSuggestion(null)} />;
   if (!view || phase === "idle") return null;
+  if (pillStyle === "dots") return <DotsPill key={take} view={view} heard={heard} reduced={reduced} />;
 
   return (
     <div className="flex h-screen items-end justify-center pb-2">
@@ -77,6 +85,83 @@ export default function Overlay({ preview }: { preview?: DictationView }) {
           </>
         )}
       </Pill>
+    </div>
+  );
+}
+
+/** The microphone's loudness as the last "level" event gave it, dBFS. */
+function useMicLoudness() {
+  const db = useRef(-90);
+  useEffect(() => {
+    const un = on<number>("level", (level) => {
+      // Quill's level maps -50..0 dBFS onto 0..1; 0 is anything quieter.
+      db.current = level > 0 ? level * 50 - 50 : -90;
+    });
+    return () => {
+      un.then((f) => f());
+    };
+  }, []);
+  return useRef(() => db.current).current;
+}
+
+const STAGES: Record<Exclude<DictationView["phase"], "idle">, Stage> = {
+  recording: "recording",
+  transcribing: "processing",
+  cleaning: "processing",
+  completed: "done",
+  failed: "failed",
+  cancelled: "done",
+};
+
+/**
+ * The Dots style: Hex's dot plate is the whole pill. The field follows the
+ * voice while recording, works in cooler light while Quill transcribes and
+ * cleans up, then clears and folds away for the outcome. Text sits on the
+ * plate beside the field; without live preview the plate is only the field.
+ */
+function DotsPill({ view, heard, reduced }: { view: DictationView; heard: string; reduced: boolean }) {
+  const loudness = useMicLoudness();
+  const phase = view.phase === "idle" ? "completed" : view.phase;
+  const tag = view.context === "terminal" || view.context === "email";
+  let text: ReactNode = null;
+  if (phase === "recording" && (heard || tag)) {
+    text = (
+      <>
+        {heard && <LiveCaption text={heard} />}
+        {tag && <span className="shrink-0 rounded-full bg-white/15 px-1.5 text-[10.5px] text-white/80">{view.context === "email" ? "Email" : "Terminal"}</span>}
+      </>
+    );
+  } else if (phase === "transcribing" || phase === "cleaning") {
+    text = <span>{phase === "transcribing" ? "Transcribing" : "Cleaning up"}</span>;
+  } else if (phase === "completed") {
+    text = (
+      <>
+        <CheckGlyph />
+        <span>{view.outcome ?? "Paste sent"}</span>
+      </>
+    );
+  } else if (phase === "failed") {
+    text = (
+      <>
+        <AlertGlyph />
+        <span>{view.errorTitle ?? "Something went wrong"}</span>
+      </>
+    );
+  } else if (phase === "cancelled") {
+    text = (
+      <>
+        <span style={{ animation: "shake 0.45s ease-in-out" }}>
+          <MicGlyph slashed />
+        </span>
+        <span>Cancelled</span>
+      </>
+    );
+  }
+  return (
+    <div className="flex h-screen items-end justify-center pb-[14px]">
+      <DotScope stage={STAGES[phase]} loudness={loudness} reduced={reduced}>
+        {text}
+      </DotScope>
     </div>
   );
 }
@@ -150,7 +235,7 @@ function Orb() {
   );
 }
 
-function Listening({ context, heard, pillStyle, reduced }: { context: AppContext; heard: string; pillStyle: PillStyle; reduced: boolean }) {
+function Listening({ context, heard, pillStyle, reduced }: { context: AppContext; heard: string; pillStyle: Exclude<PillStyle, "dots">; reduced: boolean }) {
   // Recent voice readings, newest last: a rolling waveform.
   const [levels, setLevels] = useState<number[]>(() => Array(METER_HISTORY).fill(0));
 
