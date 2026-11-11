@@ -50,7 +50,6 @@ export interface Tuning {
   /** The phosphor tail, s. */
   phosphor: number;
   glow: number;
-  saturation: number;
   /** One processing pass, s. */
   shimmerPass: number;
   shimmer: number;
@@ -78,7 +77,6 @@ export const HEX_TUNING: Tuning = {
   historySpeed: 150,
   phosphor: 0.6,
   glow: 1,
-  saturation: 1,
   shimmerPass: 0.55,
   shimmer: 1,
   transition: 0.3,
@@ -91,23 +89,23 @@ export const HEX_TUNING: Tuning = {
  * Hex's tuning for a screen's pixel density. From 150% scaling up it is
  * Hex's own. Below that a 2.6 px pitch draws dots one or two pixels wide,
  * which read as specks, so the pitch stays at 4 device pixels with 7 rows
- * and the plate grows to fit them, keeping Hex's proportions.
+ * and the plate grows to fit them, keeping Hex's proportions. `width`
+ * narrows the plate and drops columns, for a preview with less room.
  */
-export function tuningFor(dpr: number): Tuning {
-  if (dpr >= 1.5) return HEX_TUNING;
-  const spacing = 4 / Math.max(1, dpr);
-  const rows = 7;
-  const height = rows * spacing + 4;
-  const width = (height * HEX_TUNING.width) / HEX_TUNING.height;
-  const columns = 2 * Math.floor((width / spacing - 1) / 2) + 1;
+export function tuningFor(dpr: number, width?: number): Tuning {
+  let tuning = HEX_TUNING;
+  if (dpr < 1.5) {
+    const spacing = 4 / Math.max(1, dpr);
+    const rows = 7;
+    const height = rows * spacing + 4;
+    tuning = { ...HEX_TUNING, rows, spacing, height, width: (height * HEX_TUNING.width) / HEX_TUNING.height };
+  }
+  const plate = Math.min(width ?? tuning.width, tuning.width);
   return {
-    ...HEX_TUNING,
-    columns,
-    rows,
-    spacing,
-    height,
-    width,
-    processingWidth: (width * HEX_TUNING.processingWidth) / HEX_TUNING.width,
+    ...tuning,
+    width: plate,
+    columns: 2 * Math.floor((plate / tuning.spacing - 1) / 2) + 1,
+    processingWidth: (plate * HEX_TUNING.processingWidth) / HEX_TUNING.width,
   };
 }
 

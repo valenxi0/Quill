@@ -10,6 +10,8 @@ export interface DotScopeProps {
   /** The microphone's loudness now, dBFS; read on every tick. */
   loudness: () => number;
   reduced: boolean;
+  /** The widest the plate may be, px; narrower than the pill's own for a preview. */
+  width?: number;
   /** Shown on the plate, right of the field. */
   children?: ReactNode;
 }
@@ -33,6 +35,9 @@ function draw(canvas: HTMLCanvasElement, plate: HTMLElement, scope: Scope, pose:
   const { width, height } = pose;
   const cssWidth = `${width.toFixed(2)}px`;
   if (canvas.style.width !== cssWidth) canvas.style.width = cssWidth;
+  // A folded field takes no flex gap, so the outcome text sits centred.
+  const display = width < 0.5 ? "none" : "";
+  if (canvas.style.display !== display) canvas.style.display = display;
   plate.style.opacity = pose.opacity.toFixed(3);
   plate.style.transform = pose.scale === 1 ? "" : `scale(${pose.scale.toFixed(4)})`;
   plate.style.filter = pose.softness > 0.01 ? `blur(${pose.softness.toFixed(2)}px)` : "";
@@ -142,11 +147,11 @@ function coreIndex(power: number, fresh: number) {
  * the field grows from the middle as the trace unfolds. It ticks at 30 Hz
  * while the window is visible, and stops when unmounted.
  */
-export function DotScope({ stage, loudness, reduced, children }: DotScopeProps) {
+export function DotScope({ stage, loudness, reduced, width, children }: DotScopeProps) {
   const plate = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const scope = useRef<Scope | null>(null);
-  scope.current ??= new Scope(tuningFor(window.devicePixelRatio || 1), reduced);
+  scope.current ??= new Scope(tuningFor(window.devicePixelRatio || 1, width), reduced);
   const live = useRef({ stage, loudness, reduced, hasText: children != null });
   useLayoutEffect(() => {
     live.current = { stage, loudness, reduced, hasText: children != null };

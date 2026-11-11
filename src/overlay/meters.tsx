@@ -147,7 +147,9 @@ export function GlowMeter({ levels, reduced }: MeterProps) {
 }
 
 /** Every style but Dots, which draws the whole pill itself (see dotScope). */
-export const METERS: Record<Exclude<PillStyle, "dots">, (props: MeterProps) => ReactElement> = {
+export type MeterStyle = Exclude<PillStyle, "dots">;
+
+export const METERS: Record<MeterStyle, (props: MeterProps) => ReactElement> = {
   bars: BarsMeter,
   waveform: WaveformMeter,
   glow: GlowMeter,
