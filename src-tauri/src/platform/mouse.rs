@@ -170,7 +170,7 @@ unsafe extern "system" fn button_proc(code: i32, wparam: WPARAM, lparam: LPARAM)
                     let down = msg == WM_XBUTTONDOWN;
                     if vk != 0 && super::hotkey::mouse_button(vk, down) {
                         if down {
-                            super::clicks::shortcut_button_down();
+                            super::input_activity::shortcut_button_down();
                         }
                         return LRESULT(1);
                     }

@@ -13,4 +13,5 @@ pub mod screen;
 pub mod system;
 pub mod target;
 pub mod icons;
+pub mod input_activity;
 pub mod uia;

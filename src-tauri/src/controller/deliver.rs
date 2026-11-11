@@ -9,7 +9,7 @@ use quill_core::state::Phase;
 use quill_core::text::continuation::{same_window, LastPaste, SameWindow};
 use quill_core::text::spoken::paste_chunks;
 
-use crate::platform::{clicks, hotkey, paste, target};
+use crate::platform::{input_activity, paste, target};
 
 use super::{Controller, DictationView, Metrics, SessionConfig};
 
@@ -17,18 +17,6 @@ impl SameWindow for target::Target {
     fn same_window(&self, other: &Self) -> bool {
         same_window(self.hwnd, &self.exe, other.hwnd, &other.exe)
     }
-}
-
-/// Keys typed and mouse buttons pressed so far; `None` unless both are
-/// counted.
-pub(super) fn input_count() -> Option<u32> {
-    Some(user_input(hotkey::typed_keys()?, clicks::clicks()?, clicks::shortcut_buttons()))
-}
-
-/// A side button that is the dictation shortcut is pressed to dictate, not
-/// to click into the app, so it never stops a continuation.
-fn user_input(typed: u32, clicks: u32, shortcut_buttons: u32) -> u32 {
-    typed.wrapping_add(clicks).wrapping_sub(shortcut_buttons)
 }
 
 impl Controller {
@@ -76,13 +64,21 @@ impl Controller {
         // The clipboard is authoritative: write it first.
         let text = delivery.text.trim().to_string();
         *self.last_paste.lock() = Some(LastPaste::delivered(text.clone(), cfg.target.clone()));
-        let restore = self.stores.settings.read(|s| s.voice_dictation.restore_clipboard);
+        let (restore, fits) = self.stores.settings.read(|s| (s.voice_dictation.restore_clipboard, s.voice_dictation.fits_to_cursor));
         let saved = if restore { paste::SavedClipboard::take() } else { None };
         let Some(mut written) = paste::write_clipboard_text(&delivery.text) else {
+            // The saved copy may be the only one left: a snapshot taken over
+            // an earlier transcript replaced that one's pending restore.
+            if let Some(saved) = saved {
+                saved.restore_now(None);
+            }
             self.fail_session(cfg.generation, DictationError::ClipboardFailed);
             return;
         };
         metrics.stop_to_clipboard_ms = stopped.elapsed().as_millis() as u64;
+        if fits {
+            input_activity::watch();
+        }
         let chunks = if cfg.recipe.context == AppContext::Terminal && cfg.splits_terminal_pastes {
             paste_chunks(&delivery.text)
         } else {
@@ -94,7 +90,7 @@ impl Controller {
         // paste (Enter, the next piece) counts as input since.
         let input_at_paste = Cell::new(None);
         let before_keys = || {
-            input_at_paste.set(input_count());
+            input_at_paste.set(input_activity::count());
             still_current()
         };
         let pasted = if chunks.len() > 1 {
@@ -115,9 +111,19 @@ impl Controller {
                 *last = LastPaste { at: Instant::now(), input: input_at_paste.get(), pasted: true, entered, ..last.clone() };
             }
         }
-        // A failed paste leaves the transcript, so it can be pasted by hand.
-        if let (true, Some(saved)) = (pasted, saved) {
-            saved.restore_after(paste::restore_delay(&cfg.target), written);
+        match (pasted, saved) {
+            (true, Some(saved)) => {
+                saved.restore_after(paste::restore_delay(&cfg.target), written);
+            }
+            // Cancelled before the paste: the user's copy comes back now.
+            (false, Some(saved)) if !still_current() => {
+                saved.restore_now(Some(written));
+            }
+            // A failed paste leaves the transcript, so it can be pasted by hand.
+            _ => {}
+        }
+        if !pasted {
+            input_activity::stop();
         }
 
         let outcome = match (pasted, entered) {
@@ -149,16 +155,25 @@ impl Controller {
     pub fn paste_last(self: &Arc<Self>) {
         let Some(last) = self.last_paste.lock().clone() else { return };
         let own = self.shell.own_windows();
-        let restore = self.stores.settings.read(|s| s.voice_dictation.restore_clipboard);
+        let (restore, fits) = self.stores.settings.read(|s| (s.voice_dictation.restore_clipboard, s.voice_dictation.fits_to_cursor));
         let me = self.clone();
         std::thread::spawn(move || {
             let saved = if restore { paste::SavedClipboard::take() } else { None };
-            let Some(written) = paste::write_clipboard_text(&last.text) else { return };
+            let Some(written) = paste::write_clipboard_text(&last.text) else {
+                if let Some(saved) = saved {
+                    saved.restore_now(None);
+                }
+                return;
+            };
+            if fits {
+                input_activity::watch();
+            }
             let input_at_paste = Cell::new(None);
             if !paste::paste(&last.target, &own, || {
-                input_at_paste.set(input_count());
+                input_at_paste.set(input_activity::count());
                 true
             }) {
+                input_activity::stop();
                 return;
             }
             if let Some(saved) = saved {
@@ -186,18 +201,4 @@ pub(super) fn paste_in_pieces(target: &target::Target, own: &[isize], chunks: &[
         }
     }
     true
-}
-
-#[cfg(test)]
-mod tests {
-    use super::user_input;
-
-    #[test]
-    fn a_side_button_shortcut_is_not_user_input() {
-        let before = user_input(40, 7, 2);
-        assert_eq!(user_input(40, 8, 3), before, "a shortcut press, seen by Raw Input too");
-        assert_eq!(user_input(40, 8, 2), before + 1, "a real click");
-        assert_eq!(user_input(41, 7, 2), before + 1, "a key");
-        assert_eq!(user_input(0, 0, 1), u32::MAX, "wraps like the counts it combines");
-    }
 }
