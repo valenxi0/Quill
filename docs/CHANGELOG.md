@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- If the graphics driver crashes Quill while an engine starts on the GPU, Quill uses the CPU from then on instead of crashing at every launch. Settings says so under Engine, with a button to try the GPU again. A new version of Quill tries the GPU again on its own.
+
 ## [0.3.1] - 2026-11-09
 
 ### Changed

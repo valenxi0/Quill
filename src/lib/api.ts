@@ -234,6 +234,9 @@ export const api = {
   removeAsset: (id: AssetId) => invoke<void>("remove_asset", { id }),
   removeEngine: (engine: EngineId) => invoke<void>("remove_engine", { engine }),
   loadEngine: () => invoke<void>("load_engine"),
+  /** Whether this run is on the CPU because a GPU start crashed. */
+  gpuFallback: () => invoke<boolean>("gpu_fallback"),
+  retryGpu: () => invoke<void>("retry_gpu"),
   beginHotkeyCapture: (sketch = false) => invoke<void>("begin_hotkey_capture", { sketch }),
   cancelHotkeyCapture: () => invoke<void>("cancel_hotkey_capture"),
   resetHotkey: (sketch = false) => invoke<void>("reset_hotkey", { sketch }),

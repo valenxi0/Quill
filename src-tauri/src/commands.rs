@@ -93,6 +93,26 @@ pub fn load_engine(q: Q) {
     q.controller.warm_selected();
 }
 
+/// Whether this run of Quill is on the CPU because a GPU start crashed.
+#[tauri::command]
+pub fn gpu_fallback() -> bool {
+    crate::engines::gpu::fallback()
+}
+
+/// Forget the GPU crash and restart, so the engines start on the GPU again.
+#[tauri::command]
+pub fn retry_gpu(app: AppHandle, q: Q) -> Result<(), String> {
+    let downloading = quill_core::models::ASSETS.iter().any(|a| q.models.state(a.id).is_busy());
+    if q.controller.phase().is_busy() || downloading || q.updates.installing() {
+        return Err("Wait for the current dictation, download, or update to finish.".into());
+    }
+    crate::engines::gpu::retry().map_err(|e| e.to_string())?;
+    // Through the event loop, so plugins (single instance) let go before the
+    // new process starts.
+    app.request_restart();
+    Ok(())
+}
+
 #[tauri::command]
 pub fn begin_hotkey_capture(app: AppHandle, q: Q, sketch: Option<bool>) {
     *q.capture_error.lock() = None;

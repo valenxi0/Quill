@@ -164,6 +164,8 @@ pub fn run() {
             commands::remove_asset,
             commands::remove_engine,
             commands::load_engine,
+            commands::gpu_fallback,
+            commands::retry_gpu,
             commands::begin_hotkey_capture,
             commands::cancel_hotkey_capture,
             commands::reset_hotkey,
@@ -210,11 +212,11 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building Quill")
-        .run(|_app, event| {
+        .run(|_app, event| match event {
             // Keep running in the tray when the last window closes.
-            if let RunEvent::ExitRequested { api, code: None, .. } = event {
-                api.prevent_exit();
-            }
+            RunEvent::ExitRequested { api, code: None, .. } => api.prevent_exit(),
+            RunEvent::Exit => engines::gpu::release_on_exit(),
+            _ => {}
         });
 }
 
