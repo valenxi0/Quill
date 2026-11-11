@@ -2,7 +2,7 @@
 //! `SpeechEngine` and `TextCleaner`; adding an engine is a data change.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -18,7 +18,7 @@ mod whisper;
 #[cfg(feature = "sherpa")]
 mod sherpa;
 #[cfg(feature = "sherpa")]
-pub(crate) use sherpa::{hotword_vocab, HOTWORDS_SCORE};
+pub(crate) use sherpa::{hotword_vocab, parakeet_config, HOTWORDS_SCORE};
 #[cfg(feature = "llama")]
 mod s1;
 
@@ -32,9 +32,6 @@ pub struct TranscribeRequest {
 pub struct Transcript {
     pub text: String,
     pub language: Option<String>,
-    /// Terms a vocabulary booster swapped in (none until a booster ships).
-    #[allow(dead_code)]
-    pub boosted_terms: Vec<String>,
 }
 
 pub trait SpeechEngine: Send {
@@ -70,8 +67,15 @@ pub struct EngineHost {
     /// Engines whose recognizer is loaded, and ones loading right now.
     loaded: Mutex<HashSet<EngineId>>,
     loading: Mutex<HashSet<EngineId>>,
-    /// Bias recognition toward vocabulary terms (Parakeet hotwords).
-    hotwords: Arc<AtomicBool>,
+    hotwords: Hotwords,
+}
+
+/// Parakeet hotwords, shared by the host and the engine: whether they are
+/// on, and whether they failed to start on this PC.
+#[derive(Clone, Default)]
+pub struct Hotwords {
+    pub on: Arc<AtomicBool>,
+    pub unavailable: Arc<AtomicBool>,
 }
 
 impl EngineHost {
@@ -84,14 +88,19 @@ impl EngineHost {
             last_used: Mutex::new(Instant::now()),
             loaded: Mutex::new(HashSet::new()),
             loading: Mutex::new(HashSet::new()),
-            hotwords: Arc::new(AtomicBool::new(false)),
+            hotwords: Hotwords::default(),
         })
     }
 
     /// Turn vocabulary hotwords on or off. An engine that decodes differently
     /// for them reloads on its next use.
     pub fn set_hotwords(&self, on: bool) {
-        self.hotwords.store(on, std::sync::atomic::Ordering::Relaxed);
+        self.hotwords.on.store(on, Relaxed);
+    }
+
+    /// Hotwords were turned on but could not start.
+    pub fn hotwords_unavailable(&self) -> bool {
+        self.hotwords.unavailable.load(Relaxed)
     }
 
     /// Whether this build can run the engine at all.
@@ -149,6 +158,10 @@ impl EngineHost {
             let start = Instant::now();
             let result = e.load();
             self.loading.lock().remove(&engine);
+            if result.is_err() {
+                // A reload frees the old recognizer first.
+                self.loaded.lock().remove(&engine);
+            }
             result?;
             cold = Some(start.elapsed());
             self.loaded.lock().insert(engine);

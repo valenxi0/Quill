@@ -180,8 +180,15 @@ function VocabularyCard({ ctx }: { ctx: Ctx }) {
           <CardHeader
             icon={<Ear size={19} />}
             title="Listen for these terms (experimental)"
-            detail="Parakeet recognizes your terms more often. It can miss words after long pauses."
-            right={<Switch label="Listen for these terms" checked={vd.vocabularyBoost} onChange={(v) => ctx.saveVd({ vocabularyBoost: v })} />}
+            detail="Parakeet recognizes up to 26 of your terms more often. It can miss words after long pauses."
+            right={
+              <div className="flex items-center gap-2">
+                {vd.vocabularyBoost && ctx.state.status.hotwordsUnavailable && (
+                  <span className="text-[12px] text-text-3">Not available on this PC</span>
+                )}
+                <Switch label="Listen for these terms" checked={vd.vocabularyBoost} onChange={(v) => ctx.saveVd({ vocabularyBoost: v })} />
+              </div>
+            }
           />
         </>
       )}

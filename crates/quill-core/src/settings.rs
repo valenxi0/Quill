@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::engines::EngineId;
-use crate::text::vocabulary::VocabEntry;
+use crate::text::vocabulary::{EntryKind, VocabEntry};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -185,6 +185,15 @@ pub struct VoiceDictation {
     pub vocabulary_boost: bool,
 }
 
+impl VoiceDictation {
+    /// Parakeet hotwords are on: the Vocabulary switch is on and a vocabulary
+    /// term is active in any app. One answer for every app, so moving between
+    /// apps never rebuilds the recognizer.
+    pub fn wants_hotwords(&self) -> bool {
+        self.vocabulary_boost && self.vocabulary.iter().any(|e| e.is_active() && e.kind == EntryKind::Vocabulary)
+    }
+}
+
 /// A cleanup style for one app, by executable name.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -346,6 +355,23 @@ mod tests {
         assert!(!s.voice_dictation.vocabulary_boost);
         let on: Settings = serde_json::from_str(r#"{"voiceDictation":{"vocabularyBoost":true}}"#).unwrap();
         assert!(on.voice_dictation.vocabulary_boost);
+    }
+
+    #[test]
+    fn hotwords_need_the_switch_and_an_active_vocabulary_term() {
+        let mut vd = VoiceDictation { vocabulary_boost: true, ..Default::default() };
+        assert!(!vd.wants_hotwords());
+        vd.vocabulary.push(VocabEntry::new(EntryKind::Snippet, "sig", "Best, Jo"));
+        let mut off = VocabEntry::new(EntryKind::Vocabulary, "graph ana", "Grafana");
+        off.is_enabled = false;
+        vd.vocabulary.push(off);
+        assert!(!vd.wants_hotwords());
+        let mut scoped = VocabEntry::new(EntryKind::Vocabulary, "zus", "Zustand");
+        scoped.app_exe = Some("code.exe".into());
+        vd.vocabulary.push(scoped);
+        assert!(vd.wants_hotwords());
+        vd.vocabulary_boost = false;
+        assert!(!vd.wants_hotwords());
     }
 
     #[test]

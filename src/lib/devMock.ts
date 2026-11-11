@@ -43,7 +43,7 @@ const asset = (id: string, title: string, size: number, state: unknown, optional
 
 const state: UiState = {
   settings,
-  status: { kind: "ready", dot: "green", title: "Ready · Ctrl+Alt+M", detail: "Hold the shortcut while you speak. Release to finish.", hotkeyProblem: null, engineLoaded: true, engineLoading: false, warmError: null },
+  status: { kind: "ready", dot: "green", title: "Ready · Ctrl+Alt+M", detail: "Hold the shortcut while you speak. Release to finish.", hotkeyProblem: null, engineLoaded: true, engineLoading: false, warmError: null, hotwordsUnavailable: false },
   engines: [
     { id: "parakeetS1", title: "Parakeet + S1-mini", badge: "Best quality · Heaviest", badgeAccent: true, summary: "Best English results. Parakeet recognizes speech; S1-mini by Superwhisper removes fillers and false starts and writes numbers, dates, and emails properly.", languageNote: "Parakeet hears 25 European languages on its own. S1-mini cleanup runs on English; other languages are written as recognized.", recognizer: "parakeet", hasCleanup: true, showsLanguagePicker: false, englishOnly: false, supported: true, ready: true, busy: false, hasData: true, updateAvailable: false,
       assets: [asset("parakeetTdt06bV3", "Parakeet TDT 0.6B v3", 670478772, { state: "downloaded" }), asset("s1Mini", "S1-mini", 484232348, { state: "downloaded" })] },

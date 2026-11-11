@@ -3,15 +3,14 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
-use std::sync::Arc;
+use std::sync::atomic::Ordering::Relaxed;
 
 use quill_core::engines::{ascii_path, bpe_vocab_from_tokens, single_char_pieces, spellable};
 use quill_core::text::finish::strip_special_tokens;
 use quill_core::text::vocabulary::{hotword_terms, MAX_HOTWORDS};
 use sherpa_onnx::{OfflineCohereTranscribeModelConfig, OfflineRecognizer, OfflineRecognizerConfig, OfflineTransducerModelConfig};
 
-use super::{SpeechEngine, TranscribeRequest, Transcript};
+use super::{Hotwords, SpeechEngine, TranscribeRequest, Transcript};
 
 fn file(dir: &Path, name: &str) -> Result<Option<String>, String> {
     let p = dir.join(name);
@@ -77,6 +76,29 @@ pub(crate) fn hotword_vocab(dir: &Path) -> Option<(String, HashSet<char>)> {
     Some((usable, single_char_pieces(&tokens)))
 }
 
+/// Parakeet's recognizer settings: greedy search, or with `hotword_vocab`'s
+/// path, modified beam search ready for hotwords.
+pub(crate) fn parakeet_config(dir: &Path, threads: usize, hotword_vocab: Option<String>) -> Result<OfflineRecognizerConfig, String> {
+    let mut c = OfflineRecognizerConfig::default();
+    c.model_config.transducer = OfflineTransducerModelConfig {
+        encoder: file(dir, "encoder.int8.onnx")?,
+        decoder: file(dir, "decoder.int8.onnx")?,
+        joiner: file(dir, "joiner.int8.onnx")?,
+    };
+    c.model_config.tokens = file(dir, "tokens.txt")?;
+    c.model_config.model_type = Some("nemo_transducer".into());
+    c.model_config.num_threads = threads as i32;
+    c.model_config.provider = Some("cpu".into());
+    c.decoding_method = Some("greedy_search".into());
+    if let Some(vocab) = hotword_vocab {
+        c.decoding_method = Some("modified_beam_search".into());
+        c.model_config.modeling_unit = Some("bpe".into());
+        c.model_config.bpe_vocab = Some(vocab);
+        c.hotwords_score = HOTWORDS_SCORE;
+    }
+    Ok(c)
+}
+
 /// How the loaded Parakeet recognizer decodes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Decoding {
@@ -92,47 +114,27 @@ pub struct Parakeet {
     threads: usize,
     rec: Option<OfflineRecognizer>,
     decoding: Decoding,
-    /// Set by the engine host from the Vocabulary page's switch.
-    hotwords: Arc<AtomicBool>,
+    hotwords: Hotwords,
     pieces: HashSet<char>,
 }
 
 impl Parakeet {
-    pub fn new(dir: PathBuf, threads: usize, hotwords: Arc<AtomicBool>) -> Self {
+    pub fn new(dir: PathBuf, threads: usize, hotwords: Hotwords) -> Self {
         Self { dir, threads, rec: None, decoding: Decoding::Greedy, hotwords, pieces: HashSet::new() }
     }
 
     fn target(&self) -> Decoding {
-        match (self.hotwords.load(Relaxed), self.decoding) {
+        match (self.hotwords.on.load(Relaxed), self.decoding) {
+            // Already greedy, so turning the switch off needs no rebuild.
+            (_, Decoding::Unavailable) => Decoding::Unavailable,
             (false, _) => Decoding::Greedy,
-            (true, Decoding::Unavailable) => Decoding::Unavailable,
             (true, _) => Decoding::Hotwords,
         }
     }
 
-    fn config(&self) -> Result<OfflineRecognizerConfig, String> {
-        let mut c = OfflineRecognizerConfig::default();
-        c.model_config.transducer = OfflineTransducerModelConfig {
-            encoder: file(&self.dir, "encoder.int8.onnx")?,
-            decoder: file(&self.dir, "decoder.int8.onnx")?,
-            joiner: file(&self.dir, "joiner.int8.onnx")?,
-        };
-        c.model_config.tokens = file(&self.dir, "tokens.txt")?;
-        c.model_config.model_type = Some("nemo_transducer".into());
-        c.model_config.num_threads = self.threads as i32;
-        c.model_config.provider = Some("cpu".into());
-        c.decoding_method = Some("greedy_search".into());
-        Ok(c)
-    }
-
     fn create_hotwords(&mut self) -> Result<Option<OfflineRecognizer>, String> {
         let Some((vocab, pieces)) = hotword_vocab(&self.dir) else { return Ok(None) };
-        let mut c = self.config()?;
-        c.decoding_method = Some("modified_beam_search".into());
-        c.model_config.modeling_unit = Some("bpe".into());
-        c.model_config.bpe_vocab = Some(vocab);
-        c.hotwords_score = HOTWORDS_SCORE;
-        let rec = OfflineRecognizer::create(&c);
+        let rec = OfflineRecognizer::create(&parakeet_config(&self.dir, self.threads, Some(vocab))?);
         if rec.is_none() {
             log::warn!("parakeet hotwords off: beam search did not start");
         }
@@ -155,10 +157,12 @@ impl SpeechEngine for Parakeet {
             if rec.is_none() {
                 decoding = Decoding::Unavailable;
             }
+            self.hotwords.unavailable.store(rec.is_none(), Relaxed);
         }
         let rec = match rec {
             Some(rec) => rec,
-            None => OfflineRecognizer::create(&self.config()?).ok_or("Parakeet could not start. The model files may be damaged.")?,
+            None => OfflineRecognizer::create(&parakeet_config(&self.dir, self.threads, None)?)
+                .ok_or("Parakeet could not start. The model files may be damaged.")?,
         };
         // Warm up so the first dictation doesn't pay for graph initialization.
         let _ = decode(&rec, &vec![0.0; 16_000], None);
@@ -180,7 +184,7 @@ impl SpeechEngine for Parakeet {
             _ => Vec::new(),
         };
         let rec = self.rec.as_ref().ok_or("Parakeet is not loaded.")?;
-        Ok(Transcript { text: decode_with(rec, samples, None, &hotwords)?, language: None, boosted_terms: vec![] })
+        Ok(Transcript { text: decode_with(rec, samples, None, &hotwords)?, language: None })
     }
 
     fn unload(&mut self) {
@@ -239,7 +243,7 @@ impl SpeechEngine for Cohere {
         let rec = self.rec.as_ref().ok_or("Cohere Transcribe is not loaded.")?;
         let lang = request.language.clone().unwrap_or_else(|| "en".into());
         let text = strip_special_tokens(&decode(rec, samples, Some(&lang))?);
-        Ok(Transcript { text, language: Some(lang), boosted_terms: vec![] })
+        Ok(Transcript { text, language: Some(lang) })
     }
 
     fn unload(&mut self) {
@@ -255,6 +259,21 @@ impl SpeechEngine for Cohere {
 mod tests {
     use super::*;
 
+    #[test]
+    fn decoding_follows_the_switch_but_unavailable_stays_put() {
+        let hotwords = Hotwords::default();
+        let mut p = Parakeet::new(PathBuf::from("missing"), 1, hotwords.clone());
+        assert_eq!(p.target(), Decoding::Greedy);
+        hotwords.on.store(true, Relaxed);
+        assert_eq!(p.target(), Decoding::Hotwords);
+        p.decoding = Decoding::Unavailable;
+        assert_eq!(p.target(), Decoding::Unavailable);
+        hotwords.on.store(false, Relaxed);
+        assert_eq!(p.target(), Decoding::Unavailable, "no rebuild when switching off");
+        p.unload();
+        assert_eq!(p.target(), Decoding::Greedy);
+    }
+
     /// Needs the installed Parakeet model and `scripts/make-hotword-set.ps1`.
     #[test]
     #[ignore]
@@ -266,8 +285,9 @@ mod tests {
             return;
         }
         let samples = crate::bench::read_wav(&wav).unwrap();
-        let switch = Arc::new(AtomicBool::new(false));
-        let mut p = Parakeet::new(dir, 4, switch.clone());
+        let hotwords = Hotwords::default();
+        let switch = hotwords.on.clone();
+        let mut p = Parakeet::new(dir, 4, hotwords.clone());
         let request = TranscribeRequest { vocabulary_terms: vec!["AT&T".into(), "Okonkwo".into(), "Grafana".into()], language: None };
 
         p.load().unwrap();
@@ -279,6 +299,7 @@ mod tests {
         assert!(!p.is_loaded(), "switching on asks for a reload");
         p.load().unwrap();
         assert_eq!(p.decoding, Decoding::Hotwords);
+        assert!(!hotwords.unavailable.load(Relaxed));
         let on = p.transcribe(&samples, &request).unwrap();
         assert!(on.text.contains("Okonkwo"), "greedy: {:?}, hotwords: {:?}", off.text, on.text);
 

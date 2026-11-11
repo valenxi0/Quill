@@ -176,7 +176,7 @@ fn transcribe(host: &EngineHost, engine: EngineId, samples: &[f32], request: &Tr
             for r in split(samples, 20.0) {
                 texts.push(e.transcribe(&pad(&samples[r], min), request)?.text);
             }
-            Ok(Transcript { text: join(&texts), language: request.language.clone(), boosted_terms: vec![] })
+            Ok(Transcript { text: join(&texts), language: request.language.clone() })
         } else {
             e.transcribe(&pad(samples, min), request)
         }
@@ -365,7 +365,7 @@ pub fn s1_speed() -> Result<(), String> {
 /// sherpa-onnx recognizers directly so decoding settings can vary.
 #[cfg(feature = "sherpa")]
 pub fn hotwords(args: &[String]) -> Result<(), String> {
-    use sherpa_onnx::{OfflineRecognizer, OfflineRecognizerConfig, OfflineTransducerModelConfig};
+    use sherpa_onnx::OfflineRecognizer;
 
     let mut it = args.iter();
     let terms_dir = PathBuf::from(it.next().ok_or("usage: --hotwords <dir> [--runs N] [--vocab label=path] [--paired]")?);
@@ -461,22 +461,12 @@ pub fn hotwords(args: &[String]) -> Result<(), String> {
     };
 
     let build = |cfg: &Config| -> Result<OfflineRecognizer, String> {
-        let mut c = OfflineRecognizerConfig::default();
-        let file = |n: &str| Some(dir.join(n).to_string_lossy().into_owned());
-        c.model_config.transducer = OfflineTransducerModelConfig {
-            encoder: file("encoder.int8.onnx"),
-            decoder: file("decoder.int8.onnx"),
-            joiner: file("joiner.int8.onnx"),
-        };
-        c.model_config.tokens = file("tokens.txt");
-        c.model_config.model_type = Some("nemo_transducer".into());
-        c.model_config.num_threads = threads as i32;
-        c.model_config.provider = Some("cpu".into());
-        c.decoding_method = Some(if cfg.beam { "modified_beam_search" } else { "greedy_search" }.into());
-        if let Some(v) = &cfg.vocab {
-            c.model_config.modeling_unit = Some("bpe".into());
-            c.model_config.bpe_vocab = Some(v.to_string_lossy().into_owned());
+        let vocab = cfg.vocab.as_ref().map(|v| v.to_string_lossy().into_owned());
+        let mut c = crate::engines::parakeet_config(&dir, threads, vocab)?;
+        if cfg.vocab.is_some() {
             c.hotwords_score = cfg.score;
+        } else if cfg.beam {
+            c.decoding_method = Some("modified_beam_search".into());
         }
         let rec = OfflineRecognizer::create(&c).ok_or_else(|| format!("{}: recognizer failed to start", cfg.label))?;
         decode_once(&rec, cfg, &vec![0.0; 16_000]);

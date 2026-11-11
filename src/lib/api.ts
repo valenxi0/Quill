@@ -133,6 +133,7 @@ export interface Status {
   engineLoaded: boolean;
   engineLoading: boolean;
   warmError: string | null;
+  hotwordsUnavailable: boolean;
 }
 
 export interface KnownApp {

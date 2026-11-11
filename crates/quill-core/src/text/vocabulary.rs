@@ -71,18 +71,23 @@ pub fn for_app(entries: &[VocabEntry], exe: &str) -> Vec<VocabEntry> {
     }).cloned().collect()
 }
 
-/// Terms that can be offered to a recognizer as vocabulary hints. Entries
-/// for one app come first, so a capped list keeps them.
+/// Terms that can be offered to a recognizer as vocabulary hints.
 pub fn vocabulary_terms(entries: &[VocabEntry]) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
-    let active = entries.iter().filter(|e| e.is_active() && e.kind == EntryKind::Vocabulary);
-    let (scoped, global): (Vec<&VocabEntry>, Vec<&VocabEntry>) = active.partition(|e| e.app_exe.is_some());
-    scoped
-        .into_iter()
-        .chain(global)
+    entries
+        .iter()
+        .filter(|e| e.is_active() && e.kind == EntryKind::Vocabulary)
         .map(|e| e.replacement.trim().to_string())
         .filter(|t| seen.insert(t.to_lowercase()))
         .collect()
+}
+
+/// `vocabulary_terms` with one app's entries first, so a capped hotword list
+/// keeps them. Whisper keeps the original order: it drops the start of a
+/// long prompt.
+pub fn app_terms_first(entries: &[VocabEntry]) -> Vec<String> {
+    let (scoped, global): (Vec<VocabEntry>, Vec<VocabEntry>) = entries.iter().cloned().partition(|e| e.app_exe.is_some());
+    vocabulary_terms(&[scoped, global].concat())
 }
 
 /// Most terms passed to a recognizer as hotwords in one dictation: the
@@ -365,7 +370,7 @@ mod tests {
     }
 
     #[test]
-    fn hotword_terms_come_from_enabled_vocabulary_for_the_app_app_entries_first() {
+    fn hotword_terms_come_from_enabled_vocabulary_for_the_app() {
         let mut off = vocab("tauri", "Tauri");
         off.is_enabled = false;
         let snippet = VocabEntry::new(EntryKind::Snippet, "my sign off", "Best, Jo");
@@ -375,8 +380,17 @@ mod tests {
         let any = |_: &str| true;
         let terms = hotword_terms(&vocabulary_terms(&for_app(&entries, "slack.exe")), any, MAX_HOTWORDS);
         assert_eq!(terms, vec!["Grafana"]);
-        let code = hotword_terms(&vocabulary_terms(&for_app(&entries, "Code.exe")), any, 1);
+        let code = hotword_terms(&app_terms_first(&for_app(&entries, "Code.exe")), any, 1);
         assert_eq!(code, vec!["Zustand"]);
+    }
+
+    #[test]
+    fn whisper_terms_keep_entry_order_and_hotwords_put_app_terms_first() {
+        let mut scoped = vocab("zus", "Zustand");
+        scoped.app_exe = Some("code.exe".into());
+        let entries = for_app(&[vocab("graph ana", "Grafana"), scoped, vocab("tail scale", "Tailscale")], "Code.exe");
+        assert_eq!(vocabulary_terms(&entries), vec!["Grafana", "Zustand", "Tailscale"]);
+        assert_eq!(app_terms_first(&entries), vec!["Zustand", "Grafana", "Tailscale"]);
     }
 
     #[test]

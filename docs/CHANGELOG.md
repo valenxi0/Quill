@@ -4,7 +4,7 @@
 
 ### Added
 
-- Vocabulary has an experimental "Listen for these terms" switch, off by default. With it on, Parakeet listens for your vocabulary terms while it recognizes, so names and jargon come out spelled your way more often. It can miss words after long pauses.
+- Vocabulary has an experimental "Listen for these terms" switch, off by default. With it on, Parakeet listens for up to 26 of your vocabulary terms while it recognizes, so names and jargon come out spelled your way more often. It can miss words after long pauses.
 
 ## [0.3.1] - 2026-11-09
 
