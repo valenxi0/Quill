@@ -73,6 +73,7 @@ fn unregister() {
 fn stop_here(hwnd: HWND) {
     if WATCHING.swap(false, SeqCst) {
         unregister();
+        input_activity::watch_ended();
     }
     let _ = unsafe { KillTimer(Some(hwnd), WATCH_TIMER) };
 }
@@ -102,7 +103,12 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
             let read = unsafe {
                 GetRawInputData(HRAWINPUT(lparam.0 as *mut _), RID_INPUT, Some(report.0.as_mut_ptr() as *mut _), &mut size, header)
             };
-            if read != u32::MAX && read >= header {
+            if read == u32::MAX {
+                // Too big for the buffer: only touch and pen reports get
+                // this large, so it counts as input.
+                input_activity::pointer_input();
+                stop_here(hwnd);
+            } else if read >= header {
                 let input = report.0.as_ptr() as *const RAWINPUT;
                 let kind = unsafe { (*input).header.dwType };
                 if kind == RIM_TYPEHID.0 {
