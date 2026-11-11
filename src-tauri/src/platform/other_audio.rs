@@ -13,7 +13,7 @@ use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
-use quill_core::other_audio::{applied, plan, plan_pause, restore, should_resume, MediaStatus, SessionReading, VolumeChange};
+use quill_core::other_audio::{applied, expire, plan, restore, should_resume, MediaStatus, Restore, SessionReading, VolumeChange};
 use quill_core::settings::OtherAudio;
 use windows::core::{implement, Interface, Ref};
 use windows::Foundation::TypedEventHandler;
@@ -35,6 +35,11 @@ const RECORDING_RESCAN: Duration = Duration::from_millis(500);
 /// A second look after a session appears: its volume and state can settle
 /// a moment after creation.
 const SECOND_LOOK: Duration = Duration::from_secs(1);
+/// How often Quill checks for a playback device plugged in since it started
+/// watching, while it still has volumes to put back.
+const DEVICE_CHECK: Duration = Duration::from_secs(5);
+/// How long a short recording waits for its pause to land before resuming.
+const PAUSE_LANDING: Duration = Duration::from_millis(300);
 
 enum Cmd {
     Begin { generation: u64, mode: OtherAudio, percent: u8 },
@@ -114,6 +119,7 @@ impl IAudioSessionNotification_Impl for Notifier_Impl {
 struct Paused {
     session: MediaSession,
     token: i64,
+    seen_paused: Arc<AtomicBool>,
     changed: Arc<AtomicBool>,
 }
 
@@ -138,15 +144,16 @@ struct Worker {
     /// Changes whose app closed before Quill could put them back.
     unresolved: Vec<VolumeChange>,
     second_look: Option<Instant>,
-    /// Kept alive so session-created notifications keep coming.
-    _watching: Vec<(IAudioSessionManager2, IAudioSessionNotification)>,
+    /// Playback devices by endpoint id, with the notifier registered on each.
+    watching: Vec<(String, IAudioSessionManager2, IAudioSessionNotification)>,
 }
 
 fn run(rx: Receiver<Cmd>) {
     unsafe {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
     }
-    let mut w = Worker { _watching: watch_new_sessions(), ..Default::default() };
+    let mut w = Worker::default();
+    w.refresh_watch();
     loop {
         let cmd = match w.next_wake() {
             Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
@@ -175,9 +182,30 @@ fn readings(sessions: &Sessions) -> Vec<SessionReading> {
 impl Worker {
     fn next_wake(&self) -> Option<Instant> {
         let recording = self.active.as_ref().filter(|a| a.lowers()).map(|_| Instant::now() + RECORDING_RESCAN);
-        match (recording, self.second_look) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
+        let devices = (!self.unresolved.is_empty()).then(|| Instant::now() + DEVICE_CHECK);
+        [recording, self.second_look, devices].into_iter().flatten().min()
+    }
+
+    /// Watch every active playback device for new sessions, re-registering
+    /// when the set of devices changed.
+    fn refresh_watch(&mut self) {
+        let devices = render_devices();
+        let ids: Vec<&String> = devices.iter().map(|(id, _)| id).collect();
+        if ids == self.watching.iter().map(|(id, _, _)| id).collect::<Vec<_>>() {
+            return;
+        }
+        for (_, manager, notifier) in self.watching.drain(..) {
+            let _ = unsafe { manager.UnregisterSessionNotification(&notifier) };
+        }
+        for (id, manager) in devices {
+            // Notifications only start after the first enumeration.
+            if unsafe { manager.GetSessionEnumerator() }.is_err() {
+                continue;
+            }
+            let notifier: IAudioSessionNotification = Notifier.into();
+            if unsafe { manager.RegisterSessionNotification(&notifier) }.is_ok() {
+                self.watching.push((id, manager, notifier));
+            }
         }
     }
 
@@ -190,6 +218,7 @@ impl Worker {
                 a.mode = mode;
                 a.percent = percent;
                 self.active = Some(a);
+                self.refresh_watch();
                 let mut now = sessions();
                 if self.resolve(&now) {
                     now = sessions();
@@ -212,6 +241,7 @@ impl Worker {
             Cmd::RestoreFile => {
                 let path = crate::paths::audio_restore_file();
                 let saved: Vec<VolumeChange> = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+                let saved = expire(saved, now_secs());
                 let held = self.held_keys();
                 for c in saved {
                     if !held.contains(&c.key) && !self.unresolved.iter().any(|u| u.key == c.key) {
@@ -240,6 +270,7 @@ impl Worker {
         if self.unresolved.is_empty() && !lowering {
             return;
         }
+        self.refresh_watch();
         let mut now = sessions();
         if self.resolve(&now) {
             now = sessions();
@@ -257,11 +288,11 @@ impl Worker {
         }
         let held = self.held_keys();
         let free: Vec<SessionReading> = readings(sessions).into_iter().filter(|r| !held.contains(&r.key)).collect();
-        let result = restore(&self.unresolved, &free);
-        let before = self.unresolved.len();
+        let before = self.unresolved.clone();
+        let result = restore(&expire(std::mem::take(&mut self.unresolved), now_secs()), &free);
         self.unresolved = result.unresolved;
-        put_back(sessions, &result.restores);
-        if self.unresolved.len() != before {
+        self.unresolved.extend(put_back(sessions, &result.restores));
+        if self.unresolved != before {
             self.save();
         }
         !result.restores.is_empty()
@@ -269,9 +300,13 @@ impl Worker {
 
     fn lower(&mut self, sessions: &Sessions) {
         let Some(a) = self.active.as_ref() else { return };
-        let new = plan(a.mode, a.percent, std::process::id(), &readings(sessions), &a.changes);
+        let mut new = plan(a.mode, a.percent, std::process::id(), &readings(sessions), &a.changes);
         if new.is_empty() {
             return;
+        }
+        let at = now_secs();
+        for c in &mut new {
+            c.changed_at = at;
         }
         let mut planned = self.pending();
         planned.extend(new.iter().cloned());
@@ -290,23 +325,20 @@ impl Worker {
 
     fn pause(&mut self) {
         let Some(a) = self.active.as_mut() else { return };
-        let media = media_sessions();
-        let playing: Vec<String> = media.iter().filter(|(_, st, _)| *st == MediaStatus::Playing).map(|(k, _, _)| k.clone()).collect();
-        let apps = plan_pause(&playing);
-        for (key, status, session) in media {
-            if status != MediaStatus::Playing || !apps.contains(&key) {
+        for (key, status, session) in media_sessions() {
+            if status != MediaStatus::Playing {
                 continue;
             }
             let changed = Arc::new(AtomicBool::new(false));
             let seen_paused = Arc::new(AtomicBool::new(false));
-            let flag = changed.clone();
+            let (flag, seen) = (changed.clone(), seen_paused.clone());
             // Events before Quill's pause lands are ignored; any change after
             // it is the user's, and that player is then left alone.
             let handler = TypedEventHandler::<MediaSession, PlaybackInfoChangedEventArgs>::new(move |sender, _| {
                 if let Some(s) = sender.as_ref() {
                     if status_of(s) == MediaStatus::Paused {
-                        seen_paused.store(true, SeqCst);
-                    } else if seen_paused.load(SeqCst) {
+                        seen.store(true, SeqCst);
+                    } else if seen.load(SeqCst) {
                         flag.store(true, SeqCst);
                     }
                 }
@@ -314,7 +346,7 @@ impl Worker {
             });
             let Ok(token) = session.PlaybackInfoChanged(&handler) else { continue };
             if session.TryPauseAsync().and_then(|op| op.join()).unwrap_or(false) {
-                a.paused.push(Paused { session, token, changed });
+                a.paused.push(Paused { session, token, seen_paused, changed });
             } else {
                 log::warn!("other audio: {key} did not pause");
                 let _ = session.RemovePlaybackInfoChanged(token);
@@ -327,12 +359,18 @@ impl Worker {
         if !a.changes.is_empty() {
             let now = sessions();
             let result = restore(&a.changes, &readings(&now));
-            put_back(&now, &result.restores);
             self.unresolved.extend(result.unresolved);
+            self.unresolved.extend(put_back(&now, &result.restores));
             self.save();
         }
         for p in a.paused {
-            if should_resume(status_of(&p.session), p.changed.load(SeqCst)) {
+            let until = Instant::now() + PAUSE_LANDING;
+            let mut status = status_of(&p.session);
+            while status != MediaStatus::Paused && !p.seen_paused.load(SeqCst) && Instant::now() < until {
+                std::thread::sleep(Duration::from_millis(20));
+                status = status_of(&p.session);
+            }
+            if should_resume(status, p.changed.load(SeqCst), p.seen_paused.load(SeqCst) || status == MediaStatus::Paused) {
                 let _ = p.session.TryPlayAsync().and_then(|op| op.join());
             }
             let _ = p.session.RemovePlaybackInfoChanged(p.token);
@@ -349,12 +387,24 @@ impl Worker {
     }
 }
 
-fn put_back(sessions: &Sessions, restores: &[quill_core::other_audio::Restore]) {
+fn now_secs() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
+/// Apply restores; returns the changes whose restore didn't take, to try
+/// again later.
+fn put_back(sessions: &Sessions, restores: &[Restore]) -> Vec<VolumeChange> {
+    let mut failed: Vec<VolumeChange> = Vec::new();
     for r in restores {
-        if let Some((_, v)) = sessions.iter().find(|(s, _)| s.key == r.key) {
-            set(v, r.volume, r.muted);
+        let ok = sessions.iter().find(|(s, _)| s.key == r.key).is_some_and(|(_, v)| {
+            let (volume_ok, mute_ok) = set(v, r.volume, r.muted);
+            (r.volume.is_none() || volume_ok) && (r.muted.is_none() || mute_ok)
+        });
+        if !ok && !failed.contains(&r.change) {
+            failed.push(r.change.clone());
         }
     }
+    failed
 }
 
 fn write(changes: &[VolumeChange]) {
@@ -380,28 +430,19 @@ fn set(volume: &ISimpleAudioVolume, level: Option<f32>, muted: Option<bool>) -> 
     }
 }
 
-fn render_session_managers() -> Vec<IAudioSessionManager2> {
+/// Active playback devices: endpoint id and session manager.
+fn render_devices() -> Vec<(String, IAudioSessionManager2)> {
     unsafe {
         let Ok(e) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL) else { return Vec::new() };
         let Ok(devices) = e.EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE) else { return Vec::new() };
         (0..devices.GetCount().unwrap_or(0))
             .filter_map(|i| devices.Item(i).ok())
-            .filter_map(|d| d.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None).ok())
+            .filter_map(|d| {
+                let id = d.GetId().ok().map(take_string)?;
+                Some((id, d.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None).ok()?))
+            })
             .collect()
     }
-}
-
-fn watch_new_sessions() -> Vec<(IAudioSessionManager2, IAudioSessionNotification)> {
-    render_session_managers()
-        .into_iter()
-        .filter_map(|m| unsafe {
-            // Notifications only start after the first enumeration.
-            m.GetSessionEnumerator().ok()?;
-            let notifier: IAudioSessionNotification = Notifier.into();
-            m.RegisterSessionNotification(&notifier).ok()?;
-            Some((m, notifier))
-        })
-        .collect()
 }
 
 fn take_string(p: windows::core::PWSTR) -> String {
@@ -415,7 +456,7 @@ fn take_string(p: windows::core::PWSTR) -> String {
 /// Every audio session on every active playback device.
 pub(crate) fn sessions() -> Sessions {
     let mut out = Vec::new();
-    for manager in render_session_managers() {
+    for (_, manager) in render_devices() {
         unsafe {
             let Ok(list) = manager.GetSessionEnumerator() else { continue };
             for j in 0..list.GetCount().unwrap_or(0) {
