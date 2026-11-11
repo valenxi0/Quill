@@ -212,7 +212,7 @@ function ActivationCard({ ctx }: { ctx: Ctx }) {
         }
         right={<ShortcutButton ctx={ctx} />}
       />
-      {capturingHotkey && captureError && <Warning>{captureError}</Warning>}
+      {captureError && !capturingRawHotkey && !ctx.state.capturingSketchHotkey && <Warning>{captureError}</Warning>}
       {hotkeyNote && <Warning>{hotkeyNote}</Warning>}
       <Divider />
       <CardHeader
@@ -223,7 +223,7 @@ function ActivationCard({ ctx }: { ctx: Ctx }) {
             ? CAPTURE_HINT
             : "A second shortcut that pastes your words as spoken, with no cleanup. Vocabulary, snippets, and numbers still apply."
         }
-        right={<ShortcutButton ctx={ctx} raw />}
+        right={<ShortcutButton ctx={ctx} slot="raw" />}
       />
       {capturingRawHotkey && captureError && <Warning>{captureError}</Warning>}
       {rawHotkeyProblem && <Warning>{rawHotkeyProblem}</Warning>}
@@ -239,12 +239,11 @@ function ActivationCard({ ctx }: { ctx: Ctx }) {
   );
 }
 
-/// The shortcut capture button, with Reset when it isn't the default.
-/// `sketch` picks the Sketch shortcut instead of dictation's, and `raw` the
-/// one without cleanup, which has Clear instead of Reset.
-export function ShortcutButton({ ctx, sketch = false, raw = false }: { ctx: Ctx; sketch?: boolean; raw?: boolean }) {
+/// The shortcut capture button, with Reset when it isn't the default. The
+/// no-cleanup shortcut has Clear instead.
+export function ShortcutButton({ ctx, slot = "dictate" }: { ctx: Ctx; slot?: ShortcutSlot }) {
   const s = ctx.state;
-  const slot: ShortcutSlot = sketch ? "sketch" : raw ? "raw" : "dictate";
+  const raw = slot === "raw";
   const { capturingHotkey, hotkeyDisplay, hotkeyIsDefault } = {
     dictate: { capturingHotkey: s.capturingHotkey, hotkeyDisplay: s.hotkeyDisplay, hotkeyIsDefault: s.hotkeyIsDefault },
     raw: { capturingHotkey: s.capturingRawHotkey, hotkeyDisplay: s.rawHotkeyDisplay, hotkeyIsDefault: s.rawHotkeyDisplay === null },

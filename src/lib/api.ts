@@ -280,11 +280,10 @@ export const api = {
   /** Whether this run is on the CPU because a GPU start crashed. */
   gpuFallback: () => invoke<boolean>("gpu_fallback"),
   retryGpu: () => invoke<void>("retry_gpu"),
-  beginHotkeyCapture: (slot: ShortcutSlot = "dictate") =>
-    invoke<void>("begin_hotkey_capture", { sketch: slot === "sketch", raw: slot === "raw" }),
+  beginHotkeyCapture: (slot: ShortcutSlot = "dictate") => invoke<void>("begin_hotkey_capture", { slot }),
   cancelHotkeyCapture: () => invoke<void>("cancel_hotkey_capture"),
   /** Back to the default; the no-cleanup shortcut is cleared. */
-  resetHotkey: (slot: ShortcutSlot = "dictate") => invoke<void>("reset_hotkey", { sketch: slot === "sketch", raw: slot === "raw" }),
+  resetHotkey: (slot: ShortcutSlot = "dictate") => invoke<void>("reset_hotkey", { slot }),
   sketchAction: (action: "pen" | "undo" | "cancel" | "finish") => invoke<void>("sketch_action", { action }),
   sketchState: () => invoke<SketchView | null>("sketch_state"),
   dictationCommand: (command: string) => invoke<void>("dictation_command", { command }),

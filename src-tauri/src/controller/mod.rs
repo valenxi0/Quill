@@ -134,9 +134,6 @@ struct Shortcut {
     machine: Activation,
     /// The binding and generation of the session the shortcut started.
     owner: Option<(Binding, u64)>,
-    /// A lone-modifier press found Quill not ready. The problem shows on
-    /// release, so Ctrl+C never flashes it.
-    unready: bool,
 }
 
 pub struct Controller {
@@ -157,8 +154,6 @@ pub struct Controller {
     watch_generation: AtomicU64,
     starting: std::sync::atomic::AtomicBool,
     shortcut: Mutex<Shortcut>,
-    /// The time base for the shortcut's tap timing.
-    clock: Instant,
     pub last_transcript: Mutex<Option<String>>,
     /// Where the last transcript went, for "Paste last transcript".
     last_target: Mutex<Option<target::Target>>,
@@ -192,7 +187,6 @@ impl Controller {
             watch_generation: AtomicU64::new(0),
             starting: std::sync::atomic::AtomicBool::new(false),
             shortcut: Mutex::new(Shortcut::default()),
-            clock: Instant::now(),
             last_transcript: Mutex::new(None),
             last_target: Mutex::new(None),
             last_metrics: Mutex::new(None),

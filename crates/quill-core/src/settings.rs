@@ -383,7 +383,8 @@ pub struct Settings {
 }
 
 /// The shortcuts Settings can set.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum ShortcutSlot {
     Dictate,
     Raw,

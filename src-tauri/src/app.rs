@@ -1,7 +1,7 @@
 //! The app's shared state, what Settings shows, and the shell that connects
 //! the controller to windows, the tray, and events.
 
-use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
+use std::sync::atomic::Ordering::SeqCst;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,7 +18,7 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use crate::controller::{Controller, DictationView};
 use crate::engines::EngineHost;
 use crate::models::ModelManager;
-use crate::platform::hotkey::{HookEvent, HotkeyHook};
+use crate::platform::hotkey::{now_ms, HookEvent, HotkeyHook};
 use crate::platform::mouse::ButtonHook;
 use crate::platform::system::{microphone_permission, MicPermission};
 use crate::shell::Shell;
@@ -32,11 +32,8 @@ pub struct Quill {
     pub stores: Arc<Stores>,
     pub hook: Option<HotkeyHook>,
     pub hook_error: Option<String>,
-    pub capturing: AtomicBool,
-    /// The shortcut being captured is Sketch's, not dictation's.
-    pub capturing_sketch: AtomicBool,
-    /// The shortcut being captured is the one without cleanup.
-    pub capturing_raw: AtomicBool,
+    /// The shortcut Settings is capturing, if any.
+    pub capturing: Mutex<Option<ShortcutSlot>>,
     pub capture_error: Mutex<Option<String>>,
     /// The mouse hook for a side-button shortcut, while one is needed.
     pub buttons: Mutex<Option<ButtonHook>>,
@@ -275,25 +272,19 @@ impl Quill {
 
     /// Which shortcut Settings is capturing, if any.
     pub fn capture_slot(&self) -> Option<ShortcutSlot> {
-        self.capturing.load(SeqCst).then(|| {
-            if self.capturing_sketch.load(SeqCst) {
-                ShortcutSlot::Sketch
-            } else if self.capturing_raw.load(SeqCst) {
-                ShortcutSlot::Raw
-            } else {
-                ShortcutSlot::Dictate
-            }
-        })
+        *self.capturing.lock()
     }
 
-    /// Run the mouse hook only while a side button is a shortcut, or
-    /// Settings is capturing one.
+    /// Run the mouse hook only while a dictation shortcut needs the mouse (a
+    /// side button, or a lone modifier that clicks turn into chords), or
+    /// Settings is capturing.
     pub fn sync_buttons(&self) {
         let settings = self.stores.settings.get();
-        let vd = &settings.voice_dictation;
+        let needs_mouse = |h: Hotkey| h.is_mouse() || h.is_lone_modifier();
         let wanted = self.hook.is_some()
-            && (self.capturing.load(SeqCst)
-                || (settings.enabled && (vd.hotkey.is_mouse() || settings.usable_raw_hotkey().is_some_and(|h| h.is_mouse()))));
+            && (self.capture_slot().is_some()
+                || (settings.enabled
+                    && (needs_mouse(settings.voice_dictation.hotkey) || settings.usable_raw_hotkey().is_some_and(needs_mouse))));
         let mut buttons = self.buttons.lock();
         if wanted && buttons.is_none() {
             match ButtonHook::install() {
@@ -316,7 +307,7 @@ impl Quill {
             }
             hook.set_sketch_hotkey(sketch_hotkey(&next));
             hook.set_raw_hotkey(next.usable_raw_hotkey());
-            hook.set_suspended(!next.enabled || self.capturing.load(SeqCst));
+            hook.set_suspended(!next.enabled || self.capture_slot().is_some());
         }
         self.sync_buttons();
         if prev.launch_at_login != next.launch_at_login {
@@ -387,10 +378,9 @@ pub fn spawn_hook_consumer(app: AppHandle, rx: std::sync::mpsc::Receiver<HookEve
                 let Some(q) = app.try_state::<Arc<Quill>>() else { continue };
                 let q = q.inner().clone();
                 match event {
-                    HookEvent::Pressed(b) => q.controller.on_hotkey(Input::Pressed, Some(b)),
-                    HookEvent::Released(b) => q.controller.on_hotkey(Input::Released, Some(b)),
-                    HookEvent::Chord(b) => q.controller.on_hotkey(Input::Chord, Some(b)),
-                    HookEvent::Escape => q.controller.on_hotkey(Input::Escape, None),
+                    HookEvent::Shortcut { binding, input, at } => q.controller.on_hotkey(input, Some(binding), at),
+                    HookEvent::Tick(at) => q.controller.on_hotkey(Input::Tick, None, at),
+                    HookEvent::Escape => q.controller.on_hotkey(Input::Escape, None, now_ms()),
                     HookEvent::Sketch => q.controller.sketch(),
                     HookEvent::SketchUndo => q.controller.sketch_action("undo"),
                     HookEvent::Captured(hotkey) => {
@@ -429,10 +419,8 @@ pub fn sketch_hotkey(s: &Settings) -> Option<Hotkey> {
 }
 
 pub fn begin_capture(q: &Quill, slot: ShortcutSlot) {
-    q.capturing_sketch.store(slot == ShortcutSlot::Sketch, SeqCst);
-    q.capturing_raw.store(slot == ShortcutSlot::Raw, SeqCst);
     if let Some(h) = &q.hook {
-        q.capturing.store(true, SeqCst);
+        *q.capturing.lock() = Some(slot);
         h.set_suspended(true);
         h.set_capturing(true);
         q.sync_buttons();
@@ -443,7 +431,7 @@ pub fn begin_capture(q: &Quill, slot: ShortcutSlot) {
 
 pub fn end_capture(q: &Quill) {
     if let Some(h) = &q.hook {
-        q.capturing.store(false, SeqCst);
+        *q.capturing.lock() = None;
         h.set_capturing(false);
         let enabled = q.stores.settings.read(|s| s.enabled);
         h.set_suspended(!enabled);

@@ -16,6 +16,7 @@ use quill_core::text::vocabulary::{app_terms_first, for_app, vocabulary_terms};
 
 use crate::audio::{AudioError, Recording};
 use crate::engines::TranscribeRequest;
+use crate::platform::hotkey::now_ms;
 use crate::platform::system::{microphone_permission, MicPermission};
 use crate::platform::target;
 use crate::vad::Vad;
@@ -23,8 +24,9 @@ use crate::vad::Vad;
 use super::{Controller, DictationView, Job, Preview, Session, SessionConfig};
 
 impl Controller {
-    /// A shortcut event. `binding` is `None` for Escape and timer ticks.
-    pub fn on_hotkey(self: &Arc<Self>, input: Input, binding: Option<Binding>) {
+    /// A shortcut event, stamped `at` on the hook's clock. `binding` is
+    /// `None` for Escape and timer ticks.
+    pub fn on_hotkey(self: &Arc<Self>, input: Input, binding: Option<Binding>, at: u64) {
         let (mode, lone) = self.stores.settings.read(|s| {
             let vd = &s.voice_dictation;
             let key = match binding {
@@ -34,7 +36,6 @@ impl Controller {
             };
             (vd.activation_mode, key.is_some_and(|k| k.is_lone_modifier()))
         });
-        let now = self.clock.elapsed().as_millis() as u64;
         let (act, deadline) = {
             let mut shortcut = self.shortcut.lock();
             let phase = self.phase();
@@ -44,24 +45,15 @@ impl Controller {
                     return;
                 }
             }
-            if lone && std::mem::take(&mut shortcut.unready) && input == Input::Released {
-                drop(shortcut);
-                if let Some(e) = self.readiness_error() {
-                    self.fail(e);
-                }
-                return;
-            }
-            shortcut.machine.on(mode, lone, input, now, phase)
+            shortcut.machine.on(mode, lone, input, at, phase)
         };
-        if let Some(at) = deadline {
-            let me = self.clone();
+        if let (Some(due), Some(hook)) = (deadline, self.hook) {
             std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(at.saturating_sub(now)));
-                me.on_hotkey(Input::Tick, None);
+                std::thread::sleep(Duration::from_millis(due.saturating_sub(now_ms())));
+                hook.post_tick();
             });
         }
         match act {
-            Action::Start if lone && self.readiness_error().is_some() => self.shortcut.lock().unready = true,
             Action::Start => {
                 let raw = binding == Some(Binding::Raw);
                 self.start_as(raw);

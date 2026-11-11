@@ -9,7 +9,7 @@
 - Other audio while dictating: lower other apps to a percent of their volume, mute them, or pause music and videos while you speak. Audio that starts mid-recording is lowered too. Everything goes back when the recording ends, is cancelled, or fails. An app closed while lowered gets its volume back the next time it opens, and after a crash Quill puts things back on its next launch. Off by default.
 - A third activation mode, Hold or lock: hold the shortcut to talk, or tap it twice quickly to keep recording until you press it again. A single quick tap is ignored. Push to talk stays the default.
 - "Dictate without cleanup": an optional second shortcut that pastes your words as spoken, with vocabulary, snippets, and numbers still applied. Set it under Settings → Dictation.
-- The dictation shortcut can be a mouse side button, or Right Ctrl or Right Alt pressed alone. A side button used as the shortcut no longer makes the browser go back. Right Ctrl in a shortcut such as Ctrl+C still works as usual and never leaves a recording running.
+- The dictation shortcut can be a mouse side button, or Right Ctrl or Right Alt pressed alone. A side button used as the shortcut no longer makes the browser go back. Right Ctrl or Right Alt alone acts after about 0.2 seconds held on its own, or on a clean tap; pressed with another key, a click, or the wheel (Ctrl+C, Ctrl+click) it works as usual and Quill pastes nothing.
 - Vocabulary has an experimental "Listen for these terms" switch, off by default. With it on, Parakeet listens for up to 26 of your vocabulary terms while it recognizes, so names and jargon come out spelled your way more often. It can miss words after long pauses.
 
 ### Changed

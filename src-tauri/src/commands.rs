@@ -113,20 +113,10 @@ pub fn retry_gpu(app: AppHandle, q: Q) -> Result<(), String> {
     Ok(())
 }
 
-fn slot(sketch: Option<bool>, raw: Option<bool>) -> ShortcutSlot {
-    if sketch.unwrap_or(false) {
-        ShortcutSlot::Sketch
-    } else if raw.unwrap_or(false) {
-        ShortcutSlot::Raw
-    } else {
-        ShortcutSlot::Dictate
-    }
-}
-
 #[tauri::command]
-pub fn begin_hotkey_capture(app: AppHandle, q: Q, sketch: Option<bool>, raw: Option<bool>) {
+pub fn begin_hotkey_capture(app: AppHandle, q: Q, slot: ShortcutSlot) {
     *q.capture_error.lock() = None;
-    app::begin_capture(&q, slot(sketch, raw));
+    app::begin_capture(&q, slot);
     notify(&app);
 }
 
@@ -139,9 +129,9 @@ pub fn cancel_hotkey_capture(app: AppHandle, q: Q) {
 
 /// Back to the default shortcut; for the no-cleanup one, none.
 #[tauri::command]
-pub fn reset_hotkey(app: AppHandle, q: Q, sketch: Option<bool>, raw: Option<bool>) {
+pub fn reset_hotkey(app: AppHandle, q: Q, slot: ShortcutSlot) {
     let mut s = q.stores.settings.get();
-    match slot(sketch, raw) {
+    match slot {
         ShortcutSlot::Sketch => s.sketch.hotkey = quill_core::settings::SketchSettings::default_hotkey(),
         ShortcutSlot::Raw => s.voice_dictation.raw_hotkey = None,
         ShortcutSlot::Dictate => s.voice_dictation.hotkey = Hotkey::default(),

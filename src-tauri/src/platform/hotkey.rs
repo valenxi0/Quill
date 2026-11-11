@@ -7,11 +7,12 @@
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering::SeqCst};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::OnceLock;
+use std::time::Instant;
 
 use super::escape::EscapeSequence;
 
 use quill_core::settings::{is_modifier_vk, modifiers, Hotkey};
-pub use quill_core::state::Binding;
+pub use quill_core::state::{Binding, Input};
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::SystemInformation::GetTickCount;
@@ -28,10 +29,13 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HookEvent {
-    Pressed(Binding),
-    Released(Binding),
-    /// Another key went down while a lone-modifier shortcut was held.
-    Chord(Binding),
+    /// A dictation shortcut went down or up, or a lone-modifier one became a
+    /// chord. `at` is `now_ms()` when the hook saw it, so a slow consumer
+    /// can't stretch a tap.
+    Shortcut { binding: Binding, input: Input, at: u64 },
+    /// A timer the controller set is due, at `now_ms()`. It goes through the
+    /// same channel so it is handled after every key event before it.
+    Tick(u64),
     Escape,
     Captured(Hotkey),
     CaptureCancelled,
@@ -52,6 +56,8 @@ struct Trigger {
     /// Its repeats and key-up are swallowed even if a modifier came up first.
     /// For a lone modifier: the key is physically down.
     latched: AtomicBool,
+    /// A lone modifier's press already became a chord.
+    chorded: AtomicBool,
 }
 
 impl Trigger {
@@ -61,6 +67,7 @@ impl Trigger {
             mods: AtomicU32::new(hotkey.map_or(0, |h| h.modifiers)),
             down: AtomicBool::new(false),
             latched: AtomicBool::new(false),
+            chorded: AtomicBool::new(false),
         }
     }
 
@@ -101,6 +108,16 @@ struct Shared {
 }
 
 static SHARED: OnceLock<Shared> = OnceLock::new();
+static EPOCH: OnceLock<Instant> = OnceLock::new();
+
+/// Milliseconds on the clock shortcut events and ticks are stamped with.
+pub fn now_ms() -> u64 {
+    EPOCH.get_or_init(Instant::now).elapsed().as_millis() as u64
+}
+
+fn shortcut(s: &Shared, binding: Binding, input: Input) {
+    let _ = s.tx.send(HookEvent::Shortcut { binding, input, at: now_ms() });
+}
 
 /// Handle to the running hook.
 #[derive(Clone, Copy)]
@@ -184,6 +201,11 @@ impl HotkeyHook {
         s.sketch_vk.store(hotkey.map_or(0, |h| h.vk), SeqCst);
         s.sketch_mods.store(hotkey.map_or(0, |h| h.modifiers), SeqCst);
         s.sketch_latched.store(false, SeqCst);
+    }
+
+    /// Queue a `Tick` behind the key events already sent.
+    pub fn post_tick(&self) {
+        let _ = Self::shared().tx.send(HookEvent::Tick(now_ms()));
     }
 
     pub fn set_sketching(&self, active: bool) {
@@ -271,6 +293,21 @@ pub fn mouse_button(vk: u32, is_down: bool) -> bool {
     SHARED.get().is_some_and(|s| handle(s, vk, if is_down { WM_KEYDOWN } else { WM_KEYUP }))
 }
 
+/// A click or the wheel: Ctrl+click and Ctrl+wheel are chords too.
+pub fn mouse_chord() {
+    if let Some(s) = SHARED.get() {
+        mouse_chord_on(s);
+    }
+}
+
+fn mouse_chord_on(s: &Shared) {
+    if !s.suspended.load(SeqCst) {
+        for (t, binding) in [(&s.dictate, Binding::Dictate), (&s.raw, Binding::Raw)] {
+            chord(s, t, binding);
+        }
+    }
+}
+
 /// Returns true to swallow the key.
 fn handle(s: &Shared, vk: u32, msg: u32) -> bool {
     let is_down = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
@@ -317,6 +354,15 @@ fn handle(s: &Shared, vk: u32, msg: u32) -> bool {
         return false;
     }
 
+    let triggers = [(&s.dictate, Binding::Dictate), (&s.raw, Binding::Raw)];
+    // A lone modifier sees every key first, so a chord that Sketch or
+    // another shortcut swallows still ends its press.
+    for (t, binding) in triggers {
+        if t.is_lone() {
+            lone_modifier_key(s, t, binding, vk, is_down, is_up);
+        }
+    }
+
     let sketch_vk = s.sketch_vk.load(SeqCst);
     if sketch_vk != 0 && vk == sketch_vk {
         if s.sketch_latched.load(SeqCst) {
@@ -341,14 +387,6 @@ fn handle(s: &Shared, vk: u32, msg: u32) -> bool {
         return true;
     }
 
-    let triggers = [(&s.dictate, Binding::Dictate), (&s.raw, Binding::Raw)];
-    // A lone modifier sees every key first, so a chord that another
-    // shortcut swallows still ends its press.
-    for (t, binding) in triggers {
-        if t.is_lone() {
-            lone_modifier_key(s, t, binding, vk, is_down, is_up);
-        }
-    }
     triggers.into_iter().fold(false, |swallow, (t, binding)| trigger_key(s, t, binding, vk, is_down, is_up, mods) || swallow)
 }
 
@@ -365,7 +403,7 @@ fn trigger_key(s: &Shared, t: &Trigger, binding: Binding, vk: u32, is_down: bool
             if is_up {
                 t.latched.store(false, SeqCst);
                 if t.down.swap(false, SeqCst) {
-                    let _ = s.tx.send(HookEvent::Released(binding));
+                    shortcut(s, binding, Input::Released);
                 }
             }
             return true;
@@ -376,7 +414,7 @@ fn trigger_key(s: &Shared, t: &Trigger, binding: Binding, vk: u32, is_down: bool
             if want_mods & (modifiers::ALT | modifiers::WIN) != 0 {
                 tap_mask_key();
             }
-            let _ = s.tx.send(HookEvent::Pressed(binding));
+            shortcut(s, binding, Input::Pressed);
             return true;
         }
         return false;
@@ -385,7 +423,7 @@ fn trigger_key(s: &Shared, t: &Trigger, binding: Binding, vk: u32, is_down: bool
     // A required modifier going up also ends the chord; let it through.
     if is_up && t.down.load(SeqCst) && modifier_bit(vk) & want_mods != 0 && mods & want_mods != want_mods {
         t.down.store(false, SeqCst);
-        let _ = s.tx.send(HookEvent::Released(binding));
+        shortcut(s, binding, Input::Released);
     }
     false
 }
@@ -398,24 +436,33 @@ fn other_modifiers_held(s: &Shared, vk: u32) -> bool {
 
 /// Right Ctrl or Right Alt as the whole shortcut. The key itself always
 /// reaches the app, so Ctrl and Alt shortcuts keep working: another key
-/// going down while it is held turns the press into a chord.
+/// going down while it is held makes the press a chord.
 fn lone_modifier_key(s: &Shared, t: &Trigger, binding: Binding, vk: u32, is_down: bool, is_up: bool) {
     if vk == t.vk.load(SeqCst) {
         if is_down && !t.latched.swap(true, SeqCst) && !other_modifiers_held(s, vk) {
+            t.chorded.store(false, SeqCst);
             t.down.store(true, SeqCst);
             if vk == VK_RMENU.0 as u32 {
                 // Keeps the release from opening the app's menu bar.
                 tap_mask_key();
             }
-            let _ = s.tx.send(HookEvent::Pressed(binding));
+            shortcut(s, binding, Input::Pressed);
         } else if is_up {
             t.latched.store(false, SeqCst);
             if t.down.swap(false, SeqCst) {
-                let _ = s.tx.send(HookEvent::Released(binding));
+                shortcut(s, binding, Input::Released);
             }
         }
-    } else if is_down && vk != VK_MASK as u32 && t.down.swap(false, SeqCst) {
-        let _ = s.tx.send(HookEvent::Chord(binding));
+    } else if is_down && vk != VK_MASK as u32 {
+        chord(s, t, binding);
+    }
+}
+
+/// Once per press. The release still follows, to end a recording that
+/// went on past the chord.
+fn chord(s: &Shared, t: &Trigger, binding: Binding) {
+    if t.is_lone() && t.down.load(SeqCst) && !t.chorded.swap(true, SeqCst) {
+        shortcut(s, binding, Input::Chord);
     }
 }
 
@@ -433,6 +480,20 @@ fn capture_lone_modifier(s: &Shared, vk: u32, is_down: bool, is_up: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn ev(binding: Binding, input: Input) -> HookEvent {
+        HookEvent::Shortcut { binding, input, at: 0 }
+    }
+
+    /// Events with their time stamps zeroed.
+    fn drain(rx: &Receiver<HookEvent>) -> Vec<HookEvent> {
+        rx.try_iter()
+            .map(|e| match e {
+                HookEvent::Shortcut { binding, input, .. } => ev(binding, input),
+                e => e,
+            })
+            .collect()
+    }
 
     fn shared() -> (Shared, Receiver<HookEvent>) {
         let (tx, rx) = channel();
@@ -497,7 +558,7 @@ mod tests {
         assert!(handle(&s, 0x4D, WM_KEYUP));
         assert!(rx.try_recv().is_err());
         assert!(handle(&s, 0x4D, WM_KEYDOWN));
-        assert_eq!(rx.try_recv().unwrap(), HookEvent::Pressed(Binding::Dictate));
+        assert_eq!(drain(&rx), [ev(Binding::Dictate, Input::Pressed)]);
     }
 
     #[test]
@@ -507,11 +568,11 @@ mod tests {
         handle(&s, 0xA3, WM_KEYDOWN);
         handle(&s, 0xA0, WM_KEYDOWN);
         handle(&s, 0x4D, WM_KEYDOWN);
-        assert_eq!(rx.try_recv().unwrap(), HookEvent::Pressed(Binding::Dictate));
+        assert_eq!(drain(&rx), [ev(Binding::Dictate, Input::Pressed)]);
         handle(&s, 0xA2, WM_KEYUP);
         assert!(rx.try_recv().is_err());
         handle(&s, 0xA3, WM_KEYUP);
-        assert_eq!(rx.try_recv().unwrap(), HookEvent::Released(Binding::Dictate));
+        assert_eq!(drain(&rx), [ev(Binding::Dictate, Input::Released)]);
         assert!(handle(&s, 0x4D, WM_KEYUP));
         assert!(rx.try_recv().is_err());
     }
@@ -534,9 +595,6 @@ mod tests {
     const RALT: u32 = 0xA5;
     const LCTRL: u32 = 0xA2;
 
-    fn drain(rx: &Receiver<HookEvent>) -> Vec<HookEvent> {
-        rx.try_iter().collect()
-    }
 
     #[test]
     fn raw_shortcut_fires_as_its_own_binding() {
@@ -547,9 +605,9 @@ mod tests {
         assert!(handle(&s, 0x4B, WM_KEYDOWN));
         assert!(handle(&s, 0x4B, WM_KEYDOWN), "repeat");
         assert!(handle(&s, 0x4B, WM_KEYUP));
-        assert_eq!(drain(&rx), [HookEvent::Pressed(Binding::Raw), HookEvent::Released(Binding::Raw)]);
+        assert_eq!(drain(&rx), [ev(Binding::Raw, Input::Pressed), ev(Binding::Raw, Input::Released)]);
         assert!(handle(&s, 0x4D, WM_KEYDOWN));
-        assert_eq!(drain(&rx), [HookEvent::Pressed(Binding::Dictate)]);
+        assert_eq!(drain(&rx), [ev(Binding::Dictate, Input::Pressed)]);
     }
 
     #[test]
@@ -560,9 +618,9 @@ mod tests {
         handle(&s, 0xA0, WM_KEYDOWN);
         assert!(handle(&s, 0x4D, WM_KEYDOWN));
         assert_eq!(drain(&rx), [
-            HookEvent::Pressed(Binding::Raw),
-            HookEvent::Chord(Binding::Raw),
-            HookEvent::Pressed(Binding::Dictate),
+            ev(Binding::Raw, Input::Pressed),
+            ev(Binding::Raw, Input::Chord),
+            ev(Binding::Dictate, Input::Pressed),
         ]);
     }
 
@@ -573,7 +631,7 @@ mod tests {
         assert!(!handle(&s, RCTRL, WM_KEYDOWN));
         assert!(!handle(&s, RCTRL, WM_KEYDOWN), "repeat");
         assert!(!handle(&s, RCTRL, WM_KEYUP));
-        assert_eq!(drain(&rx), [HookEvent::Pressed(Binding::Dictate), HookEvent::Released(Binding::Dictate)]);
+        assert_eq!(drain(&rx), [ev(Binding::Dictate, Input::Pressed), ev(Binding::Dictate, Input::Released)]);
     }
 
     #[test]
@@ -585,7 +643,57 @@ mod tests {
         assert!(!handle(&s, 0x43, WM_KEYUP));
         assert!(!handle(&s, RCTRL, WM_KEYDOWN), "repeat after the chord");
         assert!(!handle(&s, RCTRL, WM_KEYUP));
-        assert_eq!(drain(&rx), [HookEvent::Pressed(Binding::Dictate), HookEvent::Chord(Binding::Dictate)]);
+        assert_eq!(drain(&rx), [
+            ev(Binding::Dictate, Input::Pressed),
+            ev(Binding::Dictate, Input::Chord),
+            ev(Binding::Dictate, Input::Released),
+        ]);
+    }
+
+    #[test]
+    fn clicks_and_the_wheel_are_chords_for_a_lone_modifier() {
+        let (s, rx) = shared();
+        mouse_chord_on(&s);
+        assert!(drain(&rx).is_empty(), "no lone shortcut held");
+        s.raw.set(Some(Hotkey { vk: RCTRL, modifiers: 0 }));
+        handle(&s, RCTRL, WM_KEYDOWN);
+        mouse_chord_on(&s);
+        mouse_chord_on(&s);
+        handle(&s, RCTRL, WM_KEYUP);
+        mouse_chord_on(&s);
+        assert_eq!(drain(&rx), [ev(Binding::Raw, Input::Pressed), ev(Binding::Raw, Input::Chord), ev(Binding::Raw, Input::Released)]);
+    }
+
+    #[test]
+    fn a_lone_press_sees_the_sketch_shortcut_and_undo_as_chords() {
+        let (s, rx) = shared();
+        s.dictate.set(Some(Hotkey { vk: RCTRL, modifiers: 0 }));
+        s.sketch_mods.store(modifiers::CTRL, SeqCst);
+        handle(&s, RCTRL, WM_KEYDOWN);
+        assert!(handle(&s, 0x53, WM_KEYDOWN));
+        assert_eq!(drain(&rx), [ev(Binding::Dictate, Input::Pressed), ev(Binding::Dictate, Input::Chord), HookEvent::Sketch]);
+        handle(&s, 0x53, WM_KEYUP);
+        handle(&s, RCTRL, WM_KEYUP);
+        drain(&rx);
+        s.sketching.store(true, SeqCst);
+        handle(&s, RCTRL, WM_KEYDOWN);
+        assert!(handle(&s, 0x5A, WM_KEYDOWN));
+        assert_eq!(drain(&rx), [ev(Binding::Dictate, Input::Pressed), ev(Binding::Dictate, Input::Chord), HookEvent::SketchUndo]);
+    }
+
+    #[test]
+    fn shortcut_events_are_stamped_when_the_hook_sees_them() {
+        let (s, rx) = shared();
+        let before = now_ms();
+        handle(&s, 0xA2, WM_KEYDOWN);
+        handle(&s, 0xA0, WM_KEYDOWN);
+        handle(&s, 0x4D, WM_KEYDOWN);
+        std::thread::sleep(std::time::Duration::from_millis(60));
+        handle(&s, 0x4D, WM_KEYUP);
+        let times: Vec<u64> = rx.try_iter().filter_map(|e| match e { HookEvent::Shortcut { at, .. } => Some(at), _ => None }).collect();
+        assert_eq!(times.len(), 2);
+        assert!(times[0] >= before && times[0] <= before + 30, "{times:?} from {before}");
+        assert!(times[1] >= times[0] + 60, "{times:?}");
     }
 
     #[test]
@@ -616,7 +724,7 @@ mod tests {
         assert!(handle(&s, 0x05, WM_KEYDOWN));
         assert!(handle(&s, 0x05, WM_KEYUP));
         assert!(!handle(&s, 0x06, WM_KEYDOWN), "the other side button");
-        assert_eq!(drain(&rx), [HookEvent::Pressed(Binding::Raw), HookEvent::Released(Binding::Raw)]);
+        assert_eq!(drain(&rx), [ev(Binding::Raw, Input::Pressed), ev(Binding::Raw, Input::Released)]);
         handle(&s, LCTRL, WM_KEYDOWN);
         assert!(!handle(&s, 0x05, WM_KEYDOWN), "Ctrl+button is another shortcut");
         assert!(drain(&rx).is_empty());

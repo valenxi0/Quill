@@ -29,7 +29,7 @@ Quill opens a short setup:
    - **Toggle**: press once to start, and again to finish.
    - **Hold or lock**: hold the keys while you talk, or tap them twice quickly to keep recording hands-free until you press them again. A single quick tap does nothing.
 
-   The shortcut can also be a mouse side button (back or forward), or Right Ctrl or Right Alt pressed on its own. Click the shortcut button, then press the side button, or tap Right Ctrl or Right Alt and let go. Using Right Ctrl in Ctrl+C still copies and never starts a dictation. On keyboards with an AltGr key, Right Alt types characters, so pick Right Ctrl instead.
+   The shortcut can also be a mouse side button (back or forward), or Right Ctrl or Right Alt pressed on its own. Click the shortcut button, then press the side button, or tap Right Ctrl or Right Alt and let go. Right Ctrl or Right Alt alone waits a moment before it acts, so other shortcuts keep working: hold it about a fifth of a second before you speak, or in Toggle tap it and let go. Pressed with another key, a click, or the scroll wheel (Ctrl+C, Ctrl+click), it does nothing in Quill. If you held it longer first, Quill drops the recording it started without pasting. On keyboards with an AltGr key, Right Alt types characters, so pick Right Ctrl instead.
 3. **Choose an engine**: the speech engine downloads once and then works offline. You must download one to continue.
    - **Parakeet + S1-mini** (recommended, 1.15 GB): the best results for English, with automatic clean-up.
    - **Whisper Tiny** (78 MB): the smallest and fastest, for slow connections or older PCs.

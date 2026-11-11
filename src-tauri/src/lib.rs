@@ -20,7 +20,6 @@ mod tray;
 mod updates;
 mod vad;
 
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -99,9 +98,7 @@ pub fn run() {
                 stores: stores.clone(),
                 hook,
                 hook_error,
-                capturing: AtomicBool::new(false),
-                capturing_sketch: AtomicBool::new(false),
-                capturing_raw: AtomicBool::new(false),
+                capturing: Mutex::new(None),
                 capture_error: Mutex::new(None),
                 buttons: Mutex::new(None),
                 preferred_languages,
@@ -208,7 +205,7 @@ pub fn run() {
             if window.label() == app::SETTINGS_LABEL {
                 if matches!(event, tauri::WindowEvent::Destroyed | tauri::WindowEvent::Focused(false)) {
                     if let Some(q) = window.app_handle().try_state::<Arc<Quill>>() {
-                        if q.capturing.load(std::sync::atomic::Ordering::SeqCst) {
+                        if q.capture_slot().is_some() {
                             app::end_capture(&q);
                             app::notify(window.app_handle());
                         }
