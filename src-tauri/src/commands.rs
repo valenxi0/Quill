@@ -93,6 +93,22 @@ pub fn load_engine(q: Q) {
     q.controller.warm_selected();
 }
 
+/// The GPU crash that put this run of Quill on the CPU, if any.
+#[tauri::command]
+pub fn gpu_fallback() -> Option<quill_core::gpu::GpuRecord> {
+    crate::engines::gpu::fallback()
+}
+
+/// Forget the GPU crash and restart, so the engines start on the GPU again.
+#[tauri::command]
+pub fn retry_gpu(app: AppHandle, q: Q) -> Result<(), String> {
+    if q.controller.phase().is_busy() {
+        return Err("Finish the current dictation first.".into());
+    }
+    crate::engines::gpu::retry().map_err(|e| e.to_string())?;
+    app.restart();
+}
+
 #[tauri::command]
 pub fn begin_hotkey_capture(app: AppHandle, q: Q, sketch: Option<bool>) {
     *q.capture_error.lock() = None;

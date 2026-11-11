@@ -125,6 +125,8 @@ export async function installDevMock() {
         { id: "2", text: "git commit -m \"fix the build\"", raw: "git commit dash m quote fix the build quote", level: "full", context: "terminal", engine: "parakeetS1", appName: "Windows Terminal", appExe: "WindowsTerminal.exe", secondsSpoken: 2.2, releaseToPasteMs: 180, createdAt: new Date().toISOString() },
       ];
       case "animations_enabled": return true;
+      // ?gpucrash previews the CPU fallback note.
+      case "gpu_fallback": return new URLSearchParams(location.search).has("gpucrash") ? { version: pkg.version, engine: "S1-mini" } : null;
       case "parse_vocabulary_list": return [];
       case "test_vocabulary_entry": return "";
       case "redo_history": return "Could we move the meeting to Thursday afternoon?";

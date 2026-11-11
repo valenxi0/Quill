@@ -164,6 +164,8 @@ pub fn run() {
             commands::remove_asset,
             commands::remove_engine,
             commands::load_engine,
+            commands::gpu_fallback,
+            commands::retry_gpu,
             commands::begin_hotkey_capture,
             commands::cancel_hotkey_capture,
             commands::reset_hotkey,

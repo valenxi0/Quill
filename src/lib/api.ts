@@ -191,6 +191,12 @@ export interface UiState {
   updateError: string | null;
 }
 
+/** A GPU start that crashed Quill, so this run uses the CPU. */
+export interface GpuRecord {
+  version: string;
+  engine: string;
+}
+
 export interface HistoryEntry {
   id: string;
   text: string;
@@ -234,6 +240,8 @@ export const api = {
   removeAsset: (id: AssetId) => invoke<void>("remove_asset", { id }),
   removeEngine: (engine: EngineId) => invoke<void>("remove_engine", { engine }),
   loadEngine: () => invoke<void>("load_engine"),
+  gpuFallback: () => invoke<GpuRecord | null>("gpu_fallback"),
+  retryGpu: () => invoke<void>("retry_gpu"),
   beginHotkeyCapture: (sketch = false) => invoke<void>("begin_hotkey_capture", { sketch }),
   cancelHotkeyCapture: () => invoke<void>("cancel_hotkey_capture"),
   resetHotkey: (sketch = false) => invoke<void>("reset_hotkey", { sketch }),
