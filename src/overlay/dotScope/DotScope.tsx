@@ -158,6 +158,7 @@ export function DotScope({ stage, loudness, reduced, width, children }: DotScope
   });
   const visible = useDocumentVisible();
   const tuning = scope.current.tuning;
+  const recording = stage === "recording";
 
   const frame = (dt: number) => {
     const s = scope.current;
@@ -185,9 +186,12 @@ export function DotScope({ stage, loudness, reduced, width, children }: DotScope
       className="flex shrink-0 items-center gap-2 overflow-hidden text-[12.5px] font-medium text-white"
       style={{
         height: tuning.height,
-        borderRadius: tuning.height / 2,
+        boxSizing: "content-box",
+        borderRadius: tuning.height / 2 + 1,
         background: PLATE,
-        boxShadow: `inset 0 0 0 1px ${RIM}, 0 3px 12px ${SHADOW}`,
+        border: recording ? "1px solid #ff453a" : `1px solid ${RIM}`,
+        boxShadow: `0 3px 12px ${SHADOW}`,
+        animation: recording ? "rec-breathe 2s steps(15) infinite" : undefined,
         paddingRight: children != null ? 12 : 0,
         opacity: 0,
       }}
