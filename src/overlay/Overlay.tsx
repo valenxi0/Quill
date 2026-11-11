@@ -1,6 +1,7 @@
 // The status pill. Redraws only on level updates; nothing animates while idle.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { api, on, type AppContext, type CorrectionPair, type DictationView, type UpdateInfo } from "../lib/api";
+import { api, on, type AppContext, type CorrectionPair, type DictationView, type PillStyle, type UpdateInfo } from "../lib/api";
+import { METER_HISTORY, METERS } from "./meters";
 
 export default function Overlay({ preview }: { preview?: DictationView }) {
   const [view, setView] = useState<DictationView | null>(preview ?? null);
@@ -8,14 +9,21 @@ export default function Overlay({ preview }: { preview?: DictationView }) {
   const [reduced, setReduced] = useState(false);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [heard, setHeard] = useState("");
+  const [pillStyle, setPillStyle] = useState<PillStyle>("bars");
 
   useEffect(() => {
+    // Read again at every recording start, so a new choice in Settings shows next time.
+    const readLook = () => {
+      api.pillStyle().then(setPillStyle).catch(() => {});
+      api.animationsEnabled().then((a) => setReduced(!a));
+    };
+    readLook();
     const subs = [
       on<DictationView>("dictation", (v) => {
         setView(v);
         if (v.phase !== "idle") setSuggestion(null);
         if (v.phase !== "recording") setHeard("");
-        if (v.phase === "recording") api.animationsEnabled().then((a) => setReduced(!a));
+        if (v.phase === "recording") readLook();
       }),
       on<CorrectionPair>("suggestion", (p) => {
         setSuggestion(p);
@@ -41,7 +49,7 @@ export default function Overlay({ preview }: { preview?: DictationView }) {
   return (
     <div className="flex h-screen items-end justify-center pb-2">
       <Pill recording={phase === "recording"}>
-        {phase === "recording" && <Listening context={view.context} heard={heard} />}
+        {phase === "recording" && <Listening context={view.context} heard={heard} pillStyle={pillStyle} reduced={reduced} />}
         {(phase === "transcribing" || phase === "cleaning") && (
           <>
             <Orb />
@@ -80,7 +88,9 @@ function Pill({ children, recording }: { children: React.ReactNode; recording?: 
       style={{
         background: "rgba(10, 10, 10, 0.92)",
         border: recording ? "1px solid #ff453a" : "1px solid rgba(255,255,255,0.12)",
-        animation: recording ? "rise-in 0.16s ease-out, rec-breathe 2s ease-in-out infinite" : "rise-in 0.16s ease-out",
+        // Stepped: a smooth box-shadow animation repaints the pill on every
+        // display frame, which cost about a quarter of a core at 240 Hz.
+        animation: recording ? "rise-in 0.16s ease-out, rec-breathe 2s steps(15) infinite" : "rise-in 0.16s ease-out",
       }}
     >
       {children}
@@ -140,11 +150,9 @@ function Orb() {
   );
 }
 
-const BARS = 12;
-
-function Listening({ context, heard }: { context: AppContext; heard: string }) {
-  // The last 12 voice readings, newest on the right: a rolling waveform.
-  const [bars, setBars] = useState<number[]>(() => Array(BARS).fill(0));
+function Listening({ context, heard, pillStyle, reduced }: { context: AppContext; heard: string; pillStyle: PillStyle; reduced: boolean }) {
+  // Recent voice readings, newest last: a rolling waveform.
+  const [levels, setLevels] = useState<number[]>(() => Array(METER_HISTORY).fill(0));
 
   useEffect(() => {
     // Track the room's background noise so silence reads as flat. The floor
@@ -153,24 +161,17 @@ function Listening({ context, heard }: { context: AppContext; heard: string }) {
     const un = on<number>("level", (level) => {
       floor = level < floor ? level : Math.min(level, floor + 0.004);
       const voice = Math.min(1, Math.max(0, (level - floor - 0.06) / 0.45));
-      setBars((prev) => [...prev.slice(1), voice]);
+      setLevels((prev) => [...prev.slice(1), voice]);
     });
     return () => {
       un.then((f) => f());
     };
   }, []);
 
+  const Meter = METERS[pillStyle] ?? METERS.bars;
   return (
     <>
-      <div className="flex h-6 shrink-0 items-center gap-[2px]">
-        {bars.map((v, i) => (
-          <span
-            key={i}
-            className="w-[2px] rounded-full bg-white"
-            style={{ height: 2 + v * 18, transition: "height 90ms ease-out" }}
-          />
-        ))}
-      </div>
+      <Meter levels={levels} reduced={reduced} />
       {heard && <LiveCaption text={heard} />}
       {(context === "terminal" || context === "email") && <span className="shrink-0 rounded-full bg-white/15 px-1.5 text-[10.5px] text-white/80">{context === "email" ? "Email" : "Terminal"}</span>}
     </>

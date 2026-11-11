@@ -5,7 +5,7 @@ use std::sync::Arc;
 use quill_core::corrections::CorrectionPair;
 use quill_core::engines::{AssetId, EngineId};
 use quill_core::history::HistoryEntry;
-use quill_core::settings::{CleanupLevel, Hotkey, Settings, ShortcutSlot};
+use quill_core::settings::{CleanupLevel, Hotkey, PillStyle, Settings, ShortcutSlot};
 use quill_core::stats::{Insights, Stats};
 use quill_core::text::vocabulary::{apply, parse_list_for_app, protect_snippets, EntryKind, Piece, VocabEntry};
 use tauri::{AppHandle, State};
@@ -408,6 +408,11 @@ pub fn dictation_command(q: Q, command: String) {
 #[tauri::command]
 pub fn animations_enabled() -> bool {
     crate::platform::system::animations_enabled()
+}
+
+#[tauri::command]
+pub fn pill_style(q: Q) -> PillStyle {
+    q.stores.settings.read(|s| s.voice_dictation.pill_style)
 }
 
 #[tauri::command]

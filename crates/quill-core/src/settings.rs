@@ -233,6 +233,8 @@ pub struct VoiceDictation {
     /// transcript stays on the clipboard.
     pub restore_clipboard: bool,
     pub history_retention: crate::history::Retention,
+    /// How the recording pill draws your voice.
+    pub pill_style: PillStyle,
 }
 
 impl VoiceDictation {
@@ -265,6 +267,17 @@ pub enum OtherAudio {
 }
 
 pub const DEFAULT_LOWER_TO_PERCENT: u8 = 20;
+
+/// The voice meter in the recording pill. `Bars` is the original look.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum PillStyle {
+    #[default]
+    Bars,
+    Waveform,
+    Dither,
+    Glow,
+}
 
 /// A cleanup style for one app, by executable name.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -308,6 +321,7 @@ impl Default for VoiceDictation {
             vocabulary_boost: false,
             restore_clipboard: false,
             history_retention: crate::history::Retention::Day,
+            pill_style: PillStyle::Bars,
         }
     }
 }
@@ -545,6 +559,23 @@ mod tests {
         let set: Settings = serde_json::from_str(r#"{"voiceDictation":{"restoreClipboard":true,"historyRetention":"week"}}"#).unwrap();
         assert!(set.voice_dictation.restore_clipboard);
         assert_eq!(set.voice_dictation.history_retention, Retention::Week);
+    }
+
+    #[test]
+    fn pill_style_defaults_to_bars_for_old_files() {
+        let old: Settings = serde_json::from_str(r#"{"voiceDictation":{"engine":"parakeetS1","restoreClipboard":true}}"#).unwrap();
+        assert_eq!(old.voice_dictation.pill_style, PillStyle::Bars);
+        let json = serde_json::to_value(Settings::default()).unwrap();
+        assert_eq!(json["voiceDictation"]["pillStyle"], "bars");
+        for (name, style) in [
+            ("bars", PillStyle::Bars),
+            ("waveform", PillStyle::Waveform),
+            ("dither", PillStyle::Dither),
+            ("glow", PillStyle::Glow),
+        ] {
+            let set: Settings = serde_json::from_str(&format!(r#"{{"voiceDictation":{{"pillStyle":"{name}"}}}}"#)).unwrap();
+            assert_eq!(set.voice_dictation.pill_style, style, "{name}");
+        }
     }
 
     #[test]

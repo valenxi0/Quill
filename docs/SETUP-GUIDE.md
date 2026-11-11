@@ -63,7 +63,7 @@ To hear about new versions, open [the repo](https://github.com/valenxi0/Quill) a
 - **"Microphone access is off"**: open **Settings → Privacy & security → Microphone** and turn on both **Microphone access** and **Let desktop apps access your microphone**.
 - **Quill records from the wrong microphone.** Choose one under **Settings → Dictation → Audio → Microphone**. With **System default**, Quill follows the Windows default, except that it skips a Bluetooth headset's mic when another mic is connected. Turn off **Avoid Bluetooth headset mics** to use the headset anyway.
 - **The text was copied but not pasted.** Some windows, like those run as administrator, don't accept typing from other apps. The text is still on your clipboard, so press **Ctrl+V**. With **Put back what you copied** on, the text stays on the clipboard whenever the paste didn't happen.
-- **My clipboard has the transcript instead of what I copied.** Quill leaves the transcript on the clipboard by default. Turn on **Settings → Cleanup → Formatting → Put back what you copied** to get your copy back after each paste. In Remote Desktop windows it comes back after 3 seconds, so the remote PC has time to read the paste.
+- **My clipboard has the transcript instead of what I copied.** Quill leaves the transcript on the clipboard by default. Turn on **Settings → Cleanup → Pasting → Put back what you copied** to get your copy back after each paste. In Remote Desktop windows it comes back after 3 seconds, so the remote PC has time to read the paste.
 
 ## Smart App Control
 

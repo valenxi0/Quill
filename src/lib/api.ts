@@ -93,7 +93,11 @@ export interface VoiceDictation {
   /** Put the previous clipboard back after a paste. */
   restoreClipboard: boolean;
   historyRetention: HistoryRetention;
+  /** How the recording pill draws your voice. */
+  pillStyle: PillStyle;
 }
+
+export type PillStyle = "bars" | "waveform" | "dither" | "glow";
 
 export type HistoryRetention = "day" | "week" | "month";
 
@@ -321,6 +325,7 @@ export const api = {
   forgetCorrections: () => invoke<void>("forget_corrections"),
   hideOverlay: () => invoke<void>("hide_overlay"),
   animationsEnabled: () => invoke<boolean>("animations_enabled"),
+  pillStyle: () => invoke<PillStyle>("pill_style"),
   checkForUpdates: () => invoke<UpdateInfo | null>("check_for_updates"),
   installUpdate: () => invoke<void>("install_update"),
   openReleases: () => invoke<void>("open_releases"),

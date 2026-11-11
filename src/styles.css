@@ -73,6 +73,15 @@ body.overlay {
   overflow: hidden;
 }
 
+/* The Dither pill draws its first frame within a few milliseconds of the
+   pill appearing; skip the engine's 700 ms fade from its fallback. */
+body.overlay .pill-dither > canvas {
+  transition: none;
+}
+body.overlay .pill-dither > [data-dither-fallback] {
+  transition-delay: 0s;
+}
+
 .selectable {
   user-select: text;
   cursor: text;
@@ -80,6 +89,20 @@ body.overlay {
 
 button {
   cursor: default;
+}
+
+/* Windows draws an open select's list from the options' colours. Without
+   these it is white, with the light text colour on it. */
+select {
+  color-scheme: dark;
+}
+select option,
+select optgroup {
+  background-color: var(--card);
+  color: var(--text);
+}
+select option:disabled {
+  color: var(--text-3);
 }
 
 :focus-visible {
@@ -102,6 +125,7 @@ button {
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
 }
@@ -110,6 +134,7 @@ button {
 .reduced-motion *::before,
 .reduced-motion *::after {
   animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
   transition-duration: 0.01ms !important;
 }
 

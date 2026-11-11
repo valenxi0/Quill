@@ -3,6 +3,7 @@ import { api, LINKS, type AppStyle, type AssetView, type CleanupLevel, type Engi
 import { bytes } from "../lib/format";
 import type { Ctx } from "./App";
 import { AudioCard } from "./AudioCard";
+import { PillPicker } from "./PillPicker";
 import { AppIcon, AppScope, scopeName, useKnownApps } from "./AppScope";
 import {
   AppWindow,
@@ -113,11 +114,14 @@ export function CleanupTab({ ctx }: { ctx: Ctx }) {
       <Section title="Formatting">
         <FormattingCard ctx={ctx} />
       </Section>
+      <Section title="Pasting">
+        <PastingCard ctx={ctx} />
+      </Section>
     </>
   );
 }
 
-/** The General page: startup, updates, launchers, and licenses. */
+/** The General page: startup, updates, appearance, launchers, and licenses. */
 export function GeneralTab({ ctx }: { ctx: Ctx }) {
   return (
     <>
@@ -130,6 +134,9 @@ export function GeneralTab({ ctx }: { ctx: Ctx }) {
         />
       </Card>
       <UpdatesCard ctx={ctx} />
+      <Section title="Appearance">
+        <PillPicker ctx={ctx} />
+      </Section>
       <Section title="Launchers">
         <LaunchersCard />
       </Section>
@@ -732,6 +739,31 @@ function FormattingCard({ ctx }: { ctx: Ctx }) {
       />
       <Divider />
       <CardHeader
+        icon={<Hash size={19} />}
+        title="Write numbers as figures"
+        detail={
+          ctx.state.itnAvailable
+            ? '"Twenty five dollars on March third" becomes "$25 on March 3". Applies to English when S1-mini isn\'t already doing it: in Verbatim, with the Whisper and Cohere engines, and in terminals.'
+            : "The number formatter isn't in this build."
+        }
+        right={
+          <Switch
+            label="Write numbers as figures"
+            disabled={!ctx.state.itnAvailable}
+            checked={vd.writesNumbers && ctx.state.itnAvailable}
+            onChange={(v) => ctx.saveVd({ writesNumbers: v })}
+          />
+        }
+      />
+    </Card>
+  );
+}
+
+function PastingCard({ ctx }: { ctx: Ctx }) {
+  const vd = ctx.state.settings.voiceDictation;
+  return (
+    <Card>
+      <CardHeader
         icon={<KeyReturn size={19} />}
         title={'Say "press enter" to send'}
         detail={'End a dictation with "press enter" and Quill presses Enter after the paste. Handy in chat apps and coding tools.'}
@@ -750,24 +782,6 @@ function FormattingCard({ ctx }: { ctx: Ctx }) {
         title="Put back what you copied"
         detail="After a paste, Quill puts back what was on the clipboard before, unless you copied something new. When off, the transcript stays on the clipboard so you can paste it again."
         right={<Switch label="Put back what you copied" checked={vd.restoreClipboard} onChange={(v) => ctx.saveVd({ restoreClipboard: v })} />}
-      />
-      <Divider />
-      <CardHeader
-        icon={<Hash size={19} />}
-        title="Write numbers as figures"
-        detail={
-          ctx.state.itnAvailable
-            ? '"Twenty five dollars on March third" becomes "$25 on March 3". Applies to English when S1-mini isn\'t already doing it: in Verbatim, with the Whisper and Cohere engines, and in terminals.'
-            : "The number formatter isn't in this build."
-        }
-        right={
-          <Switch
-            label="Write numbers as figures"
-            disabled={!ctx.state.itnAvailable}
-            checked={vd.writesNumbers && ctx.state.itnAvailable}
-            onChange={(v) => ctx.saveVd({ writesNumbers: v })}
-          />
-        }
       />
     </Card>
   );
@@ -817,6 +831,7 @@ const LICENSES: [string, string, string][] = [
   ["Whisper tiny.en, base.en, large-v3-turbo", "MIT", "By OpenAI. Notice kept."],
   ["Cohere Transcribe 03-2026", "Apache 2.0", "By Cohere Labs. README kept with the weights."],
   ["Silero VAD", "MIT", "By Silero. Built into Quill to skip silence."],
+  ["dithercn", "MIT", "By OpenCore. Draws the Dither recording pill."],
 ];
 
 function LicensesCard() {
