@@ -57,6 +57,7 @@ To hear about new versions, open [the repo](https://github.com/valenxi0/Quill) a
 - **Nothing happens when I press the shortcut.** Check that Quill's icon is in the tray. If it isn't, open Quill from the Start menu.
 - **The shortcut stays on the default.** Click the shortcut button, hold Ctrl, Alt, Shift or Win, then press another key, such as Space. Modifier keys alone do not save a shortcut. Keep Settings in focus and check for an error below the button. If Quill reports a keyboard hook error, quit it from the tray and reopen it.
 - **"Microphone access is off"**: open **Settings → Privacy & security → Microphone** and turn on both **Microphone access** and **Let desktop apps access your microphone**.
+- **Quill records from the wrong microphone.** Choose one under **Settings → Dictation → Audio → Microphone**. With **System default**, Quill follows the Windows default, except that it skips a Bluetooth headset's mic when another mic is connected. Turn off **Avoid Bluetooth headset mics** to use the headset anyway.
 - **The text was copied but not pasted.** Some windows, like those run as administrator, don't accept typing from other apps. The text is still on your clipboard, so press **Ctrl+V**.
 
 ## Smart App Control

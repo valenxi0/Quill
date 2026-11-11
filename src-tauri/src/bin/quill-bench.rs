@@ -1,12 +1,21 @@
 //! `quill-bench [engineId…]`: benchmark installed engines over
 //! `%LOCALAPPDATA%\Quill\Eval\*.wav` + `.txt`, writing `%TEMP%\quill\bench.json`.
 //! `quill-bench --download assetId…`: fetch models through Quill's downloader.
+//! `quill-bench --hotwords <dir>`: Parakeet hotword experiment (see bench.rs).
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) == Some("--s1") {
         if let Err(e) = quill_lib::bench::s1_speed() {
             eprintln!("{e}");
+        }
+        return;
+    }
+    #[cfg(feature = "sherpa")]
+    if args.first().map(String::as_str) == Some("--hotwords") {
+        if let Err(e) = quill_lib::bench::hotwords(&args[1..]) {
+            eprintln!("hotwords failed: {e}");
+            std::process::exit(1);
         }
         return;
     }

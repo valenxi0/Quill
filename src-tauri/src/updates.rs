@@ -58,8 +58,15 @@ const UNREACHABLE: &str =
 /// Ask GitHub for a newer release. Returns the new version, if any.
 pub async fn check(app: &AppHandle) -> Result<Option<UpdateInfo>, String> {
     let q = app.state::<Arc<Quill>>().inner().clone();
+    let handle = app.clone();
     let update = app
-        .updater()
+        .updater_builder()
+        // On Windows the installer exits Quill without RunEvent::Exit.
+        .on_before_exit(move || {
+            crate::platform::other_audio::restore_all();
+            handle.cleanup_before_exit();
+        })
+        .build()
         .map_err(|e| e.to_string())?
         .check()
         .await

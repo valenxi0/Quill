@@ -2,8 +2,16 @@
 
 ## [Unreleased]
 
+### Added
+
+- Pick your microphone under Settings → Dictation → Audio. System default follows Windows as it changes. If the mic you picked isn't connected, Quill uses the default and says so.
+- Quill skips a Bluetooth headset's mic when another mic exists, because recording from it drops the headset to call quality. It moves to another mic you set as a Windows default, or else to a microphone or headset rather than a line input or virtual cable. On by default; a mic you pick is always used.
+- Other audio while dictating: lower other apps to a percent of their volume, mute them, or pause music and videos while you speak. Audio that starts mid-recording is lowered too. Everything goes back when the recording ends, is cancelled, or fails. An app closed while lowered gets its volume back the next time it opens, and after a crash Quill puts things back on its next launch. Off by default.
+- Vocabulary has an experimental "Listen for these terms" switch, off by default. With it on, Parakeet listens for up to 26 of your vocabulary terms while it recognizes, so names and jargon come out spelled your way more often. It can miss words after long pauses.
+
 ### Changed
 
+- If the graphics driver crashes Quill while an engine starts on the GPU, Quill uses the CPU from then on instead of crashing at every launch. Settings says so under Engine, with a button to try the GPU again. A new version of Quill tries the GPU again on its own.
 - Dictating an instruction such as "Translate this into French:" pastes it as you said it. S1-mini used to delete the instruction. Quill also keeps your words if cleanup answers a question or writes much more than you said.
 - Cleanup has a time limit. If S1-mini takes too long, Quill pastes what it heard instead of waiting.
 - Dictating only numbers, such as "twenty five", skips S1-mini and goes straight to number formatting.

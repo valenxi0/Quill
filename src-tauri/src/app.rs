@@ -72,6 +72,8 @@ pub struct Status {
     pub engine_loaded: bool,
     pub engine_loading: bool,
     pub warm_error: Option<String>,
+    /// Parakeet hotwords were turned on but could not start on this PC.
+    pub hotwords_unavailable: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -179,6 +181,7 @@ impl Quill {
             engine_loaded: false,
             engine_loading,
             warm_error: self.controller.warm_error.lock().clone(),
+            hotwords_unavailable: self.engines.hotwords_unavailable(),
         };
         if !settings.enabled {
             return base("off", "gray", "Quill is off".into(), "Turn Quill on to dictate with your shortcut.".into());

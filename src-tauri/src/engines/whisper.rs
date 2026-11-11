@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use quill_core::text::finish::tidy_whisper;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState};
 
-use super::{SpeechEngine, TranscribeRequest, Transcript};
+use super::{gpu, SpeechEngine, TranscribeRequest, Transcript};
 
 pub struct Whisper {
     path: PathBuf,
@@ -41,14 +41,18 @@ impl SpeechEngine for Whisper {
         if !self.path.exists() {
             return Err(format!("{} is missing. Download the engine again.", self.path.display()));
         }
+        // Covers ggml's Vulkan start and the warm-up pass below.
+        let _start = gpu::start("Whisper");
+        let gpu = gpu::use_gpu();
         // GPU first; CPU if the GPU backend can't start.
-        let (ctx, accelerator) = match self.context(cfg!(feature = "vulkan")) {
-            Ok(c) if cfg!(feature = "vulkan") => (c, "Vulkan"),
+        let (ctx, accelerator) = match self.context(gpu) {
+            Ok(c) if gpu => (c, "Vulkan"),
             Ok(c) => (c, "CPU"),
-            Err(e) => {
+            Err(e) if gpu => {
                 log::warn!("whisper GPU load failed ({e}); using the CPU");
                 (self.context(false)?, "CPU")
             }
+            Err(e) => return Err(e),
         };
         let state = ctx.create_state().map_err(|e| e.to_string())?;
         self.ctx = Some(ctx);
@@ -94,7 +98,7 @@ impl SpeechEngine for Whisper {
         } else {
             request.language.clone()
         };
-        Ok(Transcript { text: tidy_whisper(&text), language: detected, boosted_terms: vec![] })
+        Ok(Transcript { text: tidy_whisper(&text), language: detected })
     }
 
     fn unload(&mut self) {

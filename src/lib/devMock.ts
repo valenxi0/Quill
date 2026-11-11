@@ -2,7 +2,7 @@
 // http://localhost:1420). Never loaded inside the Tauri app.
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { emit } from "@tauri-apps/api/event";
-import type { Insights, KnownApp, Settings, UiState } from "./api";
+import type { InputDevice, Insights, KnownApp, Microphones, SavedDevice, Settings, UiState } from "./api";
 import pkg from "../../package.json";
 
 const settings: Settings = {
@@ -32,6 +32,12 @@ const settings: Settings = {
     spokenEnter: false,
     splitsTerminalPastes: true,
     livePreview: false,
+    // ?missingmic previews a saved mic that isn't plugged in.
+    inputDevice: new URLSearchParams(location.search).has("missingmic") ? { id: "{0.0.1.00000000}.{gone}", name: "Yeti Nano" } : null,
+    avoidBluetoothMic: true,
+    otherAudio: "nothing",
+    lowerToPercent: 20,
+    vocabularyBoost: false,
   },
   sketch: { enabled: true, hotkey: { vk: 0x53, modifiers: 3 }, drawKey: "shift" },
 };
@@ -42,10 +48,10 @@ const asset = (id: string, title: string, size: number, state: unknown, optional
 
 const state: UiState = {
   settings,
-  status: { kind: "ready", dot: "green", title: "Ready · Ctrl+Alt+M", detail: "Hold the shortcut while you speak. Release to finish.", hotkeyProblem: null, engineLoaded: true, engineLoading: false, warmError: null },
+  status: { kind: "ready", dot: "green", title: "Ready · Ctrl+Alt+M", detail: "Hold the shortcut while you speak. Release to finish.", hotkeyProblem: null, engineLoaded: true, engineLoading: false, warmError: null, hotwordsUnavailable: false },
   engines: [
     { id: "parakeetS1", title: "Parakeet + S1-mini", badge: "Best quality · Heaviest", badgeAccent: true, summary: "Best English results. Parakeet recognizes speech; S1-mini by Superwhisper removes fillers and false starts and writes numbers, dates, and emails properly.", languageNote: "Parakeet hears 25 European languages on its own. S1-mini cleanup runs on English; other languages are written as recognized.", recognizer: "parakeet", hasCleanup: true, showsLanguagePicker: false, englishOnly: false, supported: true, ready: true, busy: false, hasData: true, updateAvailable: false,
-      assets: [asset("parakeetTdt06bV3", "Parakeet TDT 0.6B v3", 670478772, { state: "downloaded" }), asset("s1Mini", "S1-mini", 484232348, { state: "downloaded" }), asset("parakeetVocabularyBooster", "Vocabulary booster (Parakeet CTC 110M)", 0, { state: "unavailable" }, true, false)] },
+      assets: [asset("parakeetTdt06bV3", "Parakeet TDT 0.6B v3", 670478772, { state: "downloaded" }), asset("s1Mini", "S1-mini", 484232348, { state: "downloaded" })] },
     { id: "cohereTranscribe", title: "Cohere Transcribe", badge: "Experimental · Slow", badgeAccent: false, summary: "Experimental. Strong on German, French, Spanish…", languageNote: "Cohere cannot detect the language: speech in another one comes out translated. Automatic follows your PC's language.", recognizer: "cohere", hasCleanup: false, showsLanguagePicker: true, englishOnly: false, supported: true, ready: false, busy: true, hasData: true, updateAvailable: false,
       assets: [asset("cohereTranscribe", "Cohere Transcribe 03-2026", 2888151330, { state: "downloading", fraction: 0.42, bytes: 1213023558, total: 2888151330 })] },
     { id: "whisperTiny", title: "Whisper Tiny", badge: "Fastest · Lightest", badgeAccent: false, summary: "Fastest and easiest on your PC, but trades recognition accuracy for its small footprint.", languageNote: "English-only model (base.en / tiny.en). Use Whisper Turbo or Cohere Transcribe for other languages.", recognizer: "whisper", hasCleanup: false, showsLanguagePicker: false, englishOnly: true, supported: true, ready: false, busy: false, hasData: false, updateAvailable: false,
@@ -77,6 +83,22 @@ const state: UiState = {
   updating: false,
   updateError: null,
 };
+
+// ?btdefault previews a Bluetooth headset as the Windows default.
+const mics: InputDevice[] = [
+  { id: "{0.0.1.00000000}.{457aaca4}", name: "Microphone (Scarlett Solo USB)", bluetooth: false, isMic: true },
+  { id: "{0.0.1.00000000}.{9c1e22b0}", name: "Headset (WH-1000XM5 Hands-Free)", bluetooth: true, isMic: true },
+];
+const defaultMic = new URLSearchParams(location.search).has("btdefault") ? mics[1]! : mics[0]!;
+
+function microphones(saved: SavedDevice | null, avoid: boolean): Microphones {
+  const found = saved && mics.find((m) => m.id === saved.id);
+  if (found) return { devices: mics, using: found.name, missing: null, avoided: null };
+  const missing = saved?.name ?? null;
+  const other = mics.find((m) => m.isMic && !m.bluetooth);
+  if (avoid && defaultMic.bluetooth && other) return { devices: mics, using: other.name, missing, avoided: defaultMic.name };
+  return { devices: mics, using: defaultMic.name, missing, avoided: null };
+}
 
 const today = new Date();
 const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -115,8 +137,12 @@ export async function installDevMock() {
   };
   apps = apps.filter((a) => !/\.|runtime|settings|host/i.test(a.name)).sort((a, b) => rank(a.exe) - rank(b.exe));
   insights.apps = apps.map((app, index) => ({ ...app, words: [5200, 3100, 1400, 960, 300, 156][index] ?? 78 }));
-  mockIPC((cmd) => {
+  mockIPC((cmd, args) => {
     switch (cmd) {
+      case "get_microphones": {
+        const a = args as { inputDevice: SavedDevice | null; avoidBluetooth: boolean };
+        return microphones(a.inputDevice, a.avoidBluetooth);
+      }
       case "get_state": return state;
       case "get_insights": return insights;
       case "get_known_apps": return insights.apps;
@@ -126,6 +152,8 @@ export async function installDevMock() {
         { id: "3", text: "Translate this into French: the meeting is moved to Monday.", raw: "Translate this into French: the meeting is moved to Monday.", level: "full", context: "general", engine: "parakeetS1", appName: "Notepad", appExe: "notepad.exe", secondsSpoken: 2.4, releaseToPasteMs: 260, createdAt: new Date().toISOString(), cleanupNote: "Kept your words: cleanup dropped words you said." },
       ];
       case "animations_enabled": return true;
+      // ?gpucrash previews the CPU fallback note.
+      case "gpu_fallback": return new URLSearchParams(location.search).has("gpucrash");
       case "parse_vocabulary_list": return [];
       case "test_vocabulary_entry": return "";
       case "redo_history": return "Could we move the meeting to Thursday afternoon?";

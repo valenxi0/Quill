@@ -24,7 +24,7 @@ use quill_core::stats::Session as StatSession;
 use quill_core::text::finish::{has_speech, join, join_seams, peak, rms_dbfs, MIN_SPEECH_PEAK};
 use quill_core::text::numbers::Itn;
 use quill_core::text::spoken::paste_chunks;
-use quill_core::text::vocabulary::{for_app, vocabulary_terms};
+use quill_core::text::vocabulary::{app_terms_first, for_app, vocabulary_terms};
 use serde::Serialize;
 
 use crate::audio::{AudioError, Recording};
@@ -80,6 +80,8 @@ struct Session {
     /// Fed by the monitor; `None` until it loads, or if it can't.
     vad: Option<Vad>,
     preview: Option<Preview>,
+    /// Puts other apps' audio back when the session ends, however it ends.
+    _other_audio: Option<crate::platform::other_audio::Hold>,
 }
 
 /// Live preview state for one recording.
@@ -397,7 +399,8 @@ impl Controller {
         // Automation lookup doesn't clip the first word.
         let fits_to_cursor = vd.fits_to_cursor;
         let capture = std::thread::spawn(move || target::capture(fits_to_cursor));
-        let recording = match Recording::start() {
+        let mic = crate::audio::Microphone { saved: vd.input_device.clone(), avoid_bluetooth: vd.avoid_bluetooth_mic };
+        let recording = match Recording::start(mic) {
             Ok(r) => r,
             Err(e) => {
                 let _ = capture.join();
@@ -411,7 +414,9 @@ impl Controller {
         let context = classify(&target.exe, &target.focused_name, target.aumid.as_deref(), vd.adapts_to_app);
         let info = vd.engine.info();
         let vocabulary = for_app(&vd.vocabulary, &target.exe);
-        let terms = vocabulary_terms(&vocabulary);
+        // Parakeet caps its hotwords, so this app's terms go first.
+        let terms = if info.recognizer == Recognizer::Parakeet { app_terms_first(&vocabulary) } else { vocabulary_terms(&vocabulary) };
+        self.engines.set_hotwords(vd.wants_hotwords());
         let protected = protected_terms(&vocabulary);
         let level = level_for_app(vd.cleanup_level, &vd.app_styles, &target.exe);
         let recipe = Recipe {
@@ -469,6 +474,7 @@ impl Controller {
             worker,
             vad: None,
             preview,
+            _other_audio: crate::platform::other_audio::hold(generation, vd.other_audio, vd.lower_to_percent),
         });
 
         if let Some(monitor) = sketch {
@@ -709,7 +715,7 @@ impl Controller {
                         language = language.or(t.language);
                         texts.push(t.text);
                     }
-                    Ok(crate::engines::Transcript { text: join_seams(&texts), language, boosted_terms: vec![] })
+                    Ok(crate::engines::Transcript { text: join_seams(&texts), language })
                 } else {
                     e.transcribe(&pad(samples, min_seconds), &request)
                 }
@@ -1239,7 +1245,8 @@ impl Controller {
 
     /// Settings → "Load Engine", and the warm-up after a download.
     pub fn warm_selected(self: &Arc<Self>) {
-        let engine = self.stores.settings.read(|s| s.voice_dictation.engine);
+        let (engine, hotwords) = self.stores.settings.read(|s| (s.voice_dictation.engine, s.voice_dictation.wants_hotwords()));
+        self.engines.set_hotwords(hotwords);
         let info = engine.info();
         if info.required.iter().any(|a| !self.models.is_ready(*a)) {
             return;

@@ -27,6 +27,12 @@ pub fn eval_dir() -> PathBuf {
     env_dir("LOCALAPPDATA").join("Quill").join("Eval")
 }
 
+/// `%LOCALAPPDATA%\Quill\audio-restore.json`: other apps' volumes Quill
+/// still has to put back.
+pub fn audio_restore_file() -> PathBuf {
+    env_dir("LOCALAPPDATA").join("Quill").join("audio-restore.json")
+}
+
 pub fn settings_file() -> PathBuf {
     config_dir().join("settings.json")
 }
@@ -41,4 +47,11 @@ pub fn stats_file() -> PathBuf {
 
 pub fn corrections_file() -> PathBuf {
     config_dir().join("corrections.json")
+}
+
+/// `%LOCALAPPDATA%\Quill\gpu-starting.json`: present while a GPU backend
+/// is starting, and after a start that crashed. Machine-specific, so it does
+/// not roam.
+pub fn gpu_marker_file() -> PathBuf {
+    env_dir("LOCALAPPDATA").join("Quill").join("gpu-starting.json")
 }
