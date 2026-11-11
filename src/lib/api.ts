@@ -90,7 +90,12 @@ export interface VoiceDictation {
   otherAudio: OtherAudio;
   lowerToPercent: number;
   vocabularyBoost: boolean;
+  /** Put the previous clipboard back after a paste. */
+  restoreClipboard: boolean;
+  historyRetention: HistoryRetention;
 }
+
+export type HistoryRetention = "day" | "week" | "month";
 
 export type DrawKey = "shift" | "ctrl" | "alt";
 
@@ -249,6 +254,13 @@ export interface HistoryEntry {
   cleanupNote?: string | null;
 }
 
+/** A history entry cleaned again. */
+export interface Redone {
+  text: string;
+  /** Why cleanup kept some words as heard. */
+  cleanupNote: string | null;
+}
+
 export interface Insights {
   isEmpty: boolean;
   weekWords: number;
@@ -292,9 +304,12 @@ export const api = {
     invoke<Microphones>("get_microphones", { inputDevice, avoidBluetooth }),
   copyText: (text: string) => invoke<boolean>("copy_text", { text }),
   pasteLast: () => invoke<void>("paste_last"),
-  redoHistory: (id: string, level: CleanupLevel) => invoke<string>("redo_history", { id, level }),
-  getHistory: () => invoke<HistoryEntry[]>("get_history"),
+  redoHistory: (id: string, level: CleanupLevel) => invoke<Redone>("redo_history", { id, level }),
+  /** Newest first; `query` matches the text, the words heard, and the app. At most 200. */
+  getHistory: (query = "", limit = 20) => invoke<HistoryEntry[]>("get_history", { query, limit }),
   clearHistory: () => invoke<void>("clear_history"),
+  /** How many entries keeping history for `keep` would delete now. */
+  countExpiringHistory: (keep: HistoryRetention) => invoke<number>("count_expiring_history", { keep }),
   getInsights: () => invoke<Insights>("get_insights"),
   getKnownApps: () => invoke<KnownApp[]>("get_known_apps"),
   resetInsights: () => invoke<void>("reset_insights"),

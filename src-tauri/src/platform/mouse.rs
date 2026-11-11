@@ -167,7 +167,11 @@ unsafe extern "system" fn button_proc(code: i32, wparam: WPARAM, lparam: LPARAM)
                         XBUTTON2 => VK_XBUTTON2,
                         _ => 0,
                     };
-                    if vk != 0 && super::hotkey::mouse_button(vk, msg == WM_XBUTTONDOWN) {
+                    let down = msg == WM_XBUTTONDOWN;
+                    if vk != 0 && super::hotkey::mouse_button(vk, down) {
+                        if down {
+                            super::clicks::shortcut_button_down();
+                        }
                         return LRESULT(1);
                     }
                 }

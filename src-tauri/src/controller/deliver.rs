@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -5,11 +6,30 @@ use quill_core::context::AppContext;
 use quill_core::errors::DictationError;
 use quill_core::pipeline::{prepare, DeliveryOptions, SegmentResult};
 use quill_core::state::Phase;
+use quill_core::text::continuation::{same_window, LastPaste, SameWindow};
 use quill_core::text::spoken::paste_chunks;
 
-use crate::platform::{paste, target};
+use crate::platform::{clicks, hotkey, paste, target};
 
 use super::{Controller, DictationView, Metrics, SessionConfig};
+
+impl SameWindow for target::Target {
+    fn same_window(&self, other: &Self) -> bool {
+        same_window(self.hwnd, &self.exe, other.hwnd, &other.exe)
+    }
+}
+
+/// Keys typed and mouse buttons pressed so far; `None` unless both are
+/// counted.
+pub(super) fn input_count() -> Option<u32> {
+    Some(user_input(hotkey::typed_keys()?, clicks::clicks()?, clicks::shortcut_buttons()))
+}
+
+/// A side button that is the dictation shortcut is pressed to dictate, not
+/// to click into the app, so it never stops a continuation.
+fn user_input(typed: u32, clicks: u32, shortcut_buttons: u32) -> u32 {
+    typed.wrapping_add(clicks).wrapping_sub(shortcut_buttons)
+}
 
 impl Controller {
     pub(super) fn deliver(self: &Arc<Self>, cfg: &SessionConfig, result: SegmentResult, mut metrics: Metrics, stopped: Instant, rms: f32) {
@@ -35,6 +55,12 @@ impl Controller {
         // Only "press enter" was said: press it and deliver no text.
         if delivery.text.is_empty() {
             let pressed = paste::focus(&cfg.target, &own) && still_current() && paste::press_enter();
+            if pressed {
+                // The field moved on: the next dictation doesn't continue the last.
+                if let Some(last) = self.last_paste.lock().as_mut() {
+                    last.pasted = false;
+                }
+            }
             self.outcome(
                 Some(cfg.generation),
                 DictationView {
@@ -49,12 +75,13 @@ impl Controller {
 
         // The clipboard is authoritative: write it first.
         let text = delivery.text.trim().to_string();
-        *self.last_transcript.lock() = Some(text.clone());
-        *self.last_target.lock() = Some(cfg.target.clone());
-        if !paste::set_clipboard_text(&delivery.text) {
+        *self.last_paste.lock() = Some(LastPaste::delivered(text.clone(), cfg.target.clone()));
+        let restore = self.stores.settings.read(|s| s.voice_dictation.restore_clipboard);
+        let saved = if restore { paste::SavedClipboard::take() } else { None };
+        let Some(mut written) = paste::write_clipboard_text(&delivery.text) else {
             self.fail_session(cfg.generation, DictationError::ClipboardFailed);
             return;
-        }
+        };
         metrics.stop_to_clipboard_ms = stopped.elapsed().as_millis() as u64;
         let chunks = if cfg.recipe.context == AppContext::Terminal && cfg.splits_terminal_pastes {
             paste_chunks(&delivery.text)
@@ -62,20 +89,36 @@ impl Controller {
             vec![delivery.text.clone()]
         };
         // Checked again right before each keystroke: Esc can land while the
-        // paste waits for the shortcut's modifiers to come up.
+        // paste waits for the shortcut's modifiers to come up. The user's
+        // input count is read there too, so input during the waits after the
+        // paste (Enter, the next piece) counts as input since.
+        let input_at_paste = Cell::new(None);
+        let before_keys = || {
+            input_at_paste.set(input_count());
+            still_current()
+        };
         let pasted = if chunks.len() > 1 {
-            let sent = paste_in_pieces(&cfg.target, &own, &chunks, still_current);
+            let sent = paste_in_pieces(&cfg.target, &own, &chunks, before_keys);
             // Leave the whole text on the clipboard, not the last piece.
-            paste::set_clipboard_text(&delivery.text);
+            written = paste::write_clipboard_text(&delivery.text).unwrap_or(written);
             sent
         } else {
-            paste::paste(&cfg.target, &own, still_current)
+            paste::paste(&cfg.target, &own, before_keys)
         };
         let entered = pasted && delivery.press_enter && still_current() && {
             std::thread::sleep(Duration::from_millis(120));
             paste::press_enter()
         };
         let release_to_paste = stopped.elapsed();
+        if pasted {
+            if let Some(last) = self.last_paste.lock().as_mut() {
+                *last = LastPaste { at: Instant::now(), input: input_at_paste.get(), pasted: true, entered, ..last.clone() };
+            }
+        }
+        // A failed paste leaves the transcript, so it can be pasted by hand.
+        if let (true, Some(saved)) = (pasted, saved) {
+            saved.restore_after(paste::restore_delay(&cfg.target), written);
+        }
 
         let outcome = match (pasted, entered) {
             (true, true) => "Pasted and sent",
@@ -104,12 +147,27 @@ impl Controller {
 
     /// Paste the last transcript again, into the app it went to.
     pub fn paste_last(self: &Arc<Self>) {
-        let Some(text) = self.last_transcript.lock().clone() else { return };
-        let target = self.last_target.lock().clone().unwrap_or_default();
+        let Some(last) = self.last_paste.lock().clone() else { return };
         let own = self.shell.own_windows();
+        let restore = self.stores.settings.read(|s| s.voice_dictation.restore_clipboard);
+        let me = self.clone();
         std::thread::spawn(move || {
-            if paste::set_clipboard_text(&text) {
-                paste::paste(&target, &own, || true);
+            let saved = if restore { paste::SavedClipboard::take() } else { None };
+            let Some(written) = paste::write_clipboard_text(&last.text) else { return };
+            let input_at_paste = Cell::new(None);
+            if !paste::paste(&last.target, &own, || {
+                input_at_paste.set(input_count());
+                true
+            }) {
+                return;
+            }
+            if let Some(saved) = saved {
+                saved.restore_after(paste::restore_delay(&last.target), written);
+            }
+            let mut stored = me.last_paste.lock();
+            // Only if no newer dictation replaced it meanwhile.
+            if let Some(current) = stored.as_mut().filter(|c| c.at == last.at) {
+                *current = LastPaste { at: Instant::now(), input: input_at_paste.get(), pasted: true, entered: false, ..last };
             }
         });
     }
@@ -128,4 +186,18 @@ pub(super) fn paste_in_pieces(target: &target::Target, own: &[isize], chunks: &[
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::user_input;
+
+    #[test]
+    fn a_side_button_shortcut_is_not_user_input() {
+        let before = user_input(40, 7, 2);
+        assert_eq!(user_input(40, 8, 3), before, "a shortcut press, seen by Raw Input too");
+        assert_eq!(user_input(40, 8, 2), before + 1, "a real click");
+        assert_eq!(user_input(41, 7, 2), before + 1, "a key");
+        assert_eq!(user_input(0, 0, 1), u32::MAX, "wraps like the counts it combines");
+    }
 }

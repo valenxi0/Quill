@@ -25,6 +25,7 @@ use quill_core::pipeline::Recipe;
 use quill_core::segments::{EarlySegmenter, SAMPLE_RATE};
 use quill_core::settings::CleanupLevel;
 use quill_core::state::{Activation, Binding, Phase};
+use quill_core::text::continuation::LastPaste;
 use quill_core::text::numbers::Itn;
 use serde::Serialize;
 
@@ -154,9 +155,9 @@ pub struct Controller {
     watch_generation: AtomicU64,
     starting: std::sync::atomic::AtomicBool,
     shortcut: Mutex<Shortcut>,
-    pub last_transcript: Mutex<Option<String>>,
-    /// Where the last transcript went, for "Paste last transcript".
-    last_target: Mutex<Option<target::Target>>,
+    /// The last transcript and where it went: for "Paste last transcript",
+    /// and for continuing it in apps that don't report their caret.
+    last_paste: Mutex<Option<LastPaste<target::Target>>>,
     pub last_metrics: Mutex<Option<Metrics>>,
     pub warm_error: Mutex<Option<String>>,
 }
@@ -187,11 +188,15 @@ impl Controller {
             watch_generation: AtomicU64::new(0),
             starting: std::sync::atomic::AtomicBool::new(false),
             shortcut: Mutex::new(Shortcut::default()),
-            last_transcript: Mutex::new(None),
-            last_target: Mutex::new(None),
+            last_paste: Mutex::new(None),
             last_metrics: Mutex::new(None),
             warm_error: Mutex::new(None),
         })
+    }
+
+    /// The last transcript delivered, if any.
+    pub fn last_text(&self) -> Option<String> {
+        self.last_paste.lock().as_ref().map(|l| l.text.clone())
     }
 
     pub fn itn_available(&self) -> bool {

@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use quill_core::context::AppContext;
 use quill_core::engines::Recognizer;
 use quill_core::errors::DictationError;
-use quill_core::pipeline::{prepare, process_segment, CleanError, Cleaner, DeliveryOptions, Recipe, SegmentResult};
+use quill_core::pipeline::{cleanup_note, prepare, process_segment, CleanError, Cleaner, DeliveryOptions, Recipe, SegmentResult};
 use quill_core::segments::{pad, split};
 use quill_core::text::directive::Directive;
 use quill_core::settings::CleanupLevel;
@@ -150,7 +150,8 @@ impl Controller {
 
     /// Run a history entry's raw transcript through cleanup again at
     /// `level`. Uses S1-mini when it is installed, whatever the engine.
-    pub fn redo(self: &Arc<Self>, raw: &str, level: CleanupLevel, app_exe: &str, context: AppContext) -> Result<String, String> {
+    /// Returns the text and why cleanup kept any words as heard.
+    pub fn redo(self: &Arc<Self>, raw: &str, level: CleanupLevel, app_exe: &str, context: AppContext) -> Result<(String, Option<String>), String> {
         if raw.trim().is_empty() {
             return Err("This entry has no raw transcript to redo.".into());
         }
@@ -174,8 +175,9 @@ impl Controller {
         let cleaner = has_cleanup.then_some(&mut cleaner as &mut dyn Cleaner);
         let result = process_segment(raw, None, &recipe, cleaner, self.itn.as_deref());
         let text = prepare(raw, &result.text, context, 0.0, &DeliveryOptions::default()).map_err(|e| e.to_string())?.text;
+        let cleanup_note = cleanup_note(std::slice::from_ref(&result));
         self.schedule_idle_unload();
-        Ok(text)
+        Ok((text, cleanup_note))
     }
 }
 

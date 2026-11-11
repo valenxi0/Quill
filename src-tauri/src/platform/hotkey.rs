@@ -148,6 +148,7 @@ impl HotkeyHook {
             if hook.is_err() {
                 return;
             }
+            HOOKED.store(true, SeqCst);
             let mut msg = MSG::default();
             while GetMessageW(&mut msg, None, 0, 0).as_bool() {
                 let _ = TranslateMessage(&msg);
@@ -259,7 +260,7 @@ fn tap_mask_key() {
     let key = |flags: KEYBD_EVENT_FLAGS| INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
-            ki: KEYBDINPUT { wVk: VIRTUAL_KEY(VK_MASK), wScan: 0, dwFlags: flags, time: 0, dwExtraInfo: 0 },
+            ki: KEYBDINPUT { wVk: VIRTUAL_KEY(VK_MASK), wScan: 0, dwFlags: flags, time: 0, dwExtraInfo: QUILL_INPUT },
         },
     };
     let inputs = [key(KEYBD_EVENT_FLAGS(0)), key(KEYEVENTF_KEYUP)];
@@ -275,6 +276,7 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
             if info.flags.0 & LLKHF_INJECTED.0 == 0 && handle(s, info.vkCode, wparam.0 as u32) {
                 return LRESULT(1);
             }
+            count_typing(info, wparam.0 as u32);
         }
     }
     CallNextHookEx(None, code, wparam, lparam)
@@ -298,6 +300,31 @@ fn mouse_chord_on(s: &Shared) {
             chord(s, t, binding);
         }
     }
+}
+
+/// Tags input Quill sends (`dwExtraInfo`), so it isn't counted as the user's.
+pub const QUILL_INPUT: usize = 0x5155_494C;
+
+/// The hook is running. Windows can still remove a hook it finds slow
+/// without saying so; that isn't detected.
+static HOOKED: AtomicBool = AtomicBool::new(false);
+
+/// Keys pressed that reached an app: not Quill's shortcuts, not keys Quill
+/// sent, not modifiers alone. Keys other tools send (remappers, the
+/// on-screen keyboard, remote control) count.
+static TYPED_KEYS: AtomicU32 = AtomicU32::new(0);
+
+fn count_typing(info: &KBDLLHOOKSTRUCT, msg: u32) {
+    let down = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
+    if down && info.dwExtraInfo != QUILL_INPUT && !is_modifier_vk(info.vkCode) {
+        TYPED_KEYS.fetch_add(1, SeqCst);
+    }
+}
+
+/// How many keys have been typed into other apps; `None` unless the
+/// keyboard hook is running.
+pub fn typed_keys() -> Option<u32> {
+    HOOKED.load(SeqCst).then(|| TYPED_KEYS.load(SeqCst))
 }
 
 /// Returns true to swallow the key.

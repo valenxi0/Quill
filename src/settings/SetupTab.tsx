@@ -8,6 +8,7 @@ import {
   AppWindow,
   ArrowsClockwise,
   Browsers,
+  ClipboardText,
   Command,
   Cpu,
   CursorText,
@@ -746,6 +747,13 @@ function FormattingCard({ ctx }: { ctx: Ctx }) {
         title="Split long pastes in terminals"
         detail="Claude Code, Codex and similar tools fold a long paste into a placeholder. Quill pastes text over 600 characters or with more than 2 line breaks in pieces, so you can read it before you send it."
         right={<Switch label="Split long pastes in terminals" checked={vd.splitsTerminalPastes} onChange={(v) => ctx.saveVd({ splitsTerminalPastes: v })} />}
+      />
+      <Divider />
+      <CardHeader
+        icon={<ClipboardText size={19} />}
+        title="Put back what you copied"
+        detail="After a paste, Quill puts back what was on the clipboard before, unless you copied something new. When off, the transcript stays on the clipboard so you can paste it again."
+        right={<Switch label="Put back what you copied" checked={vd.restoreClipboard} onChange={(v) => ctx.saveVd({ restoreClipboard: v })} />}
       />
       <Divider />
       <CardHeader

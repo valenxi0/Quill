@@ -44,7 +44,7 @@ Quill processes audio in memory and discards it after transcription. Recognition
 
 Sketch screenshots are saved on your PC, in `%LOCALAPPDATA%\Quill\Sketches`, for 24 hours.
 
-Insights store counts on your PC, including words dictated and the app you used. Transcript history is off by default. If you enable it, Quill keeps what it heard and what it pasted on your PC for 24 hours, and you can redo any entry in another style. You can turn both features off in Settings.
+Insights store counts on your PC, including words dictated and the app you used. Transcript history is off by default. If you enable it, Quill keeps what it heard and what it pasted on your PC for a day, a week, or a month (a day unless you change it). You can search it and redo any entry in another style. You can turn both features off in Settings.
 
 ## Install and update
 

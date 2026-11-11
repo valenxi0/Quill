@@ -261,7 +261,7 @@ impl Quill {
             has_dictated: self.stores.stats.read(|s| !s.is_empty()),
             dictionary_hits: self.stores.stats.read(|s| s.dictionary_hits.clone()),
             dictation: self.controller.view(),
-            has_last_transcript: self.controller.last_transcript.lock().is_some(),
+            has_last_transcript: self.controller.last_text().is_some(),
             version: env!("CARGO_PKG_VERSION"),
             update: self.updates.info(),
             updating: self.updates.installing(),
@@ -323,6 +323,10 @@ impl Quill {
         }
         if p.history_enabled && !n.history_enabled {
             self.stores.history.update(|h| h.clear());
+        }
+        if p.history_retention != n.history_retention {
+            // Settings asked before shortening; the notify below updates the count.
+            purge_history(self);
         }
         if !next.enabled && self.controller.phase().is_busy() {
             self.controller.cancel();
@@ -582,6 +586,7 @@ struct Mark<'a> {
 /// Drop expired history records; writes the file only when one expired.
 pub fn purge_history(q: &Quill) -> bool {
     let now = chrono::Utc::now();
-    let due = q.stores.history.read(|h| h.next_expiry().is_some_and(|t| t <= now));
-    due && q.stores.history.update(|h| h.purge(now))
+    let keep = q.stores.settings.read(|s| s.voice_dictation.history_retention);
+    let due = q.stores.history.read(|h| h.next_expiry(keep).is_some_and(|t| t <= now));
+    due && q.stores.history.update(|h| h.purge(now, keep))
 }

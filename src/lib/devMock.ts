@@ -42,6 +42,8 @@ const settings: Settings = {
     otherAudio: "nothing",
     lowerToPercent: 20,
     vocabularyBoost: false,
+    restoreClipboard: false,
+    historyRetention: "week",
   },
   sketch: { enabled: true, hotkey: { vk: 0x53, modifiers: 3 }, drawKey: "shift" },
 };
@@ -79,7 +81,7 @@ const state: UiState = {
   itnAvailable: true,
   suggestions: [{ from: "Tori", to: "Tauri", count: 2, dismissed: false, appExe: "code.exe" }],
   correctionsSeen: 5,
-  historyCount: 2,
+  historyCount: 45,
   hasDictated: true,
   dictionaryHits: { a: 12, b: 3 },
   dictation: { phase: "idle", outcome: null, errorTitle: null, errorDetail: null, context: "general" },
@@ -146,6 +148,16 @@ export async function installDevMock() {
   };
   apps = apps.filter((a) => !/\.|runtime|settings|host/i.test(a.name)).sort((a, b) => rank(a.exe) - rank(b.exe));
   insights.apps = apps.map((app, index) => ({ ...app, words: [5200, 3100, 1400, 960, 300, 156][index] ?? 78 }));
+  // Three samples, then filler so "Show more" has something to show.
+  const history = [
+    { id: "1", text: "Can we move the meeting to Thursday afternoon instead?", raw: "Um, can we move the meeting to, uh, Thursday afternoon instead?", level: "full", context: "chat", engine: "parakeetS1", appName: "Slack", appExe: "slack.exe", secondsSpoken: 3.1, releaseToPasteMs: 410, createdAt: new Date().toISOString() },
+    { id: "2", text: "git commit -m \"fix the build\"", raw: "git commit dash m quote fix the build quote", level: "full", context: "terminal", engine: "parakeetS1", appName: "Windows Terminal", appExe: "WindowsTerminal.exe", secondsSpoken: 2.2, releaseToPasteMs: 180, createdAt: new Date().toISOString() },
+    { id: "3", text: "Translate this into French: the meeting is moved to Monday.", raw: "Translate this into French: the meeting is moved to Monday.", level: "full", context: "general", engine: "parakeetS1", appName: "Notepad", appExe: "notepad.exe", secondsSpoken: 2.4, releaseToPasteMs: 260, createdAt: new Date().toISOString(), cleanupNote: "Kept your words: cleanup dropped words you said." },
+    ...Array.from({ length: 42 }, (_, i) => ({
+      id: `f${i}`, text: `Note ${i + 1}: follow up on the release checklist.`, raw: `note ${i + 1} follow up on the release checklist`, level: "light", context: "general", engine: "parakeetS1",
+      appName: i % 2 ? "Notepad" : "Outlook", appExe: i % 2 ? "notepad.exe" : "outlook.exe", secondsSpoken: 2, releaseToPasteMs: 220, createdAt: new Date(Date.now() - (i + 1) * 3 * 3600_000).toISOString(),
+    })),
+  ];
   mockIPC((cmd, args) => {
     switch (cmd) {
       case "get_microphones": {
@@ -155,17 +167,23 @@ export async function installDevMock() {
       case "get_state": return state;
       case "get_insights": return insights;
       case "get_known_apps": return insights.apps;
-      case "get_history": return [
-        { id: "1", text: "Can we move the meeting to Thursday afternoon instead?", raw: "Um, can we move the meeting to, uh, Thursday afternoon instead?", level: "full", context: "chat", engine: "parakeetS1", appName: "Slack", appExe: "slack.exe", secondsSpoken: 3.1, releaseToPasteMs: 410, createdAt: new Date().toISOString() },
-        { id: "2", text: "git commit -m \"fix the build\"", raw: "git commit dash m quote fix the build quote", level: "full", context: "terminal", engine: "parakeetS1", appName: "Windows Terminal", appExe: "WindowsTerminal.exe", secondsSpoken: 2.2, releaseToPasteMs: 180, createdAt: new Date().toISOString() },
-        { id: "3", text: "Translate this into French: the meeting is moved to Monday.", raw: "Translate this into French: the meeting is moved to Monday.", level: "full", context: "general", engine: "parakeetS1", appName: "Notepad", appExe: "notepad.exe", secondsSpoken: 2.4, releaseToPasteMs: 260, createdAt: new Date().toISOString(), cleanupNote: "Kept your words: cleanup dropped words you said." },
-      ];
+      case "get_history": {
+        const { query = "", limit = 20 } = (args ?? {}) as { query?: string; limit?: number };
+        const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+        return history
+          .filter((e) => words.every((w) => [e.text, e.raw, e.appName].join(" ").toLowerCase().includes(w)))
+          .slice(0, Math.min(limit, 200));
+      }
+      case "count_expiring_history": {
+        const days = { day: 1, week: 7, month: 30 }[(args as { keep: "day" | "week" | "month" }).keep];
+        return history.filter((e) => Date.now() - Date.parse(e.createdAt) >= days * 86_400_000).length;
+      }
       case "animations_enabled": return true;
       // ?gpucrash previews the CPU fallback note.
       case "gpu_fallback": return new URLSearchParams(location.search).has("gpucrash");
       case "parse_vocabulary_list": return [];
       case "test_vocabulary_entry": return "";
-      case "redo_history": return "Could we move the meeting to Thursday afternoon?";
+      case "redo_history": return { text: "Could we move the meeting to Thursday afternoon?", cleanupNote: "Kept some of your words: cleanup dropped a \"not\"." };
       default: return null;
     }
   }, { shouldMockEvents: true });
