@@ -142,7 +142,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
 
 fn window() -> Option<HWND> {
     let hwnd = WINDOW.load(SeqCst);
-    (hwnd != 0).then(|| HWND(hwnd as *mut _))
+    (hwnd != 0).then_some(HWND(hwnd as *mut _))
 }
 
 /// Create the hidden window on a thread of its own. Nothing is registered
