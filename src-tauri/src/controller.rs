@@ -742,7 +742,7 @@ impl Controller {
         let first = languages.next().flatten();
         let language = first.filter(|l| languages.all(|o| o == Some(*l)));
         // Loaded before the cleanup clock starts, so a cold load doesn't use up the dictation's time.
-        if info.has_cleanup && cfg.recipe.directive.is_some() {
+        if info.has_cleanup && cfg.recipe.directive.is_some() && quill_core::langid::is_english(&raw, language) {
             if let Ok(((), Some(load))) = self.engines.with_cleaner(|_| ()) {
                 metrics.cold_start = true;
                 metrics.model_load_ms = Some(metrics.model_load_ms.unwrap_or(0) + load.as_millis() as u64);
@@ -1059,7 +1059,7 @@ impl Controller {
             has_cleanup,
             vocabulary: for_app(&vd.vocabulary, app_exe),
         };
-        if has_cleanup && recipe.directive.is_some() {
+        if has_cleanup && recipe.directive.is_some() && quill_core::langid::is_english(raw, None) {
             let _ = self.engines.with_cleaner(|_| ());
         }
         let mut cleaner = EngineCleaner { engines: &self.engines };

@@ -902,5 +902,131 @@
     "gone": [],
     "matches": [],
     "guardExpected": false
+  },
+  {
+    "id": "dropped-before-soft-cue-semi-formal-prose-general",
+    "transcript": "Book the flight for Monday. No, wait, book the hotel too.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "flight for monday",
+      "hotel"
+    ],
+    "gone": [],
+    "matches": [],
+    "guardExpected": true
+  },
+  {
+    "id": "kept-also-copy-semi-formal-prose-general",
+    "transcript": "Send the invoice to Maria today. Actually, also copy Sam on it.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "invoice to maria",
+      "copy sam"
+    ],
+    "gone": [],
+    "matches": [],
+    "guardExpected": false
+  },
+  {
+    "id": "kept-let-me-know-semi-formal-prose-general",
+    "transcript": "The deploy is done. Let me know what else you need.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "deploy is done",
+      "let me know"
+    ],
+    "gone": [],
+    "matches": [],
+    "guardExpected": false
+  },
+  {
+    "id": "correction-delete-archive-semi-formal-prose-general",
+    "transcript": "Delete, no wait, archive this thread.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "archive this thread"
+    ],
+    "gone": [],
+    "matches": [],
+    "guardExpected": false
+  },
+  {
+    "id": "false-start-want-semi-formal-prose-general",
+    "transcript": "I want. I need this done by Friday.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "done by friday"
+    ],
+    "gone": [],
+    "matches": [],
+    "guardExpected": false
+  },
+  {
+    "id": "question-rhetorical-semi-formal-prose-general",
+    "transcript": "You know what? Let's just ship it.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "ship it"
+    ],
+    "gone": [],
+    "matches": [],
+    "guardExpected": false
+  },
+  {
+    "id": "question-really-semi-formal-prose-general",
+    "transcript": "Really? I thought we fixed that.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "fixed that"
+    ],
+    "gone": [],
+    "matches": [],
+    "guardExpected": false
+  },
+  {
+    "id": "obeyed-fix-reused-word-semi-formal-prose-general",
+    "transcript": "Fix this: the fixed costs are too high.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "fix this",
+      "costs"
+    ],
+    "gone": [],
+    "matches": [
+      "\\A\\W*fix this"
+    ],
+    "guardExpected": true
+  },
+  {
+    "id": "obeyed-summarize-reused-word-semi-formal-prose-general",
+    "transcript": "Summarize this: the summary of the call is we lost the deal.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "summarize this",
+      "lost the deal"
+    ],
+    "gone": [],
+    "matches": [
+      "\\A\\W*summarize"
+    ],
+    "guardExpected": true
   }
 ]

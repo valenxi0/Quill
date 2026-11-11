@@ -1,5 +1,20 @@
 //! Cleanup guard (section 4.5): less polished beats a changed meaning.
 
+use std::{collections::HashSet, sync::LazyLock};
+
+use regex::Regex;
+
+use super::fillers::is_hesitation;
+use super::numbers::{format_numbers, Itn};
+
+static THOUSANDS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"([0-9]),([0-9]{3})\b").unwrap());
+static DIGITS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[0-9]+").unwrap());
+static NUMBERING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\s*\d+[.)]\s").unwrap());
+static SENTENCES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[.!?]\s+").unwrap());
+static SENTENCE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[^.!?]+[.!?]*").unwrap());
+static CLAUSES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[.!?:;]\s+").unwrap());
+static LIST_MARKERS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\s*(?:\d+[.)]|[-*\u{2022}])\s+").unwrap());
+
 const NEGATIONS: &[&str] = &["not", "never", "cannot", "neither", "nor", "none", "nothing", "nobody", "nowhere"];
 
 const BARE_CONTRACTIONS: &[&str] = &[
@@ -7,51 +22,78 @@ const BARE_CONTRACTIONS: &[&str] = &[
     "hasnt", "havent", "hadnt", "mustnt", "neednt", "aint",
 ];
 
-/// Negations in `text`. Bare "no" is a self-correction marker and never counts.
-pub fn negation_count(text: &str) -> usize {
-    let words: Vec<String> = text
-        .split_whitespace()
-        .map(|w| {
-            w.replace(['\u{2019}', '\u{2018}'], "'")
-                .trim_matches(|c: char| !c.is_alphanumeric() && c != '\'')
-                .trim_matches('\'')
-                .to_lowercase()
-        })
-        .collect();
-    unstuttered(&words)
-        .into_iter()
-        .filter(|w| NEGATIONS.contains(&w.as_str()) || w.ends_with("n't") || BARE_CONTRACTIONS.contains(&w.as_str()))
-        .count()
+/// Words that say little about whether cleanup kept the meaning: fillers,
+/// self-correction cues, units the number formatter turns into symbols
+/// ("$3.50", "5°C", "20 km/h"), and common short words. Lowercase, with
+/// apostrophes dropped.
+const LIGHT: &[&str] = &[
+    // Fillers and self-corrections.
+    "so", "okay", "ok", "well", "like", "basically", "actually", "literally", "honestly", "just", "really", "yeah",
+    "right", "maybe", "please", "no", "sorry", "wait", "scratch", "oops", "kinda", "sorta", "know", "mean", "meant",
+    "kind", "sort", "think", "thing", "things", "some", "still", "going", "gonna", "wanna",
+    // Units.
+    "dollar", "dollars", "cent", "cents", "percent", "point", "degree", "degrees", "celsius", "fahrenheit",
+    "kilometer", "kilometers", "kilometre", "kilometres", "meter", "meters", "metre", "metres", "mile", "miles", "per",
+    "hour", "hours", "minute", "minutes", "seconds", "pound", "pounds", "euro", "euros", "kilogram", "kilograms",
+    "kilo", "kilos", "gram", "grams", "inch", "inches", "foot", "feet", "oclock", "pm",
+    // Common short words.
+    "a", "an", "the", "and", "or", "but", "to", "of", "in", "on", "at", "for", "with", "by", "as", "from", "into",
+    "about", "is", "are", "am", "was", "were", "be", "been", "it", "its", "this", "that", "i", "me", "my", "we", "us",
+    "our", "you", "your", "he", "she", "they", "them", "their", "there", "here", "do", "not", "have", "has", "will",
+    "would", "could", "should", "can", "if", "whether", "then", "when", "what", "which", "because", "also", "very",
+];
+
+/// Single letters ("p m", "e mail") count as light.
+fn is_light(word: &str) -> bool {
+    word.chars().count() == 1 || is_hesitation(word) || LIGHT.contains(&word)
 }
 
-/// The words with stutters said once: "I'm not, I'm not going" keeps one
-/// "I'm not", so cleaning the repeat away doesn't read as a lost negation.
-/// A single repeated word stays, since "not not bad" means something.
-fn unstuttered(words: &[String]) -> Vec<&String> {
-    let mut out: Vec<&String> = Vec::new();
-    let mut i = 0;
-    'next: while i < words.len() {
-        for n in (2..=3).rev() {
-            if i + n <= words.len() && out.len() >= n && out[out.len() - n..].iter().copied().eq(&words[i..i + n]) {
-                i += n;
-                continue 'next;
-            }
+const FILLER_PAIRS: &[(&str, &str)] = &[("you", "know"), ("i", "mean"), ("i", "meant")];
+
+/// Cues that take back what came before: "Friday. I meant Monday."
+const RETRACTIONS: &[&[&str]] = &[
+    &["i", "mean"],
+    &["i", "meant"],
+    &["scratch", "that"],
+    &["never", "mind"],
+    &["start", "over"],
+    &["let", "me", "start", "over"],
+    &["let", "me", "rephrase"],
+];
+
+/// Cues that open a correction but may only add to what came before:
+/// "Send it today. Actually, also copy Sam."
+const SOFT_CORRECTIONS: &[&[&str]] = &[&["sorry"], &["no"], &["actually"], &["wait"], &["rather"], &["oops"]];
+
+/// How many of `words` open with correction cues, and whether they take
+/// back what came before. Cues chain, so "Sorry, I meant" takes it back.
+fn correction(words: &[String]) -> (usize, bool) {
+    let (mut at, mut end, mut retracts) = (0, 0, false);
+    loop {
+        while words.get(at).is_some_and(|w| is_hesitation(w)) {
+            at += 1;
         }
-        out.push(&words[i]);
-        i += 1;
+        let rest = &words[at..];
+        let opens = |cue: &&&[&str]| rest.len() >= cue.len() && cue.iter().zip(rest).all(|(c, w)| c == w);
+        let strong = RETRACTIONS.iter().filter(opens).map(|c| c.len()).max();
+        let soft = SOFT_CORRECTIONS.iter().filter(opens).map(|c| c.len()).max();
+        match strong.or(soft) {
+            Some(len) => {
+                retracts |= strong.is_some();
+                at += len;
+                end = at;
+            }
+            None => return (end, retracts),
+        }
     }
-    out
 }
 
-use super::fillers::{correction_len, is_dangling, is_light, FILLER_PAIRS};
-use super::numbers::{format_numbers, Itn};
-use regex::Regex;
-use std::{collections::HashSet, sync::LazyLock};
-
-static THOUSANDS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"([0-9]),([0-9]{3})\b").unwrap());
-static DIGITS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[0-9]+").unwrap());
-static NUMBERING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\s*\d+[.)]\s").unwrap());
-static SENTENCES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[.!?]\s+").unwrap());
+/// Words no sentence ends on, so a clause ending on one, with more after
+/// it, is a false start: "I think we should." "Can you send me the."
+const DANGLING: &[&str] = &[
+    "a", "an", "the", "and", "or", "but", "because", "than", "if", "my", "your", "our", "their", "should", "could",
+    "would", "must", "might",
+];
 
 const NUMBER_WORDS: &[(&str, &str)] = &[
     ("zero", "0"),
@@ -112,8 +154,44 @@ const NUMBER_WORDS: &[(&str, &str)] = &[
     ("quarter", "25"),
 ];
 
-fn words(text: &str) -> Vec<String> {
-    text.split_whitespace().map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase()).collect()
+/// Negations in `text`. Bare "no" is a self-correction marker and never counts.
+pub fn negation_count(text: &str) -> usize {
+    let words: Vec<String> = text
+        .split_whitespace()
+        .map(|w| {
+            w.replace(['\u{2019}', '\u{2018}'], "'")
+                .trim_matches(|c: char| !c.is_alphanumeric() && c != '\'')
+                .trim_matches('\'')
+                .to_lowercase()
+        })
+        .collect();
+    unstuttered(&words)
+        .into_iter()
+        .filter(|w| NEGATIONS.contains(&w.as_str()) || w.ends_with("n't") || BARE_CONTRACTIONS.contains(&w.as_str()))
+        .count()
+}
+
+/// The words with stutters said once: "I'm not, I'm not going" keeps one
+/// "I'm not", so cleaning the repeat away doesn't read as a lost negation.
+/// A single repeated word stays, since "not not bad" means something.
+fn unstuttered(words: &[String]) -> Vec<&String> {
+    let mut out: Vec<&String> = Vec::new();
+    let mut i = 0;
+    'next: while i < words.len() {
+        for n in (2..=3).rev() {
+            if i + n <= words.len() && out.len() >= n && out[out.len() - n..].iter().copied().eq(&words[i..i + n]) {
+                i += n;
+                continue 'next;
+            }
+        }
+        out.push(&words[i]);
+        i += 1;
+    }
+    out
+}
+
+fn is_number_word(w: &str) -> bool {
+    NUMBER_WORDS.iter().any(|(word, _)| *word == w)
 }
 
 pub fn figures(text: &str) -> Vec<String> {
@@ -130,7 +208,7 @@ pub fn figures(text: &str) -> Vec<String> {
 }
 
 pub fn unspoken_figure(raw: &str, cleaned: &str, itn: Option<&dyn Itn>) -> Option<String> {
-    let words = words(raw);
+    let words = tokens(raw);
     let mut sources = vec![figures(raw)];
     if let Some(itn) = itn {
         sources.push(figures(&format_numbers(raw, true, itn)));
@@ -151,40 +229,22 @@ pub fn unspoken_figure(raw: &str, cleaned: &str, itn: Option<&dyn Itn>) -> Optio
         .find(|n| !known.contains(n) && !(n.len() >= 3 && concatenated.iter().any(|source| source.contains(n))))
 }
 
+/// A sentence with at least five words of four letters or more that carry
+/// meaning, under a quarter of them kept.
 pub fn dropped_sentence(raw: &str, cleaned: &str) -> Option<String> {
-    let squashed: String = cleaned.to_lowercase().chars().filter(|c| c.is_alphanumeric()).collect();
+    let kept = Pool::new(cleaned);
     SENTENCES
         .split(raw)
         .find(|sentence| {
-            let content: HashSet<String> = words(sentence)
+            let said = tokens(sentence);
+            let content: HashSet<&str> = meaning(&said)
                 .into_iter()
-                .filter(|w| {
-                    w.chars().count() >= 4
-                        && w.chars().all(char::is_alphabetic)
-                        && !NUMBER_WORDS.iter().any(|(word, _)| word == w)
-                        && !NEGATIONS.contains(&w.as_str())
-                        && !BARE_CONTRACTIONS.contains(&w.as_str())
-                        && !is_light(w)
-                })
+                .filter(|w| w.chars().count() >= 4 && w.chars().all(char::is_alphabetic) && !NEGATIONS.contains(w))
                 .collect();
-            if content.len() < 5 {
-                return false;
-            }
-            let kept = content
-                .iter()
-                .filter(|w| {
-                    squashed.contains(w.as_str())
-                        || (w.chars().count() > 6 && squashed.contains(&w.chars().take(5).collect::<String>()))
-                })
-                .count();
-            kept * 4 < content.len()
+            content.len() >= 5 && content.iter().filter(|w| kept.has(w)).count() * 4 < content.len()
         })
         .map(str::to_string)
 }
-
-static LIST_MARKERS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^\s*(?:\d+[.)]|[-*\u{2022}])\s+").unwrap());
-static CLAUSES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[.!?:;]\s+").unwrap());
-static SENTENCE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[^.!?]+[.!?]*").unwrap());
 
 /// Lowercase words with contractions spelled out and list markers left
 /// out, so "don't" matches "do not" and "1. Update" matches "update".
@@ -296,29 +356,41 @@ pub fn added_text(raw: &str, cleaned: &str) -> bool {
     output > 2 * input + 4 || (added >= 4 && added * 2 >= output)
 }
 
-/// Most of what was said is gone, a whole clause of it, or the opening
+/// Most of what was said is gone, most of a clause, or the opening
 /// instruction. S1-mini follows a dictated "Translate this into French" or
 /// "Summarize this." by deleting it. Clauses taken back are left out: a
-/// false start ("I think we should.") or one a correction follows
-/// ("Friday. Sorry, I meant Monday."), and the correction's own cue.
+/// false start ("I think we should.") or one a retraction follows
+/// ("Friday. Sorry, I meant Monday."), and correction cues themselves.
 pub fn dropped_words(raw: &str, cleaned: &str) -> Option<String> {
     let kept = Pool::new(cleaned);
-    if let Some(run) = dropped_instruction(raw, &kept) {
-        return Some(run);
-    }
-    let clauses: Vec<Vec<String>> = CLAUSES.split(raw).map(tokens).collect();
+    let parts: Vec<&str> = CLAUSES.split(raw).collect();
+    let ends: Vec<&str> = CLAUSES.find_iter(raw).map(|m| m.as_str().trim()).collect();
+    let clauses: Vec<Vec<String>> = parts.iter().map(|c| tokens(c)).collect();
+    let taken_back: Vec<bool> = (0..clauses.len())
+        .map(|i| {
+            let false_start = i + 1 < clauses.len()
+                && ends.get(i) != Some(&"?")
+                && clauses[i].last().is_some_and(|w| DANGLING.contains(&w.as_str()));
+            false_start || clauses.get(i + 1).is_some_and(|next| correction(next).1)
+        })
+        .collect();
     let (mut said, mut lost) = (0, 0);
-    for (i, clause) in clauses.iter().enumerate() {
-        let false_start = clause.last().is_some_and(|w| is_dangling(w));
-        if false_start || clauses.get(i + 1).is_some_and(|next| correction_len(next) > 0) {
-            continue;
-        }
-        let (n, l) = loss(&clause[correction_len(clause)..], &kept);
-        if n >= 2 && l == n {
-            return Some(CLAUSES.split(raw).nth(i).unwrap_or(raw).trim().to_string());
+    for (i, clause) in clauses.iter().enumerate().filter(|(i, _)| !taken_back[*i]) {
+        let said_here = &clause[correction(clause).0..];
+        let (n, l) = loss(said_here, &kept);
+        // A lone word can go ("Anyway."), but not a whole sentence built
+        // round one ("Call me when you can.") from among others.
+        let gone = l == n && (n >= 2 || (n == 1 && said_here.len() >= 4 && clauses.len() > 1));
+        if gone || (n >= 3 && l * 2 > n) {
+            return Some(parts[i].trim().to_string());
         }
         said += n;
         lost += l;
+    }
+    if !taken_back.first().copied().unwrap_or(false) {
+        if let Some(run) = dropped_instruction(raw, &tokens(cleaned)) {
+            return Some(run);
+        }
     }
     let (_, added) = loss(&tokens(cleaned), &Pool::new(raw));
     ((said >= 3 && lost * 2 > said) || (said >= 1 && lost == said && added > 0)).then(|| raw.trim().to_string())
@@ -330,46 +402,52 @@ const INSTRUCTIONS: &[&str] = &[
     "convert", "format",
 ];
 
+const POINTERS: &[&str] = &["this", "that", "following"];
+
 /// An opening instruction about the text that S1-mini carried out by
-/// deleting it: a verb, gone from the output, that is an instruction verb
-/// or is followed within a few words by "this", "that", or "the following"
-/// ("Translate good morning into Spanish", "Fix this:").
-fn dropped_instruction(raw: &str, kept: &Pool) -> Option<String> {
+/// deleting it. The opening verb is gone from the output, as a whole word,
+/// and either is an instruction verb ("Translate good morning into
+/// Spanish") or has "this", "that", or "the following" within a few words
+/// that went with it ("Fix this: me and him goes" -> "Me and him goes").
+/// A tidied opening keeps the pointer and its neighbour: "Send, I mean,
+/// forward this to Sam" -> "Forward this to Sam."
+fn dropped_instruction(raw: &str, out: &[String]) -> Option<String> {
     let words = tokens(raw);
     let start = words.iter().position(|w| !is_light(w))?;
     let verb = words[start].as_str();
-    if is_number_word(verb) || kept.has(verb) {
+    if is_number_word(verb) || out.iter().any(|w| w.ends_with(verb)) {
         return None;
     }
-    let pointer = words[start + 1..].iter().take(5).position(|w| w == "this" || w == "that" || w == "following");
-    match pointer {
-        Some(p) => Some(words[start..=start + 1 + p].join(" ")),
-        None => INSTRUCTIONS.contains(&verb).then(|| verb.to_string()),
-    }
+    let pointer = words[start + 1..].iter().take(5).position(|w| POINTERS.contains(&w.as_str())).map(|p| start + 1 + p);
+    let Some(p) = pointer else {
+        return INSTRUCTIONS.contains(&verb).then(|| verb.to_string());
+    };
+    let pair = match words.get(p + 1) {
+        Some(next) => [&words[p], next],
+        None => [&words[p - 1], &words[p]],
+    };
+    let kept = out.windows(2).any(|w| w[0] == *pair[0] && w[1] == *pair[1]);
+    (!kept).then(|| words[start..=p].join(" "))
 }
 
 /// A question came back as a statement that adds something: an answer.
-/// Only the output sentence closest to the question counts, so a tidied
-/// "So it's broken? I'll look." isn't one. Number words count as added.
+/// Only the output sentence closest to the question counts, and only words
+/// the transcript never had, number words included.
 pub fn question_answered(raw: &str, cleaned: &str, itn: Option<&dyn Itn>) -> bool {
+    let said = Pool::new(raw);
     let sentences: Vec<&str> = SENTENCE.find_iter(cleaned).map(|m| m.as_str()).collect();
     SENTENCE.find_iter(raw).map(|m| m.as_str()).filter(|s| s.trim_end().ends_with('?')).any(|question| {
         let asked = tokens(question);
-        let asked_pool = Pool::new(question);
         let shared = |s: &&str| tokens(s).iter().filter(|w| !is_light(w) && asked.contains(w)).count();
         let Some(reply) = sentences.iter().copied().max_by_key(shared) else { return false };
         if reply.trim_end().ends_with('?') {
             return false;
         }
         let new_word = tokens(reply).iter().any(|w| {
-            !w.chars().any(|c| c.is_ascii_digit()) && (is_number_word(w) || !is_light(w)) && !asked_pool.has(w)
+            !w.chars().any(|c| c.is_ascii_digit()) && (is_number_word(w) || !is_light(w)) && !said.has(w)
         });
         new_word || unspoken_figure(question, reply, itn).is_some()
     })
-}
-
-fn is_number_word(w: &str) -> bool {
-    NUMBER_WORDS.iter().any(|(word, _)| *word == w)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -408,19 +486,6 @@ pub fn reason(raw: &str, cleaned: &str, itn: Option<&dyn Itn>) -> Option<GuardRe
     question_answered(raw, cleaned, itn).then_some(GuardReason::QuestionAnswered)
 }
 
-/// Returns the text to keep for one chunk, and whether the raw text was restored.
-pub fn guard_with_itn<'a>(raw: &'a str, cleaned: &'a str, itn: Option<&dyn Itn>) -> (&'a str, bool) {
-    if reason(raw, cleaned, itn).is_some() {
-        (raw, true)
-    } else {
-        (cleaned, false)
-    }
-}
-
-pub fn guard<'a>(raw: &'a str, cleaned: &'a str) -> (&'a str, bool) {
-    guard_with_itn(raw, cleaned, None)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -435,28 +500,28 @@ mod tests {
     #[test]
     fn negation_dropped_restores_raw() {
         let raw = "I do not want the meeting moved.";
-        assert_eq!(guard(raw, "I want the meeting moved."), (raw, true));
+        assert_eq!(reason(raw, "I want the meeting moved.", None), Some(GuardReason::NegationDropped));
     }
 
     #[test]
     fn contraction_wash_is_fine() {
-        assert_eq!(guard("I do not know", "I don't know"), ("I don't know", false));
-        assert_eq!(guard("I don\u{2019}t know", "I do not know"), ("I do not know", false));
-        assert_eq!(guard("it isn't ready", "It is not ready."), ("It is not ready.", false));
+        assert_eq!(reason("I do not know", "I don't know", None), None);
+        assert_eq!(reason("I don\u{2019}t know", "I do not know", None), None);
+        assert_eq!(reason("it isn't ready", "It is not ready.", None), None);
     }
 
     #[test]
     fn apostrophe_less_forms_count() {
         assert_eq!(negation_count("i dont know and it wont work"), 2);
         let raw = "i dont know";
-        assert_eq!(guard(raw, "I know."), (raw, true));
+        assert_eq!(reason(raw, "I know.", None), Some(GuardReason::NegationDropped));
     }
 
     #[test]
     fn empty_output() {
         let long = "so um this is a long rambling sentence that has at least twelve words";
-        assert_eq!(guard(long, "  "), (long, true));
-        assert_eq!(guard("um uh", ""), ("", false));
+        assert_eq!(reason(long, "  ", None), Some(GuardReason::EmptyOutput));
+        assert_eq!(reason("um uh", "", None), None);
     }
 
     /// Real S1-mini outputs from the cleanup eval: it followed the dictated
@@ -575,6 +640,89 @@ mod tests {
         }
     }
 
+    fn words(s: &str) -> Vec<String> {
+        s.split_whitespace().map(str::to_string).collect()
+    }
+
+    #[test]
+    fn correction_cues_chain() {
+        assert_eq!(correction(&words("sorry i meant monday")), (3, true));
+        assert_eq!(correction(&words("no wait book the hotel")), (2, false));
+        assert_eq!(correction(&words("um let me start over")), (5, true));
+        assert_eq!(correction(&words("let me know")), (0, false));
+        assert_eq!(correction(&words("")), (0, false));
+    }
+
+    /// Dropped sentences that end on a word a sentence can end on, or follow
+    /// a cue that only adds to what came before.
+    #[test]
+    fn dropped_sentences_are_not_taken_back() {
+        for (raw, out) in [
+            ("The deploy is done. Let me know what else you need.", "The deploy is done."),
+            ("I'll send the invoice to her. The deploy is done.", "The deploy is done."),
+            ("Call me when you can. The deploy is done.", "The deploy is done."),
+            ("That's the client I was talking about. The deploy is done.", "The deploy is done."),
+            ("The meeting is moved to Monday. Now translate that.", "The meeting is moved to Monday."),
+            ("Did you send the report or? The deploy is done.", "The deploy is done."),
+            ("Send the invoice to Maria today. Actually, also copy Sam on it.", "Also copy Sam on it."),
+            ("Book the flight for Monday. No, wait, book the hotel too.", "Book the hotel too."),
+            ("Cancel my three o'clock. Sorry, I forgot to mention the dentist called.", "Sorry, I forgot to mention the dentist called."),
+            ("The server crashed again. Actually, the logs look clean.", "Actually, the logs look clean."),
+        ] {
+            assert!(matches!(reason(raw, out, None), Some(GuardReason::DroppedWords(_))), "{raw} -> {out}");
+        }
+    }
+
+    /// Tidied openings keep the pointer and the word next to it.
+    #[test]
+    fn tidied_openings_are_not_instructions() {
+        for (raw, out) in [
+            ("Tuesday, no, Thursday is when that happens.", "Thursday is when that happens."),
+            ("Send, I mean, forward this to Sam.", "Forward this to Sam."),
+            ("Delete, no wait, archive this thread.", "Archive this thread."),
+            ("I want. I need this done by Friday.", "I need this done by Friday."),
+            ("Anyway, I think that we should ship on Friday.", "I think that we should ship on Friday."),
+            ("Look, this is not working for me.", "This is not working for me."),
+            ("Alright, that works for me.", "That works for me."),
+            ("Now, this is where it gets tricky.", "This is where it gets tricky."),
+            ("Listen, I need that report today.", "I need that report today."),
+            ("Hey, can you check that for me?", "Can you check that for me?"),
+            ("Yep, that works for me.", "Yes, that works for me."),
+            ("Cuz that is what he said.", "Because that is what he said."),
+            ("Dunno if that works.", "I don't know if that works."),
+            ("Gotta send this today.", "I have to send this today."),
+            ("Whose going to do that?", "Who's going to do that?"),
+            ("e mail this to Sam", "Email this to Sam."),
+        ] {
+            assert_eq!(reason(raw, out, None), None, "{raw} -> {out}");
+        }
+    }
+
+    /// The verb turning up inside another word doesn't count as kept.
+    #[test]
+    fn instruction_verbs_match_whole_words() {
+        for (raw, out) in [
+            ("Fix this: the fixed costs are too high.", "The fixed costs are too high."),
+            ("Format this as a table: the information is in the doc.", "The information is in the doc."),
+            ("Summarize this: the summary of the call is we lost the deal.", "The summary of the call is we lost the deal."),
+        ] {
+            assert!(matches!(reason(raw, out, None), Some(GuardReason::DroppedWords(_))), "{raw} -> {out}");
+        }
+    }
+
+    #[test]
+    fn dropped_rhetorical_questions_are_not_answers() {
+        for (raw, out) in [
+            ("You know what? Let's just ship it.", "Let's just ship it."),
+            ("You know what? Let's just ship it.", "You know what? Let's just ship it."),
+            ("Guess what? The build passed.", "The build passed."),
+            ("Really? I thought we fixed that.", "I thought we fixed that."),
+            ("Really? I thought we fixed that.", "Really? I thought we fixed that."),
+        ] {
+            assert_eq!(reason(raw, out, None), None, "{raw} -> {out}");
+        }
+    }
+
     #[test]
     fn corrections_still_need_the_correction() {
         assert!(matches!(
@@ -601,6 +749,6 @@ mod tests {
     #[test]
     fn bare_no_ignored() {
         assert_eq!(negation_count("no wait, Tuesday"), 0);
-        assert_eq!(guard("Monday, no, Tuesday", "Tuesday"), ("Tuesday", false));
+        assert_eq!(reason("Monday, no, Tuesday", "Tuesday", None), None);
     }
 }
