@@ -137,6 +137,27 @@ pub fn open_microphone_settings() {
     open_uri("ms-settings:privacy-microphone");
 }
 
+/// The Dictation page's microphone list, and which mic a recording would use.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Microphones {
+    devices: Vec<quill_core::microphone::InputDevice>,
+    /// The mic a recording opens now.
+    using: Option<String>,
+    /// The saved mic, when it isn't connected.
+    missing: Option<String>,
+    /// The Bluetooth default Quill skips.
+    avoided: Option<String>,
+}
+
+/// Takes the choice being shown, so the answer never trails a save.
+#[tauri::command(async)]
+pub fn get_microphones(input_device: Option<quill_core::settings::SavedDevice>, avoid_bluetooth: bool) -> Microphones {
+    let (devices, default) = crate::platform::audio_devices::inputs();
+    let choice = quill_core::microphone::choose(&devices, default.as_deref(), input_device.as_ref(), avoid_bluetooth);
+    Microphones { devices, using: choice.name, missing: choice.missing, avoided: choice.avoided }
+}
+
 #[tauri::command]
 pub fn open_sound_settings() {
     open_uri("ms-settings:sound");

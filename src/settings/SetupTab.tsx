@@ -1,11 +1,12 @@
-import { useState } from "react";
-import { api, LINKS, type AppStyle, type AssetView, type CleanupLevel, type EngineView } from "../lib/api";
+import { useEffect, useState } from "react";
+import { api, LINKS, type AppStyle, type AssetView, type CleanupLevel, type EngineView, type Microphones, type OtherAudio } from "../lib/api";
 import { bytes } from "../lib/format";
 import type { Ctx } from "./App";
 import { AppIcon, AppScope, scopeName, useKnownApps } from "./AppScope";
 import {
   AppWindow,
   ArrowsClockwise,
+  BluetoothSlash,
   Browsers,
   Command,
   Cpu,
@@ -15,8 +16,10 @@ import {
   KeyReturn,
   Link,
   MagicWand,
+  Microphone,
   Power,
   Smiley,
+  SpeakerSimpleLow,
   Subtitles,
   TerminalWindow,
   TextAa,
@@ -85,6 +88,9 @@ export function DictationTab({ ctx }: { ctx: Ctx }) {
       <StatusCard ctx={ctx} />
       <Section title="Shortcut">
         <ActivationCard ctx={ctx} />
+      </Section>
+      <Section title="Audio">
+        <AudioCard ctx={ctx} />
       </Section>
       <Section title="Engine">
         <EngineCard ctx={ctx} />
@@ -205,6 +211,118 @@ function ActivationCard({ ctx }: { ctx: Ctx }) {
         detail="Shows the words Quill hears inside the overlay while you speak. The pasted text still comes from the whole recording. Uses more CPU while you record."
         right={<Switch label="Live preview" checked={vd.livePreview} onChange={(v) => ctx.saveVd({ livePreview: v })} />}
       />
+    </Card>
+  );
+}
+
+const OTHER_AUDIO: { value: OtherAudio; label: string; detail: string }[] = [
+  { value: "nothing", label: "Do nothing", detail: "Other apps keep playing as they are." },
+  { value: "lower", label: "Lower volume", detail: "Other apps play quieter while you speak, then go back to their volume." },
+  { value: "mute", label: "Mute", detail: "Other apps go silent while you speak, then come back." },
+  { value: "pause", label: "Pause media", detail: "Music and videos pause while you speak, then resume." },
+];
+
+const SELECT = "h-[28px] w-[190px] rounded-[6px] border border-card-border bg-fill px-2 text-[12.5px] outline-none";
+
+function micDetail(mics: Microphones | null, systemDefault: boolean) {
+  if (!mics) return "Looking for microphones…";
+  if (!mics.using) return "No microphone is connected.";
+  if (mics.avoided) return `Using ${mics.using}. ${mics.avoided} is a Bluetooth headset, which would switch to call quality.`;
+  return systemDefault ? `Follows Windows. Now using ${mics.using}.` : `Using ${mics.using}.`;
+}
+
+function AudioCard({ ctx }: { ctx: Ctx }) {
+  const vd = ctx.state.settings.voiceDictation;
+  const [mics, setMics] = useState<Microphones | null>(null);
+  const [percent, setPercent] = useState(vd.lowerToPercent);
+  const savedId = vd.inputDevice?.id ?? "";
+  useEffect(() => setPercent(vd.lowerToPercent), [vd.lowerToPercent]);
+  useEffect(() => {
+    let live = true;
+    const load = () =>
+      api
+        .getMicrophones(vd.inputDevice, vd.avoidBluetoothMic)
+        .then((m) => live && setMics(m))
+        .catch(console.error);
+    load();
+    // Plugging in a mic happens outside Settings.
+    window.addEventListener("focus", load);
+    return () => {
+      live = false;
+      window.removeEventListener("focus", load);
+    };
+  }, [savedId, vd.avoidBluetoothMic]);
+  const mode = OTHER_AUDIO.find((o) => o.value === vd.otherAudio) ?? OTHER_AUDIO[0]!;
+  const commitPercent = () => percent !== vd.lowerToPercent && ctx.saveVd({ lowerToPercent: percent });
+  const pick = (id: string) => {
+    if (!id) return ctx.saveVd({ inputDevice: null });
+    const d = mics?.devices.find((m) => m.id === id);
+    if (d) ctx.saveVd({ inputDevice: { id: d.id, name: d.name } });
+  };
+  return (
+    <Card>
+      <CardHeader
+        icon={<Microphone size={19} />}
+        title="Microphone"
+        detail={micDetail(mics, !vd.inputDevice)}
+        right={
+          <select aria-label="Microphone" value={savedId} onChange={(e) => pick(e.target.value)} className={SELECT}>
+            <option value="">System default</option>
+            {mics?.devices.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+            {vd.inputDevice && mics?.missing && <option value={vd.inputDevice.id}>{vd.inputDevice.name} (not connected)</option>}
+          </select>
+        }
+      />
+      {mics?.missing && <Warning>{mics.missing} isn't connected. Using the default microphone.</Warning>}
+      <Divider />
+      <CardHeader
+        icon={<BluetoothSlash size={19} />}
+        title="Avoid Bluetooth headset mics"
+        detail="Recording from a Bluetooth headset drops it to call quality, so everything you hear sounds worse. Quill uses another mic when there is one. A mic you pick above is always used."
+        right={<Switch label="Avoid Bluetooth headset mics" checked={vd.avoidBluetoothMic} onChange={(v) => ctx.saveVd({ avoidBluetoothMic: v })} />}
+      />
+      <Divider />
+      <CardHeader
+        icon={<SpeakerSimpleLow size={19} />}
+        title="Other audio while dictating"
+        detail={mode.detail}
+        right={
+          <select
+            aria-label="Other audio while dictating"
+            value={vd.otherAudio}
+            onChange={(e) => ctx.saveVd({ otherAudio: e.target.value as OtherAudio })}
+            className={SELECT}
+          >
+            {OTHER_AUDIO.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        }
+      />
+      {vd.otherAudio === "lower" && (
+        <div className="mt-3 ml-8 flex items-center gap-3">
+          <span className="w-[190px] text-[12px] text-text-2">Lower to {percent}% of their volume</span>
+          <input
+            type="range"
+            aria-label="Lower other apps to"
+            min={5}
+            max={80}
+            step={5}
+            value={percent}
+            onChange={(e) => setPercent(Number(e.target.value))}
+            onPointerUp={commitPercent}
+            onKeyUp={commitPercent}
+            onBlur={commitPercent}
+            className="flex-1 accent-[var(--accent)]"
+          />
+        </div>
+      )}
     </Card>
   );
 }
