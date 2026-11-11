@@ -30,7 +30,8 @@ const LIGHT: &[&str] = &[
     // Fillers and self-corrections.
     "so", "okay", "ok", "well", "like", "basically", "actually", "literally", "honestly", "just", "really", "yeah",
     "right", "maybe", "please", "no", "sorry", "wait", "scratch", "oops", "kinda", "sorta", "know", "mean", "meant",
-    "kind", "sort", "think", "thing", "things", "some", "still", "going", "gonna", "wanna",
+    "kind", "sort", "think", "thing", "things", "some", "still", "going", "gonna", "wanna", "hey", "look", "alright",
+    "anyway", "yep", "yup", "nope", "guess",
     // Units.
     "dollar", "dollars", "cent", "cents", "percent", "point", "degree", "degrees", "celsius", "fahrenheit",
     "kilometer", "kilometers", "kilometre", "kilometres", "meter", "meters", "metre", "metres", "mile", "miles", "per",
@@ -90,10 +91,7 @@ fn correction(words: &[String]) -> (usize, bool) {
 
 /// Words no sentence ends on, so a clause ending on one, with more after
 /// it, is a false start: "I think we should." "Can you send me the."
-const DANGLING: &[&str] = &[
-    "a", "an", "the", "and", "or", "but", "because", "than", "if", "my", "your", "our", "their", "should", "could",
-    "would", "must", "might",
-];
+const DANGLING: &[&str] = &["a", "an", "the", "and", "or", "but", "because", "than", "if", "my", "your", "our", "their"];
 
 const NUMBER_WORDS: &[(&str, &str)] = &[
     ("zero", "0"),
@@ -165,9 +163,14 @@ pub fn negation_count(text: &str) -> usize {
                 .to_lowercase()
         })
         .collect();
-    unstuttered(&words)
-        .into_iter()
-        .filter(|w| NEGATIONS.contains(&w.as_str()) || w.ends_with("n't") || BARE_CONTRACTIONS.contains(&w.as_str()))
+    let words = unstuttered(&words);
+    words
+        .iter()
+        .enumerate()
+        .filter(|(i, w)| {
+            let never_mind = w.as_str() == "never" && words.get(i + 1).is_some_and(|n| n.as_str() == "mind");
+            !never_mind && (NEGATIONS.contains(&w.as_str()) || w.ends_with("n't") || BARE_CONTRACTIONS.contains(&w.as_str()))
+        })
         .count()
 }
 
@@ -387,10 +390,10 @@ pub fn dropped_words(raw: &str, cleaned: &str) -> Option<String> {
         said += n;
         lost += l;
     }
-    if !taken_back.first().copied().unwrap_or(false) {
-        if let Some(run) = dropped_instruction(raw, &tokens(cleaned)) {
-            return Some(run);
-        }
+    // A false start can still be a dictated instruction: "Summarize the. The build failed."
+    let instruction_verbs_only = taken_back.first().copied().unwrap_or(false);
+    if let Some(run) = dropped_instruction(raw, &tokens(cleaned), instruction_verbs_only) {
+        return Some(run);
     }
     let (_, added) = loss(&tokens(cleaned), &Pool::new(raw));
     ((said >= 3 && lost * 2 > said) || (said >= 1 && lost == said && added > 0)).then(|| raw.trim().to_string())
@@ -411,22 +414,24 @@ const POINTERS: &[&str] = &["this", "that", "following"];
 /// that went with it ("Fix this: me and him goes" -> "Me and him goes").
 /// A tidied opening keeps the pointer and its neighbour: "Send, I mean,
 /// forward this to Sam" -> "Forward this to Sam."
-fn dropped_instruction(raw: &str, out: &[String]) -> Option<String> {
+fn dropped_instruction(raw: &str, out: &[String], instruction_verbs_only: bool) -> Option<String> {
     let words = tokens(raw);
     let start = words.iter().position(|w| !is_light(w))?;
     let verb = words[start].as_str();
-    if is_number_word(verb) || out.iter().any(|w| w.ends_with(verb)) {
+    if is_number_word(verb) || out.iter().any(|w| w.ends_with(verb)) || (instruction_verbs_only && !INSTRUCTIONS.contains(&verb)) {
         return None;
     }
     let pointer = words[start + 1..].iter().take(5).position(|w| POINTERS.contains(&w.as_str())).map(|p| start + 1 + p);
     let Some(p) = pointer else {
         return INSTRUCTIONS.contains(&verb).then(|| verb.to_string());
     };
-    let pair = match words.get(p + 1) {
+    let said = |w: &&String| !is_hesitation(w) && **w != words[p];
+    let pair = match words[p + 1..].iter().find(said) {
         Some(next) => [&words[p], next],
-        None => [&words[p - 1], &words[p]],
+        None => [words[start..p].iter().rev().find(said)?, &words[p]],
     };
-    let kept = out.windows(2).any(|w| w[0] == *pair[0] && w[1] == *pair[1]);
+    let out: Vec<&String> = out.iter().filter(|w| !is_hesitation(w)).collect();
+    let kept = out.windows(2).any(|w| w[0] == pair[0] && w[1] == pair[1]);
     (!kept).then(|| words[start..=p].join(" "))
 }
 
@@ -439,7 +444,7 @@ pub fn question_answered(raw: &str, cleaned: &str, itn: Option<&dyn Itn>) -> boo
     SENTENCE.find_iter(raw).map(|m| m.as_str()).filter(|s| s.trim_end().ends_with('?')).any(|question| {
         let asked = tokens(question);
         let shared = |s: &&str| tokens(s).iter().filter(|w| !is_light(w) && asked.contains(w)).count();
-        let Some(reply) = sentences.iter().copied().max_by_key(shared) else { return false };
+        let Some(reply) = sentences.iter().copied().max_by_key(|s| (shared(s), s.trim_end().ends_with('?'))) else { return false };
         if reply.trim_end().ends_with('?') {
             return false;
         }
@@ -708,6 +713,56 @@ mod tests {
         ] {
             assert!(matches!(reason(raw, out, None), Some(GuardReason::DroppedWords(_))), "{raw} -> {out}");
         }
+    }
+
+    #[test]
+    fn false_starts_can_still_be_instructions() {
+        for (raw, out) in [
+            ("Write this more formally if you could. The build is busted.", "The build is busted."),
+            ("Translate this into French if you could. The meeting is moved to Monday.", "The meeting is moved to Monday."),
+            ("Summarize this if you could: the build failed twice yesterday.", "The build failed twice yesterday."),
+            ("Summarize this. I mean, the build failed twice yesterday.", "The build failed twice yesterday."),
+            ("Translate this into French and. The meeting is moved.", "The meeting is moved."),
+            ("Summarize the. The build failed twice.", "The build failed twice."),
+        ] {
+            assert!(matches!(reason(raw, out, None), Some(GuardReason::DroppedWords(_))), "{raw} -> {out}");
+        }
+        assert_eq!(reason("I think we should. No, let's go with the second option.", "Let's go with the second option.", None), None);
+    }
+
+    #[test]
+    fn a_question_of_light_words_matches_a_question() {
+        let itn = crate::text::numbers::default_itn();
+        assert_eq!(reason("Is that okay? I'll be there at five.", "Is that okay? I'll be there at 5.", itn.as_deref()), None);
+    }
+
+    #[test]
+    fn the_pointers_neighbour_skips_hesitations_and_repeats() {
+        for (raw, out) in [
+            ("Anyway, this, um, is the plan.", "This is the plan."),
+            ("Alright, that, uh, works for me.", "That works for me."),
+            ("Look, that that is not right.", "That is not right."),
+        ] {
+            assert_eq!(reason(raw, out, None), None, "{raw} -> {out}");
+        }
+    }
+
+    #[test]
+    fn interjections_are_light() {
+        for (raw, out) in [
+            ("Hey, it is me. Call me back.", "It's me. Call me back."),
+            ("Yep. The build passed.", "The build passed."),
+            ("Anyway. Let's ship on Friday.", "Let's ship on Friday."),
+        ] {
+            assert_eq!(reason(raw, out, None), None, "{raw} -> {out}");
+        }
+    }
+
+    #[test]
+    fn never_mind_is_a_retraction_not_a_negation() {
+        assert_eq!(negation_count("never mind, send it"), 0);
+        assert_eq!(negation_count("never send it"), 1);
+        assert_eq!(reason("Send it to Sam. Never mind, send it to Maria.", "Send it to Maria.", None), None);
     }
 
     #[test]
