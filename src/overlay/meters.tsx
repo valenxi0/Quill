@@ -2,7 +2,7 @@
 // Each takes recent voice readings (0..1, newest last). Nothing here runs
 // once the meter unmounts. Under reduced motion the meters still follow the
 // voice, but the waves stop travelling on their own.
-import { useEffect, useRef, useState, type CSSProperties, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement } from "react";
 import { DitherShader } from "@/lib/dither/shader";
 import { useDocumentVisible } from "@/lib/dither/motion";
 import type { DitherPalette } from "@/lib/dither/tokens";
@@ -76,7 +76,10 @@ function onTick(listener: () => void) {
  * The wave's phase in seconds and its level. While `moving` (and the window
  * is visible) both update on the shared tick, the level easing a quarter of
  * the way to the newest reading per 60 Hz frame. Otherwise the phase holds
- * and the level is the newest reading.
+ * and the level is the newest reading. The phase counts from when the wave
+ * starts moving: it reaches the shader as a 32-bit float, and seconds since
+ * the overlay loaded (days, in a long session) would lose the precision a
+ * smooth wave needs.
  */
 function useWave(target: number, moving: boolean) {
   const visible = useDocumentVisible();
@@ -88,15 +91,16 @@ function useWave(target: number, moving: boolean) {
   }, [target]);
   useEffect(() => {
     if (!running) return;
-    let last = performance.now();
+    const start = performance.now();
+    let last = start;
     return onTick(() => {
       const now = performance.now();
       const frames = Math.min(6, (now - last) / (1000 / 60));
       last = now;
-      setWave((w) => ({ t: now / 1000, level: w.level + (targetRef.current - w.level) * (1 - Math.pow(0.75, frames)) }));
+      setWave((w) => ({ t: STILL_TIME + (now - start) / 1000, level: w.level + (targetRef.current - w.level) * (1 - Math.pow(0.75, frames)) }));
     });
   }, [running]);
-  return running ? wave : { t: STILL_TIME, level: target };
+  return running ? { ...wave, running } : { t: STILL_TIME, level: target, running };
 }
 
 /** Thin bars mirrored around the centre line, fading at both ends. Redraws only when a reading arrives. */
@@ -119,7 +123,7 @@ export function WaveformMeter({ levels }: MeterProps) {
       g.fill();
     }
     g.globalAlpha = 1;
-  });
+  }, [levels]);
   return canvas.element;
 }
 
@@ -132,7 +136,7 @@ float field(vec2 uv, vec2 res, float t) {
   for (int k = 0; k < 3; k++) {
     float fk = float(k);
     float amp = (0.08 + 0.38 * pillLevel) * taper * (1.0 - fk * 0.22);
-    float y = 0.5 + amp * sin(uv.x * (7.0 + fk * 3.0) + t * (2.2 + fk * 0.9) + fk * 1.7);
+    float y = 0.5 + amp * sin(uv.x * (7.0 + fk * 3.0) + pillTime * (2.2 + fk * 0.9) + fk * 1.7);
     float d = (uv.y - y) * res.y;
     tone += exp(-(d * d) / (0.55 + 0.25 * pillLevel)) * (1.0 - fk * 0.25);
   }
@@ -180,29 +184,34 @@ function hasWebGL() {
 
 /**
  * A sound wave drawn as dither dots, on the dithercn engine. The engine's
- * own loop stays off: the shared tick sets the phase through `stillTime`,
- * and the engine redraws a still shader whenever its props change. Without
- * WebGL it shows the Waveform instead.
+ * own loop stays off: the shared tick sets the phase and level uniforms,
+ * and the engine redraws a still shader whenever its props change, so the
+ * shader element changes only when the wave does. Without WebGL it shows
+ * the Waveform instead.
  */
 export function DitherMeter({ levels, reduced }: MeterProps) {
   const gl = hasWebGL();
   const wave = useWave(levels.at(-1) ?? 0, !reduced && gl);
-  const fallback = <WaveformMeter levels={levels} reduced={reduced} />;
-  if (!gl) return fallback;
-  return (
-    <DitherShader
-      field={DITHER_FIELD}
-      uniforms={{ pillLevel: wave.level }}
-      palette={DITHER_PALETTE}
-      matrix="bayer4"
-      cell={DITHER_CELL}
-      animate={false}
-      stillTime={wave.t}
-      fallback={fallback}
-      className="pill-dither shrink-0"
-      style={{ width: WIDTH, height: HEIGHT, ...dotMask() }}
-    />
+  // While the wave moves, new readings reach the fallback with the next tick.
+  const fallbackKey = wave.running ? wave.t : levels;
+  const fallback = useMemo(() => <WaveformMeter levels={levels} reduced={reduced} />, [fallbackKey, reduced]);
+  const shader = useMemo(
+    () => (
+      <DitherShader
+        field={DITHER_FIELD}
+        uniforms={{ pillLevel: wave.level, pillTime: wave.t }}
+        palette={DITHER_PALETTE}
+        matrix="bayer4"
+        cell={DITHER_CELL}
+        animate={false}
+        fallback={fallback}
+        className="pill-dither shrink-0"
+        style={{ width: WIDTH, height: HEIGHT, ...dotMask() }}
+      />
+    ),
+    [wave.level, wave.t, fallback],
   );
+  return gl ? shader : fallback;
 }
 
 const GLOW_COLORS = ["#ff9f0a", "#30d158", "#0a84ff", "#bf5af2"];
@@ -244,7 +253,7 @@ export function GlowMeter({ levels, reduced }: MeterProps) {
   useEffect(() => {
     const c = canvas.begin();
     if (c) drawGlow(c.g, c.scale, wave.level, wave.t);
-  });
+  }, [wave.level, wave.t]);
   return canvas.element;
 }
 
