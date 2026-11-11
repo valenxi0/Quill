@@ -292,6 +292,13 @@ impl SavedClipboard {
         take_snapshot().map(|s| Self(Arc::new(s)))
     }
 
+    /// Put the saved clipboard back now: after a cancelled paste, unless the
+    /// clipboard changed after Quill's own write (`sequence`); after a failed
+    /// write (`None`), whatever the clipboard holds.
+    pub fn restore_now(self, sequence: Option<u32>) -> bool {
+        put_back(&self.0, sequence.unwrap_or_else(|| unsafe { GetClipboardSequenceNumber() }))
+    }
+
     /// Put the saved clipboard back after `delay`, unless the clipboard
     /// changed after Quill's own write (`sequence`, from
     /// [`write_clipboard_text`]). Returns whether it was put back.
@@ -309,6 +316,14 @@ impl SavedClipboard {
                 }
             }
         })
+    }
+}
+
+/// Put back a restore still waiting, before Quill exits, with the same check
+/// for a newer copy.
+pub fn flush_pending_restore() {
+    if let Some(p) = PENDING.lock().take() {
+        put_back(&p.snapshot, p.sequence);
     }
 }
 
@@ -367,7 +382,7 @@ fn key(vk: VIRTUAL_KEY, up: bool) -> INPUT {
                 wScan: 0,
                 dwFlags: if up { KEYEVENTF_KEYUP } else { KEYBD_EVENT_FLAGS(0) },
                 time: 0,
-                dwExtraInfo: super::hotkey::QUILL_INPUT,
+                dwExtraInfo: super::input_activity::QUILL_INPUT,
             },
         },
     }
@@ -638,6 +653,22 @@ mod tests {
         assert_eq!(text(), "The user's own copy");
         assert_eq!(image(), Some(sample_dib()));
         assert_private(&registered_formats());
+
+        user_copy("The user's own copy");
+        let saved = SavedClipboard::take().expect("snapshot taken");
+        let written = write_clipboard_text("Cancelled transcript").expect("transcript written");
+        assert!(saved.restore_now(Some(written)), "given back at once");
+        println!("cancelled before the paste: text={:?}", text());
+        assert_eq!(text(), "The user's own copy");
+
+        user_copy("The user's own copy");
+        let saved = SavedClipboard::take().expect("snapshot taken");
+        let written = write_clipboard_text("Transcript as Quill quits").expect("transcript written");
+        let waiting = saved.restore_after(Duration::from_secs(3), written);
+        flush_pending_restore();
+        println!("quit while a restore waited: text={:?}", text());
+        assert_eq!(text(), "The user's own copy");
+        assert!(!waiting.join().unwrap(), "the waiting restore found nothing left to do");
     }
 
     fn plain_copy(text: &str) {

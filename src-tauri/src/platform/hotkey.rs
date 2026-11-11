@@ -148,7 +148,7 @@ impl HotkeyHook {
             if hook.is_err() {
                 return;
             }
-            HOOKED.store(true, SeqCst);
+            super::input_activity::keyboard_hooked();
             let mut msg = MSG::default();
             while GetMessageW(&mut msg, None, 0, 0).as_bool() {
                 let _ = TranslateMessage(&msg);
@@ -260,7 +260,7 @@ fn tap_mask_key() {
     let key = |flags: KEYBD_EVENT_FLAGS| INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
-            ki: KEYBDINPUT { wVk: VIRTUAL_KEY(VK_MASK), wScan: 0, dwFlags: flags, time: 0, dwExtraInfo: QUILL_INPUT },
+            ki: KEYBDINPUT { wVk: VIRTUAL_KEY(VK_MASK), wScan: 0, dwFlags: flags, time: 0, dwExtraInfo: super::input_activity::QUILL_INPUT },
         },
     };
     let inputs = [key(KEYBD_EVENT_FLAGS(0)), key(KEYEVENTF_KEYUP)];
@@ -276,7 +276,9 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
             if info.flags.0 & LLKHF_INJECTED.0 == 0 && handle(s, info.vkCode, wparam.0 as u32) {
                 return LRESULT(1);
             }
-            count_typing(info, wparam.0 as u32);
+            if matches!(wparam.0 as u32, WM_KEYDOWN | WM_SYSKEYDOWN) {
+                super::input_activity::key_down(info.vkCode, info.dwExtraInfo);
+            }
         }
     }
     CallNextHookEx(None, code, wparam, lparam)
@@ -295,36 +297,11 @@ pub fn mouse_chord() {
 }
 
 fn mouse_chord_on(s: &Shared) {
-    if !s.suspended.load(SeqCst) {
+    if !s.suspended.load(SeqCst) && !s.sketching.load(SeqCst) {
         for (t, binding) in [(&s.dictate, Binding::Dictate), (&s.raw, Binding::Raw)] {
             chord(s, t, binding);
         }
     }
-}
-
-/// Tags input Quill sends (`dwExtraInfo`), so it isn't counted as the user's.
-pub const QUILL_INPUT: usize = 0x5155_494C;
-
-/// The hook is running. Windows can still remove a hook it finds slow
-/// without saying so; that isn't detected.
-static HOOKED: AtomicBool = AtomicBool::new(false);
-
-/// Keys pressed that reached an app: not Quill's shortcuts, not keys Quill
-/// sent, not modifiers alone. Keys other tools send (remappers, the
-/// on-screen keyboard, remote control) count.
-static TYPED_KEYS: AtomicU32 = AtomicU32::new(0);
-
-fn count_typing(info: &KBDLLHOOKSTRUCT, msg: u32) {
-    let down = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
-    if down && info.dwExtraInfo != QUILL_INPUT && !is_modifier_vk(info.vkCode) {
-        TYPED_KEYS.fetch_add(1, SeqCst);
-    }
-}
-
-/// How many keys have been typed into other apps; `None` unless the
-/// keyboard hook is running.
-pub fn typed_keys() -> Option<u32> {
-    HOOKED.load(SeqCst).then(|| TYPED_KEYS.load(SeqCst))
 }
 
 /// Returns true to swallow the key.
@@ -375,10 +352,9 @@ fn handle(s: &Shared, vk: u32, msg: u32) -> bool {
 
     let triggers = [(&s.dictate, Binding::Dictate), (&s.raw, Binding::Raw)];
     // A lone modifier sees every key first, so a chord that Sketch or
-    // another shortcut swallows still ends its press. During a Sketch the
-    // same modifier may be the draw key, so it is left alone.
+    // another shortcut swallows still ends its press.
     for (t, binding) in triggers {
-        if t.is_lone() && !s.sketching.load(SeqCst) {
+        if t.is_lone() {
             lone_modifier_key(s, t, binding, vk, is_down, is_up);
         }
     }
@@ -458,8 +434,12 @@ fn other_modifiers_held(s: &Shared, vk: u32) -> bool {
 /// reaches the app, so Ctrl and Alt shortcuts keep working: another key
 /// going down while it is held makes the press a chord.
 fn lone_modifier_key(s: &Shared, t: &Trigger, binding: Binding, vk: u32, is_down: bool, is_up: bool) {
+    // During a Sketch the same modifier may be the draw key. The key is still
+    // tracked, so a release or auto-repeat around the Sketch's edges can't
+    // leave it latched or read as a fresh press; it just starts nothing.
+    let sketching = s.sketching.load(SeqCst);
     if vk == t.vk.load(SeqCst) {
-        if is_down && !t.latched.swap(true, SeqCst) && !other_modifiers_held(s, vk) {
+        if is_down && !t.latched.swap(true, SeqCst) && !sketching && !other_modifiers_held(s, vk) {
             t.chorded.store(false, SeqCst);
             t.down.store(true, SeqCst);
             if vk == VK_RMENU.0 as u32 {
@@ -473,7 +453,7 @@ fn lone_modifier_key(s: &Shared, t: &Trigger, binding: Binding, vk: u32, is_down
                 shortcut(s, binding, Input::Released);
             }
         }
-    } else if is_down && vk != VK_MASK as u32 {
+    } else if is_down && vk != VK_MASK as u32 && !sketching {
         chord(s, t, binding);
     }
 }
@@ -709,6 +689,37 @@ mod tests {
         assert!(!handle(&s, RCTRL, WM_KEYUP));
         assert!(drain(&rx).is_empty());
         s.sketching.store(false, SeqCst);
+        handle(&s, RCTRL, WM_KEYDOWN);
+        assert_eq!(drain(&rx), [ev(Binding::Dictate, Input::Pressed)]);
+    }
+
+    #[test]
+    fn a_lone_key_released_during_a_sketch_works_after_it() {
+        let (s, rx) = shared();
+        s.dictate.set(Some(Hotkey { vk: RCTRL, modifiers: 0 }));
+        handle(&s, RCTRL, WM_KEYDOWN);
+        handle(&s, 0xA4, WM_SYSKEYDOWN);
+        assert_eq!(drain(&rx), [ev(Binding::Dictate, Input::Pressed), ev(Binding::Dictate, Input::Chord)]);
+        handle(&s, 0xA4, WM_SYSKEYUP);
+        s.sketching.store(true, SeqCst);
+        handle(&s, RCTRL, WM_KEYUP);
+        assert_eq!(drain(&rx), [ev(Binding::Dictate, Input::Released)], "the press before the Sketch still ends");
+        s.sketching.store(false, SeqCst);
+        handle(&s, RCTRL, WM_KEYDOWN);
+        assert_eq!(drain(&rx), [ev(Binding::Dictate, Input::Pressed)], "the first press after the Sketch counts");
+    }
+
+    #[test]
+    fn a_lone_key_held_through_the_end_of_a_sketch_is_not_a_fresh_press() {
+        let (s, rx) = shared();
+        s.dictate.set(Some(Hotkey { vk: RCTRL, modifiers: 0 }));
+        s.sketching.store(true, SeqCst);
+        handle(&s, RCTRL, WM_KEYDOWN);
+        handle(&s, 0x41, WM_KEYDOWN);
+        s.sketching.store(false, SeqCst);
+        handle(&s, RCTRL, WM_KEYDOWN);
+        handle(&s, RCTRL, WM_KEYUP);
+        assert!(drain(&rx).is_empty(), "repeats after the Sketch and the release start nothing");
         handle(&s, RCTRL, WM_KEYDOWN);
         assert_eq!(drain(&rx), [ev(Binding::Dictate, Input::Pressed)]);
     }

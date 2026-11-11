@@ -21,7 +21,6 @@ use crate::platform::system::{microphone_permission, MicPermission};
 use crate::platform::target;
 use crate::vad::Vad;
 
-use super::deliver::input_count;
 use super::{Controller, DictationView, Job, Preview, Session, SessionConfig};
 
 impl Controller {
@@ -37,7 +36,7 @@ impl Controller {
             };
             (vd.activation_mode, key.is_some_and(|k| k.is_lone_modifier()))
         });
-        let (act, deadline, started_by) = {
+        let (act, deadline) = {
             let mut shortcut = self.shortcut.lock();
             let phase = self.phase();
             // While a session runs, only the shortcut that started it drives it.
@@ -46,14 +45,14 @@ impl Controller {
                     return shortcut.machine.deadline();
                 }
             }
-            let (act, deadline) = shortcut.machine.on(mode, lone, binding, input, at, phase);
-            (act, deadline, shortcut.machine.started_by())
+            // Escape and ticks carry no binding, and the machine doesn't read one for them.
+            shortcut.machine.on(mode, lone, binding.unwrap_or(Binding::Dictate), input, at, phase)
         };
         match act {
-            Action::Start => {
-                self.start_as(started_by == Some(Binding::Raw));
-                if let Some(b) = started_by.filter(|_| self.phase() == Phase::Recording) {
-                    self.shortcut.lock().owner = Some((b, self.generation.load(SeqCst)));
+            Action::Start(by) => {
+                self.start_as(by == Binding::Raw);
+                if self.phase() == Phase::Recording {
+                    self.shortcut.lock().owner = Some((by, self.generation.load(SeqCst)));
                 }
             }
             Action::Stop => self.stop(),
@@ -150,7 +149,7 @@ impl Controller {
         let mut target = capture.join().unwrap_or_default();
         if sketch.is_none() {
             let last = self.last_paste.lock();
-            let input = input_count();
+            let input = crate::platform::input_activity::count();
             if let Some(around) = continuation(last.as_ref(), &target, Instant::now(), input, fits_to_cursor, target.surroundings.as_ref()) {
                 target.surroundings = Some(around);
             }

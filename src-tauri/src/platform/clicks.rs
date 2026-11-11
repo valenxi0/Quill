@@ -1,90 +1,165 @@
-//! Counts mouse button presses, touches and pen input anywhere, through Raw
-//! Input on a hidden message-only window. Unlike a low-level mouse hook,
-//! nothing here sits in the path of the cursor, so a slow moment can't lag
-//! the mouse.
+//! Pointer input for `input_activity`: mouse buttons, touches and pen,
+//! through Raw Input on a hidden message-only window. Unlike a low-level
+//! mouse hook, nothing here sits in the path of the cursor.
+//!
+//! Raw Input wakes this thread for every mouse move, so the devices are
+//! registered only while a continuation is possible (`watch`) and removed at
+//! the first input or when the continuation window ends.
 
-use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering::SeqCst};
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering::SeqCst};
+use std::time::Duration;
 
 use windows::core::w;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::{
     GetRawInputData, GetRegisteredRawInputDevices, RegisterRawInputDevices, HRAWINPUT, RAWINPUT, RAWINPUTDEVICE,
-    RAWINPUTHEADER, RIDEV_INPUTSINK, RID_HEADER, RID_INPUT, RIM_TYPEHID, RIM_TYPEMOUSE,
+    RAWINPUTDEVICE_FLAGS, RAWINPUTHEADER, RIDEV_INPUTSINK, RIDEV_REMOVE, RID_INPUT, RIM_TYPEHID, RIM_TYPEMOUSE,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, RegisterClassW, TranslateMessage, HWND_MESSAGE, MSG,
-    WINDOW_EX_STYLE, WINDOW_STYLE, WM_INPUT, WNDCLASSW,
+    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, KillTimer, PostMessageW, RegisterClassW, SendMessageW,
+    SetTimer, TranslateMessage, HWND_MESSAGE, MSG, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_INPUT, WM_TIMER, WNDCLASSW,
 };
 
-use super::hotkey::QUILL_INPUT;
+use super::input_activity::{self, QUILL_INPUT};
 
-static RUNNING: AtomicBool = AtomicBool::new(false);
-static STARTED: AtomicBool = AtomicBool::new(false);
-static CLICKS: AtomicU32 = AtomicU32::new(0);
-/// Side-button presses the mouse hook swallowed as Quill's shortcut. Raw
-/// Input still reports them, so they are taken back out of the count.
-static SHORTCUT_BUTTONS: AtomicU32 = AtomicU32::new(0);
-/// The hidden window Raw Input reports to.
+/// The hidden window, once its thread runs.
 static WINDOW: AtomicIsize = AtomicIsize::new(0);
+static STARTED: AtomicBool = AtomicBool::new(false);
+/// The devices are registered to the hidden window.
+static WATCHING: AtomicBool = AtomicBool::new(false);
+#[cfg(test)]
+static LAST_EXTRA: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 const GENERIC_DESKTOP: u16 = 0x01;
 const MOUSE: u16 = 0x02;
 const DIGITIZER: u16 = 0x0D;
 const PEN: u16 = 0x02;
 const TOUCH_SCREEN: u16 = 0x04;
-#[cfg(test)]
-static LAST_EXTRA: AtomicU32 = AtomicU32::new(0);
+
+const WM_WATCH: u32 = WM_APP + 1;
+const WM_STOP: u32 = WM_APP + 2;
+const WATCH_TIMER: usize = 1;
+/// A little past the continuation window, so the watch outlasts it.
+const WATCH_FOR: Duration = Duration::from_secs(quill_core::text::continuation::WINDOW.as_secs() + 5);
 
 /// Left, right, middle, and the two side buttons going down.
 const BUTTONS_DOWN: u16 = 0x0001 | 0x0004 | 0x0010 | 0x0040 | 0x0100;
+const SIDE_BUTTONS_DOWN: u16 = 0x0040 | 0x0100;
 
 fn users_button_down(button_flags: u16, extra: u32) -> bool {
     button_flags & BUTTONS_DOWN != 0 && extra != QUILL_INPUT as u32
 }
 
+/// A large enough, aligned buffer for one Raw Input report.
+#[repr(C, align(8))]
+struct Report([u8; 1024]);
+
+fn devices(hwnd: HWND, flags: RAWINPUTDEVICE_FLAGS) -> [RAWINPUTDEVICE; 3] {
+    let device = |page, usage| RAWINPUTDEVICE { usUsagePage: page, usUsage: usage, dwFlags: flags, hwndTarget: hwnd };
+    [device(GENERIC_DESKTOP, MOUSE), device(DIGITIZER, TOUCH_SCREEN), device(DIGITIZER, PEN)]
+}
+
+fn register(hwnd: HWND) -> bool {
+    let size = std::mem::size_of::<RAWINPUTDEVICE>() as u32;
+    let [mouse, touch, pen] = devices(hwnd, RIDEV_INPUTSINK);
+    let ok = unsafe { RegisterRawInputDevices(&[mouse], size) }.is_ok();
+    if ok {
+        // Best effort: not every PC has a touch screen or pen.
+        let _ = unsafe { RegisterRawInputDevices(&[touch, pen], size) };
+    }
+    ok
+}
+
+fn unregister() {
+    let size = std::mem::size_of::<RAWINPUTDEVICE>() as u32;
+    // Removing takes no target window.
+    for device in devices(HWND::default(), RIDEV_REMOVE) {
+        let _ = unsafe { RegisterRawInputDevices(&[device], size) };
+    }
+}
+
+/// Runs on the hidden window's thread.
+fn stop_here(hwnd: HWND) {
+    if WATCHING.swap(false, SeqCst) {
+        unregister();
+    }
+    let _ = unsafe { KillTimer(Some(hwnd), WATCH_TIMER) };
+}
+
 unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    if msg == WM_INPUT {
-        let raw = HRAWINPUT(lparam.0 as *mut _);
-        let header_size = std::mem::size_of::<RAWINPUTHEADER>() as u32;
-        let mut header = RAWINPUTHEADER::default();
-        let mut size = header_size;
-        let read = unsafe { GetRawInputData(raw, RID_HEADER, Some(&mut header as *mut RAWINPUTHEADER as *mut _), &mut size, header_size) };
-        if read != u32::MAX && header.dwType == RIM_TYPEHID.0 {
-            // A touch or pen report.
-            CLICKS.fetch_add(1, SeqCst);
-        } else if read != u32::MAX && header.dwType == RIM_TYPEMOUSE.0 {
-            let mut input = RAWINPUT::default();
-            let mut size = std::mem::size_of::<RAWINPUT>() as u32;
-            let read = unsafe { GetRawInputData(raw, RID_INPUT, Some(&mut input as *mut RAWINPUT as *mut _), &mut size, header_size) };
-            if read != u32::MAX {
-                let mouse = unsafe { input.data.mouse };
-                let flags = unsafe { mouse.Anonymous.Anonymous.usButtonFlags };
-                #[cfg(test)]
-                LAST_EXTRA.store(mouse.ulExtraInformation, SeqCst);
-                if users_button_down(flags, mouse.ulExtraInformation) {
-                    CLICKS.fetch_add(1, SeqCst);
+    match msg {
+        WM_WATCH => {
+            let ok = WATCHING.load(SeqCst) || register(hwnd);
+            WATCHING.store(ok, SeqCst);
+            if ok {
+                unsafe { SetTimer(Some(hwnd), WATCH_TIMER, WATCH_FOR.as_millis() as u32, None) };
+            }
+            return LRESULT(ok as isize);
+        }
+        WM_STOP => {
+            stop_here(hwnd);
+            return LRESULT(0);
+        }
+        WM_TIMER if wparam.0 == WATCH_TIMER => {
+            stop_here(hwnd);
+            return LRESULT(0);
+        }
+        WM_INPUT => {
+            let mut report = Report([0; 1024]);
+            let mut size = std::mem::size_of::<Report>() as u32;
+            let header = std::mem::size_of::<RAWINPUTHEADER>() as u32;
+            let read = unsafe {
+                GetRawInputData(HRAWINPUT(lparam.0 as *mut _), RID_INPUT, Some(report.0.as_mut_ptr() as *mut _), &mut size, header)
+            };
+            if read != u32::MAX && read >= header {
+                let input = report.0.as_ptr() as *const RAWINPUT;
+                let kind = unsafe { (*input).header.dwType };
+                if kind == RIM_TYPEHID.0 {
+                    // A touch or pen report.
+                    input_activity::pointer_input();
+                    stop_here(hwnd);
+                } else if kind == RIM_TYPEMOUSE.0 {
+                    let mouse = unsafe { (*input).data.mouse };
+                    let flags = unsafe { mouse.Anonymous.Anonymous.usButtonFlags };
+                    #[cfg(test)]
+                    LAST_EXTRA.store(mouse.ulExtraInformation, SeqCst);
+                    if users_button_down(flags, mouse.ulExtraInformation) {
+                        input_activity::pointer_input();
+                        // A side button may be Quill's shortcut, taken back
+                        // out of the count by the mouse hook: keep watching.
+                        if flags & SIDE_BUTTONS_DOWN == 0 {
+                            stop_here(hwnd);
+                        }
+                    }
                 }
             }
         }
+        _ => {}
     }
     unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
 }
 
-/// Start counting on a thread of its own. Returns whether counting runs.
+fn window() -> Option<HWND> {
+    let hwnd = WINDOW.load(SeqCst);
+    (hwnd != 0).then(|| HWND(hwnd as *mut _))
+}
+
+/// Create the hidden window on a thread of its own. Nothing is registered
+/// until `watch`. Returns whether the window exists.
 pub fn start() -> bool {
     if STARTED.swap(true, SeqCst) {
-        return RUNNING.load(SeqCst);
+        return window().is_some();
     }
     let (ready_tx, ready_rx) = std::sync::mpsc::channel();
     let spawned = std::thread::Builder::new().name("quill-clicks".into()).spawn(move || unsafe {
-        let ok = (|| {
+        let hwnd = (|| {
             let instance = GetModuleHandleW(None).ok()?;
             let class = WNDCLASSW { lpfnWndProc: Some(window_proc), hInstance: instance.into(), lpszClassName: w!("QuillClicks"), ..Default::default() };
             if RegisterClassW(&class) == 0 {
                 return None;
             }
-            let hwnd = CreateWindowExW(
+            CreateWindowExW(
                 WINDOW_EX_STYLE(0),
                 w!("QuillClicks"),
                 w!(""),
@@ -98,19 +173,13 @@ pub fn start() -> bool {
                 Some(instance.into()),
                 None,
             )
-            .ok()?;
-            let device = |page, usage| RAWINPUTDEVICE { usUsagePage: page, usUsage: usage, dwFlags: RIDEV_INPUTSINK, hwndTarget: hwnd };
-            let size = std::mem::size_of::<RAWINPUTDEVICE>() as u32;
-            RegisterRawInputDevices(&[device(GENERIC_DESKTOP, MOUSE)], size).ok()?;
+            .ok()
+        })();
+        if let Some(hwnd) = hwnd {
             WINDOW.store(hwnd.0 as isize, SeqCst);
-            // Best effort: not every PC has a touch screen or pen.
-            let _ = RegisterRawInputDevices(&[device(DIGITIZER, TOUCH_SCREEN), device(DIGITIZER, PEN)], size);
-            Some(())
-        })()
-        .is_some();
-        RUNNING.store(ok, SeqCst);
-        let _ = ready_tx.send(ok);
-        if !ok {
+        }
+        let _ = ready_tx.send(hwnd.is_some());
+        if hwnd.is_none() {
             return;
         }
         let mut msg = MSG::default();
@@ -118,15 +187,30 @@ pub fn start() -> bool {
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
-        RUNNING.store(false, SeqCst);
+        WINDOW.store(0, SeqCst);
+        WATCHING.store(false, SeqCst);
     });
     spawned.is_ok() && ready_rx.recv().unwrap_or(false)
 }
 
-/// Whether the mouse still reports to the hidden window. A process has one
-/// Raw Input target per device type, so a later registration elsewhere in
+/// Register the devices and count pointer input for the continuation
+/// window. Waits until they are registered.
+pub fn watch() -> bool {
+    window().is_some_and(|hwnd| unsafe { SendMessageW(hwnd, WM_WATCH, None, None) }.0 != 0)
+}
+
+/// Unregister the devices. Cheap enough to call from the keyboard hook.
+pub fn stop_watching() {
+    if let (true, Some(hwnd)) = (WATCHING.load(SeqCst), window()) {
+        let _ = unsafe { PostMessageW(Some(hwnd), WM_STOP, WPARAM(0), LPARAM(0)) };
+    }
+}
+
+/// Whether the mouse reports to the hidden window. A process has one Raw
+/// Input target per device type, so a later registration elsewhere in
 /// Quill (tao's device events) takes the mouse away.
 fn still_registered() -> bool {
+    let Some(window) = window() else { return false };
     let size = std::mem::size_of::<RAWINPUTDEVICE>() as u32;
     let mut count = 0u32;
     unsafe { GetRegisteredRawInputDevices(None, &mut count, size) };
@@ -135,32 +219,19 @@ fn still_registered() -> bool {
     if read == u32::MAX {
         return false;
     }
-    let window = WINDOW.load(SeqCst);
-    devices[..read as usize]
-        .iter()
-        .any(|d| d.usUsagePage == GENERIC_DESKTOP && d.usUsage == MOUSE && d.hwndTarget.0 as isize == window)
+    devices[..read as usize].iter().any(|d| d.usUsagePage == GENERIC_DESKTOP && d.usUsage == MOUSE && d.hwndTarget == window)
 }
 
-/// A mouse side button went down as Quill's shortcut.
-pub fn shortcut_button_down() {
-    SHORTCUT_BUTTONS.fetch_add(1, SeqCst);
-}
-
-/// Side-button presses that were Quill's shortcut, not the user's input.
-pub fn shortcut_buttons() -> u32 {
-    SHORTCUT_BUTTONS.load(SeqCst)
-}
-
-/// How many mouse buttons, touches and pen reports there have been; `None`
-/// unless counting runs and still has the mouse.
-pub fn clicks() -> Option<u32> {
-    (RUNNING.load(SeqCst) && still_registered()).then(|| CLICKS.load(SeqCst))
+/// Pointer input is being counted: the devices are registered and still
+/// report to the hidden window.
+pub fn watching() -> bool {
+    WATCHING.load(SeqCst) && still_registered()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{Duration, Instant};
+    use std::time::Instant;
     use windows::Win32::UI::Input::KeyboardAndMouse::{SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_MOVE, MOUSEINPUT};
 
     #[test]
@@ -175,9 +246,11 @@ mod tests {
 
     #[test]
     #[ignore = "moves the mouse one pixel and back"]
-    fn the_hidden_window_receives_mouse_input() {
-        assert!(start(), "raw input registered");
-        assert!(clicks().is_some(), "the mouse reports to the hidden window");
+    fn the_hidden_window_receives_mouse_input_only_while_watching() {
+        assert!(start(), "hidden window created");
+        assert!(!watching(), "nothing registered at start");
+        assert!(watch(), "raw input registered");
+        assert!(watching(), "the mouse reports to the hidden window");
         let tag = 0x0BAD_F00D_u32;
         let step = |dx: i32| INPUT {
             r#type: INPUT_MOUSE,
@@ -185,11 +258,24 @@ mod tests {
         };
         let sent = unsafe { SendInput(&[step(1), step(-1)], std::mem::size_of::<INPUT>() as i32) };
         assert_eq!(sent, 2, "moves sent");
-        let start = Instant::now();
-        while LAST_EXTRA.load(SeqCst) != tag && start.elapsed() < Duration::from_secs(2) {
+        let started = Instant::now();
+        while LAST_EXTRA.load(SeqCst) != tag && started.elapsed() < Duration::from_secs(2) {
             std::thread::sleep(Duration::from_millis(10));
         }
-        println!("raw input saw extra info {:#x} after {:?}", LAST_EXTRA.load(SeqCst), start.elapsed());
+        println!("raw input saw extra info {:#x} after {:?}", LAST_EXTRA.load(SeqCst), started.elapsed());
         assert_eq!(LAST_EXTRA.load(SeqCst), tag, "raw input arrived with its tag");
+
+        stop_watching();
+        let started = Instant::now();
+        while watching() && started.elapsed() < Duration::from_secs(2) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(!watching() && !still_registered(), "unregistered after stop");
+        LAST_EXTRA.store(0, SeqCst);
+        let sent = unsafe { SendInput(&[step(1), step(-1)], std::mem::size_of::<INPUT>() as i32) };
+        assert_eq!(sent, 2, "moves sent");
+        std::thread::sleep(Duration::from_millis(200));
+        println!("after stop, raw input saw extra info {:#x}", LAST_EXTRA.load(SeqCst));
+        assert_eq!(LAST_EXTRA.load(SeqCst), 0, "nothing arrives while not watching");
     }
 }
