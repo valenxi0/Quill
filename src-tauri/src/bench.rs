@@ -358,3 +358,261 @@ pub fn s1_speed() -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Hotword experiment for Parakeet: `quill-bench --hotwords <dir> [--runs N]
+/// [--vocab label=path]… [--paired]`. `<dir>` holds rare-term clips (`.wav` + `.txt`)
+/// and `terms.txt`; the standard eval set guards against regressions. Builds
+/// sherpa-onnx recognizers directly so decoding settings can vary.
+#[cfg(feature = "sherpa")]
+pub fn hotwords(args: &[String]) -> Result<(), String> {
+    use sherpa_onnx::{OfflineRecognizer, OfflineRecognizerConfig, OfflineTransducerModelConfig};
+
+    let mut it = args.iter();
+    let terms_dir = PathBuf::from(it.next().ok_or("usage: --hotwords <dir> [--runs N] [--vocab label=path] [--paired]")?);
+    let mut runs = 3usize;
+    let mut paired = false;
+    let mut extra_vocabs: Vec<(String, PathBuf)> = Vec::new();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--runs" => runs = it.next().and_then(|n| n.parse().ok()).ok_or("--runs needs a number")?,
+            "--paired" => paired = true,
+            "--vocab" => {
+                let v = it.next().ok_or("--vocab needs label=path")?;
+                let (label, path) = v.split_once('=').ok_or("--vocab needs label=path")?;
+                extra_vocabs.push((label.to_string(), PathBuf::from(path)));
+            }
+            other => return Err(format!("unknown argument {other}")),
+        }
+    }
+
+    let load = |dir: &Path| -> Result<Vec<(String, Vec<f32>, String)>, String> {
+        let mut wavs: Vec<PathBuf> = std::fs::read_dir(dir)
+            .map_err(|e| format!("{}: {e}", dir.display()))?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("wav")))
+            .collect();
+        wavs.sort();
+        let mut out = Vec::new();
+        for wav in wavs {
+            let Ok(reference) = std::fs::read_to_string(wav.with_extension("txt")) else { continue };
+            let name = wav.file_stem().unwrap().to_string_lossy().into_owned();
+            out.push((name, read_wav(&wav)?, reference.trim().trim_start_matches('\u{feff}').to_string()));
+        }
+        Ok(out)
+    };
+    let standard = load(&crate::paths::eval_dir())?;
+    let term_clips = load(&terms_dir)?;
+    let terms: Vec<String> = std::fs::read_to_string(terms_dir.join("terms.txt"))
+        .map_err(|e| format!("terms.txt: {e}"))?
+        .lines()
+        .map(|l| l.trim().trim_start_matches('\u{feff}').to_string())
+        .filter(|l| !l.is_empty())
+        .collect();
+    println!("{} standard clips, {} term clips, {} terms", standard.len(), term_clips.len(), terms.len());
+
+    let models = ModelManager::new(crate::paths::models_dir(), || {});
+    let dir = models.dir(quill_core::engines::AssetId::ParakeetTdt06bV3);
+    let out_dir = std::env::temp_dir().join("quill");
+    std::fs::create_dir_all(&out_dir).map_err(|e| e.to_string())?;
+    // tokens.txt is in sentencepiece id order, and sentencepiece scores BPE
+    // pieces by -id, so this is the closest vocab the installed model allows.
+    let derived = out_dir.join("parakeet-bpe.vocab");
+    let vocab: String = std::fs::read_to_string(dir.join("tokens.txt"))
+        .map_err(|e| e.to_string())?
+        .lines()
+        .filter_map(|l| l.rsplit_once(' '))
+        .filter(|(t, _)| !(t.starts_with('<') && t.ends_with('>')))
+        .map(|(t, id)| format!("{t} -{id}\n"))
+        .collect();
+    std::fs::write(&derived, vocab).map_err(|e| e.to_string())?;
+
+    struct Config {
+        label: String,
+        beam: bool,
+        vocab: Option<PathBuf>,
+        score: f32,
+    }
+    let mut configs = vec![
+        Config { label: "greedy".into(), beam: false, vocab: None, score: 0.0 },
+        Config { label: "beam4".into(), beam: true, vocab: None, score: 0.0 },
+    ];
+    let mut vocabs = vec![("derived".to_string(), derived)];
+    vocabs.extend(extra_vocabs);
+    for (label, path) in &vocabs {
+        for score in [1.5f32, 3.0] {
+            configs.push(Config { label: format!("beam4+hw[{label}] s={score}"), beam: true, vocab: Some(path.clone()), score });
+        }
+    }
+
+    let threads = crate::platform::system::inference_threads();
+    let hotword_list = terms.join("/");
+    let contains = |hyp: &str, term: &str| {
+        let (h, t) = (words(hyp), words(term));
+        !t.is_empty() && h.windows(t.len()).any(|w| w == t.as_slice())
+    };
+    let all: Vec<&(String, Vec<f32>, String)> = standard.iter().chain(term_clips.iter()).collect();
+    let n_std = standard.len();
+    let decode_once = |rec: &OfflineRecognizer, cfg: &Config, samples: &[f32]| -> String {
+        let stream = if cfg.vocab.is_some() { rec.create_stream_with_hotwords(&hotword_list) } else { rec.create_stream() };
+        stream.accept_waveform(16_000, samples);
+        rec.decode(&stream);
+        stream.get_result().map(|r| r.text.trim().to_string()).unwrap_or_default()
+    };
+
+    let build = |cfg: &Config| -> Result<OfflineRecognizer, String> {
+        let mut c = OfflineRecognizerConfig::default();
+        let file = |n: &str| Some(dir.join(n).to_string_lossy().into_owned());
+        c.model_config.transducer = OfflineTransducerModelConfig {
+            encoder: file("encoder.int8.onnx"),
+            decoder: file("decoder.int8.onnx"),
+            joiner: file("joiner.int8.onnx"),
+        };
+        c.model_config.tokens = file("tokens.txt");
+        c.model_config.model_type = Some("nemo_transducer".into());
+        c.model_config.num_threads = threads as i32;
+        c.model_config.provider = Some("cpu".into());
+        c.decoding_method = Some(if cfg.beam { "modified_beam_search" } else { "greedy_search" }.into());
+        if let Some(v) = &cfg.vocab {
+            c.model_config.modeling_unit = Some("bpe".into());
+            c.model_config.bpe_vocab = Some(v.to_string_lossy().into_owned());
+            c.hotwords_score = cfg.score;
+        }
+        let rec = OfflineRecognizer::create(&c).ok_or_else(|| format!("{}: recognizer failed to start", cfg.label))?;
+        decode_once(&rec, cfg, &vec![0.0; 16_000]);
+        Ok(rec)
+    };
+    if paired {
+        // Both recognizers stay loaded and alternate clip by clip, so load
+        // from other processes lands on both sides of each comparison.
+        let (a_cfg, b_cfg) = (&configs[0], &configs[2]);
+        let (a, b) = (build(a_cfg)?, build(b_cfg)?);
+        let mut deltas: Vec<f64> = Vec::new();
+        let mut ratios: Vec<f64> = Vec::new();
+        let mut pass_a = Vec::new();
+        let mut pass_b = Vec::new();
+        for run in 0..runs {
+            let (mut ta, mut tb) = (0.0, 0.0);
+            for (_, samples, _) in &all {
+                let padded = pad(samples, 1.0);
+                let time = |rec: &OfflineRecognizer, cfg: &Config| {
+                    let start = Instant::now();
+                    decode_once(rec, cfg, &padded);
+                    start.elapsed().as_secs_f64()
+                };
+                let (sa, sb) = if run % 2 == 0 {
+                    let sa = time(&a, a_cfg);
+                    (sa, time(&b, b_cfg))
+                } else {
+                    let sb = time(&b, b_cfg);
+                    (time(&a, a_cfg), sb)
+                };
+                ta += sa;
+                tb += sb;
+                deltas.push((sb - sa) * 1000.0);
+                ratios.push(sb / sa);
+            }
+            println!("pass {run}: {} {ta:.3}s, {} {tb:.3}s", a_cfg.label, b_cfg.label);
+            pass_a.push(ta);
+            pass_b.push(tb);
+        }
+        let pct = |v: &mut Vec<f64>, p: f64| {
+            v.sort_by(|x, y| x.total_cmp(y));
+            percentile(v, p)
+        };
+        println!(
+            "paired over {} clip decodes: delta ms p25 {:.1} / p50 {:.1} / p75 {:.1}; ratio p25 {:.3} / p50 {:.3} / p75 {:.3}",
+            deltas.len(),
+            pct(&mut deltas, 0.25),
+            pct(&mut deltas, 0.5),
+            pct(&mut deltas, 0.75),
+            pct(&mut ratios, 0.25),
+            pct(&mut ratios, 0.5),
+            pct(&mut ratios, 0.75)
+        );
+        let doc = serde_json::json!({ "machine": machine(threads), "date": chrono::Local::now().to_rfc3339(), "a": a_cfg.label, "b": b_cfg.label,
+            "passA": pass_a, "passB": pass_b, "deltaMs": deltas, "ratio": ratios });
+        let path = out_dir.join("hotwords-paired.json");
+        std::fs::write(&path, serde_json::to_vec_pretty(&doc).unwrap()).map_err(|e| e.to_string())?;
+        println!("wrote {}", path.display());
+        return Ok(());
+    }
+
+    let mut report = Vec::new();
+    for cfg in &configs {
+        let rec = build(cfg)?;
+        let run_one = |samples: &[f32]| decode_once(&rec, cfg, samples);
+
+        let mut texts: Vec<String> = Vec::new();
+        let mut per_clip: Vec<Vec<f64>> = vec![Vec::new(); all.len()];
+        let mut pass_totals = Vec::new();
+        let mut unstable = 0;
+        for run in 0..runs {
+            let mut total = 0.0;
+            for (i, (_, samples, _)) in all.iter().enumerate() {
+                let start = Instant::now();
+                let text = run_one(&pad(samples, 1.0));
+                let s = start.elapsed().as_secs_f64();
+                total += s;
+                per_clip[i].push(s);
+                if run == 0 {
+                    texts.push(text);
+                } else if texts[i] != text {
+                    unstable += 1;
+                }
+            }
+            pass_totals.push(total);
+        }
+        let median = |v: &mut Vec<f64>| {
+            v.sort_by(|a, b| a.total_cmp(b));
+            v[v.len() / 2]
+        };
+        let mut clip_medians: Vec<f64> = per_clip.iter_mut().map(median).collect();
+        let clip_mean_ms = clip_medians.iter().sum::<f64>() / clip_medians.len() as f64 * 1000.0;
+        let clip_p50_ms = median(&mut clip_medians) * 1000.0;
+        let mut totals = pass_totals.clone();
+        let total_med = median(&mut totals);
+        let (tmin, tmax) = (totals[0], totals[totals.len() - 1]);
+
+        let std_wer = standard.iter().zip(&texts).map(|((_, _, r), h)| wer(r, h)).sum::<f64>() / n_std as f64;
+        let term_wer = term_clips.iter().zip(&texts[n_std..]).map(|((_, _, r), h)| wer(r, h)).sum::<f64>() / term_clips.len() as f64;
+        let (mut hits, mut total_terms, mut false_hits) = (0, 0, 0);
+        let mut hit_list = Vec::new();
+        for ((name, _, r), h) in term_clips.iter().zip(&texts[n_std..]) {
+            for t in &terms {
+                if contains(r, t) {
+                    total_terms += 1;
+                    let hit = contains(h, t);
+                    hits += usize::from(hit);
+                    hit_list.push(serde_json::json!({"clip": name, "term": t, "hit": hit}));
+                } else if contains(h, t) {
+                    false_hits += 1;
+                }
+            }
+        }
+        for ((_, _, r), h) in standard.iter().zip(&texts[..n_std]) {
+            false_hits += terms.iter().filter(|t| contains(h, t) && !contains(r, t)).count();
+        }
+        println!(
+            "{:<28} terms {:>2}/{:<2} false+ {}  std WER {:>5.2}%  term WER {:>5.2}%  clip p50 {:>6.1} ms  mean {:>6.1} ms  pass {:.3}s [{:.3}-{:.3}]  unstable {}",
+            cfg.label, hits, total_terms, false_hits, std_wer * 100.0, term_wer * 100.0, clip_p50_ms, clip_mean_ms, total_med, tmin, tmax, unstable
+        );
+        for ((name, _, _), h) in all.iter().zip(&texts) {
+            println!("    {name:<16} {h}");
+        }
+        report.push(serde_json::json!({
+            "config": cfg.label,
+            "termHits": hits, "termTotal": total_terms, "falseHits": false_hits,
+            "standardWer": std_wer, "termWer": term_wer,
+            "clipP50Ms": clip_p50_ms, "clipMeanMs": clip_mean_ms,
+            "passTotalsS": pass_totals, "unstableOutputs": unstable,
+            "hits": hit_list,
+            "texts": all.iter().zip(&texts).map(|((n, _, r), h)| serde_json::json!({"clip": n, "reference": r, "text": h})).collect::<Vec<_>>(),
+        }));
+        drop(rec);
+    }
+    let path = out_dir.join("hotwords.json");
+    let doc = serde_json::json!({ "machine": machine(threads), "date": chrono::Local::now().to_rfc3339(), "runs": runs, "terms": terms, "configs": report });
+    std::fs::write(&path, serde_json::to_vec_pretty(&doc).unwrap()).map_err(|e| e.to_string())?;
+    println!("wrote {}", path.display());
+    Ok(())
+}

@@ -114,7 +114,6 @@ function VocabularyCard({ ctx }: { ctx: Ctx }) {
   const [editing, setEditing] = useState<VocabEntry | null>(null);
   const [pasting, setPasting] = useState(false);
   const engine = ctx.state.engines.find((e) => e.id === vd.engine);
-  const booster = engine?.assets.find((a) => a.id === "parakeetVocabularyBooster");
 
   const setEntries = (vocabulary: VocabEntry[]) => ctx.saveVd({ vocabulary });
   const upsert = (entry: VocabEntry) => {
@@ -176,16 +175,7 @@ function VocabularyCard({ ctx }: { ctx: Ctx }) {
       <Divider />
       {engine?.recognizer === "parakeet" && (
         <p className="ml-8 text-[12px] text-text-3">
-          Quill writes these terms into Parakeet's transcript right after it recognizes.
-          {booster && booster.available && booster.state.state !== "downloaded" && (
-            <>
-              {" "}
-              <button className="text-accent" onClick={() => api.downloadAsset(booster.id)}>
-                Download the vocabulary booster
-              </button>{" "}
-              to catch them more often.
-            </>
-          )}
+          Parakeet listens for these terms as it recognizes, and Quill writes them into the transcript afterwards.
         </p>
       )}
       {engine?.recognizer === "whisper" && (

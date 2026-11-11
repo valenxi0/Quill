@@ -98,6 +98,22 @@ The dark installer lives in `src-tauri/windows`:
 
 `scripts/make-eval-set.ps1` writes 12 synthetic clips with transcripts to `%LOCALAPPDATA%\Quill\Eval`. Add `name.wav` and `name.txt` pairs to test your own recordings. `quill-bench [engineId…]` runs every installed engine through recognition, cleanup, and clipboard delivery. It writes results to `%TEMP%\quill\bench.json`. Keep recordings and generated reports outside the repository.
 
+### Parakeet hotwords
+
+Parakeet gets the dictation's vocabulary terms as sherpa-onnx hotwords. Hotwords need modified beam search, so Parakeet runs greedy search until a dictation has terms. Then the recording's warm-up rebuilds it for beam search, and it stays that way until the idle unload. Hotwords also need a sentencepiece vocabulary. The Parakeet download has only `tokens.txt`, so Quill writes `bpe.vocab` beside it, scoring each piece by minus its id. That split differs from the model's own BPE for some words (about 11 of 26 test terms), and those terms get less help. sherpa-onnx issues #4088 and #3980 add a way to pass a term as the model's own pieces. #4084 fixes beam search bugs for TDT models in 1.13.8. Re-measure when the crate moves past them.
+
+`scripts/make-hotword-set.ps1` writes 20 rare-term clips to `%LOCALAPPDATA%\Quill\EvalTerms` and four clips with 2.5 s pauses to `EvalPauses`. `quill-bench --hotwords <dir> [--runs N] [--vocab label=path]` builds recognizers directly and reports term hits, WER on the standard set, and latency per decoding setup. `--paired` alternates greedy and hotwords clip by clip, so other load on the machine hits both. Results from 2026-11-11 (sherpa-onnx 1.13.8, CPU, synthetic voices, all 26 terms active on every clip):
+
+| Setup | Term hits | Standard WER | Term clip WER |
+|---|---|---|---|
+| Greedy (no terms) | 7/26 | 8.95% | 25.9% |
+| Beam search, no terms | 7/26 | 9.71% | 24.2% |
+| Hotwords, score 1.5 (shipped) | 15/26 | 9.71% | 18.4% |
+| Hotwords, score 3.0 | 17/26 | 8.95% | 16.9% |
+| Hotwords, score 1.5, model's own split | 20/26 | 9.71% | 11.5% |
+
+The 0.76 point WER gap is one word: "4.30pm" against "4.30 pm". Score 3.0 capitalized words that start like a term ("Ship", "Three Things", "Wrote"), which WER does not see, so Quill uses 1.5. No speech was dropped after the pauses. Paired over 5 passes, hotwords added a median of 55 ms per clip (15%; per-clip medians 34 to 75 ms).
+
 ## Cleanup and model evaluation
 
 Parakeet recognizes speech. S1-mini cleans English through llama.cpp. Other languages bypass cleanup. Preserve the S1-mini system prompt, chat template, greedy sampler, and output budget: `min(1024, floor(input_tokens * 1.3 + 32))`. Retain the cleanup guards and fixture rubrics.

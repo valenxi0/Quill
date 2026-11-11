@@ -22,7 +22,6 @@ impl Default for EngineId {
 #[serde(rename_all = "camelCase")]
 pub enum AssetId {
     ParakeetTdt06bV3,
-    ParakeetVocabularyBooster,
     S1Mini,
     CohereTranscribe,
     WhisperLargeV3Turbo,
@@ -31,9 +30,8 @@ pub enum AssetId {
 }
 
 impl AssetId {
-    pub const ALL: [AssetId; 7] = [
+    pub const ALL: [AssetId; 6] = [
         AssetId::ParakeetTdt06bV3,
-        AssetId::ParakeetVocabularyBooster,
         AssetId::S1Mini,
         AssetId::CohereTranscribe,
         AssetId::WhisperLargeV3Turbo,
@@ -45,7 +43,6 @@ impl AssetId {
     pub fn key(self) -> &'static str {
         match self {
             AssetId::ParakeetTdt06bV3 => "parakeetTDT06BV3",
-            AssetId::ParakeetVocabularyBooster => "parakeetVocabularyBooster",
             AssetId::S1Mini => "s1Mini",
             AssetId::CohereTranscribe => "cohereTranscribe",
             AssetId::WhisperLargeV3Turbo => "whisperLargeV3Turbo",
@@ -93,7 +90,7 @@ pub const ENGINES: [EngineInfo; 5] = [
         language_note: "Parakeet hears 25 European languages on its own. S1-mini cleanup runs on English; other languages are written as recognized.",
         recognizer: Recognizer::Parakeet,
         required: &[AssetId::ParakeetTdt06bV3, AssetId::S1Mini],
-        optional: &[AssetId::ParakeetVocabularyBooster],
+        optional: &[],
         has_cleanup: true,
         shows_language_picker: false,
         english_only: false,
@@ -209,9 +206,53 @@ pub fn recognition_language(engine: EngineId, setting: &str, preferred: &[String
     }
 }
 
+/// A sentencepiece vocabulary (`piece score` per line) built from a NeMo
+/// `tokens.txt`, for sherpa-onnx to split hotwords into Parakeet's pieces.
+/// The file lists pieces in sentencepiece id order and sentencepiece scores
+/// BPE pieces by -id, so this needs nothing but the installed model.
+pub fn bpe_vocab_from_tokens(tokens: &str) -> String {
+    tokens
+        .lines()
+        .filter_map(|l| l.trim_end().rsplit_once(' '))
+        .filter(|(piece, id)| !piece.is_empty() && id.parse::<u32>().is_ok() && !(piece.starts_with('<') && piece.ends_with('>')))
+        .map(|(piece, id)| format!("{piece} -{id}\n"))
+        .collect()
+}
+
+/// Characters that are a piece on their own in a `tokens.txt`. A hotword
+/// with any other character would be encoded with `<unk>`.
+pub fn single_char_pieces(tokens: &str) -> std::collections::HashSet<char> {
+    tokens
+        .lines()
+        .filter_map(|l| l.trim_end().rsplit_once(' '))
+        .filter_map(|(piece, _)| {
+            let mut chars = piece.chars();
+            match (chars.next(), chars.next()) {
+                (Some(c), None) => Some(c),
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+/// Whether every character of `term` other than spaces is in `pieces`.
+pub fn spellable(term: &str, pieces: &std::collections::HashSet<char>) -> bool {
+    term.chars().filter(|c| !c.is_whitespace()).all(|c| pieces.contains(&c))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hotword_vocabulary_comes_from_tokens_txt() {
+        let tokens = "<unk> 0\n<|endoftext|> 3\n▁the 5\nt 7\nh 8\ne 9\n▁ 10\n<blk> 11\n";
+        assert_eq!(bpe_vocab_from_tokens(tokens), "▁the -5\nt -7\nh -8\ne -9\n▁ -10\n");
+        let pieces = single_char_pieces(tokens);
+        assert!(spellable("the  het", &pieces));
+        assert!(!spellable("AT&T", &pieces));
+        assert!(!spellable("thé", &pieces));
+    }
 
     fn prefs(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()

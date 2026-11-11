@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Parakeet listens for your vocabulary terms while it recognizes, so names and jargon come out spelled your way more often. Before, terms were only fixed after recognition. Dictations without vocabulary terms run exactly as before.
 ## [0.3.1] - 2026-11-09
 
 ### Changed

@@ -51,7 +51,7 @@ const WHISPER_REPO: &str = "ggerganov/whisper.cpp";
 const WHISPER_REV: &str = "5359861c739e955e79d9a303bcbc70fb988958b1";
 const WHISPER_NOTE: &str = "OpenAI Whisper weights, MIT license. Quill keeps the notice.";
 
-pub const ASSETS: [Asset; 7] = [
+pub const ASSETS: [Asset; 6] = [
     // Chosen over istupakov/parakeet-tdt-0.6b-v3-onnx because sherpa-onnx loads
     // it directly (encoder/decoder/joiner + tokens), with the same int8 encoder
     // size, and sherpa-onnx also runs Cohere Transcribe from the same runtime.
@@ -71,20 +71,6 @@ pub const ASSETS: [Asset; 7] = [
         runtime: "ONNX Runtime",
         optional: false,
         available: true,
-    },
-    // No Windows build pinned yet: the CTC 110M int8 export has no files at
-    // its current revision. Vocabulary is still applied deterministically.
-    Asset {
-        id: AssetId::ParakeetVocabularyBooster,
-        title: "Vocabulary booster (Parakeet CTC 110M)",
-        repo: "csukuangfj/sherpa-onnx-nemo-parakeet_tdt_ctc_110m-en-36000-int8",
-        revision: "a42c4220ca392162c050f2d2c9c982d41a340782",
-        files: &[],
-        license: "CC BY 4.0",
-        license_note: "Parakeet TDT-CTC 110M by NVIDIA, licensed CC BY 4.0.",
-        runtime: "ONNX Runtime",
-        optional: true,
-        available: false,
     },
     Asset {
         id: AssetId::S1Mini,
@@ -239,7 +225,7 @@ mod tests {
         assert_eq!(installed_state(a, Some(&ok)), ModelState::Downloaded);
         let old = Receipt { revision: "old".into() };
         assert_eq!(installed_state(a, Some(&old)), ModelState::UpdateAvailable);
-        let booster = asset(AssetId::ParakeetVocabularyBooster);
-        assert_eq!(installed_state(booster, None), ModelState::Unavailable);
+        let unpinned = Asset { available: false, ..*a };
+        assert_eq!(installed_state(&unpinned, Some(&ok)), ModelState::Unavailable);
     }
 }
