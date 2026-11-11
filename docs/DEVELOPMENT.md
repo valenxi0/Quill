@@ -102,7 +102,11 @@ The dark installer lives in `src-tauri/windows`:
 
 Parakeet recognizes speech. S1-mini cleans English through llama.cpp. Other languages bypass cleanup. Preserve the S1-mini system prompt, chat template, greedy sampler, and output budget: `min(1024, floor(input_tokens * 1.3 + 32))`. Retain the cleanup guards and fixture rubrics.
 
-Set `QUILL_CLEANUP_EVAL=1`, then run `cargo test -p quill --release --locked real_model_cleanup_eval -- --ignored --nocapture` with the release environment above. The test uses installed model weights and checks 23 fixtures. It writes outputs, timing, guard decisions, and rubric misses to `%LOCALAPPDATA%\Quill\Eval\cleanup-report.json`. Do not commit generated reports.
+Set `QUILL_CLEANUP_EVAL=1`, then run `cargo test -p quill --release --locked real_model_cleanup_eval -- --ignored --nocapture` with the release environment above. The test uses installed model weights and checks 42 fixtures. It writes outputs, timing, guard decisions, and rubric misses to `%LOCALAPPDATA%\Quill\Eval\cleanup-report.json`. Do not commit generated reports.
+
+The cleanup guard keeps the words as heard when S1-mini drops a negation, writes a figure nobody said, drops a sentence, a clause, or most of a short dictation, writes much more than was said, or turns a question into a statement with something new in it. S1-mini does not answer dictated questions, but it follows dictated instructions such as "Translate this into French:" by deleting them; the `obeyed-*` fixtures cover that.
+
+Cleanup has two time limits, after which the words go out as heard. One S1-mini call stops after 5 s plus 10 ms per prompt token plus 80 ms per output-budget token. A whole dictation stops starting new cleanup calls, retries included, after 20 s plus 100 ms per word. On a Ryzen 7 7800X3D, `quill-bench --s1` cleans its 83-word text in 0.27 to 0.31 s on an RTX 3070 Ti and in 2.0 to 2.1 s on the CPU alone (`GGML_VK_VISIBLE_DEVICES=` hides the GPU), so the limits are about 10 times the CPU time for that text. With other builds saturating the CPU, the same clean took 125 s and once 1,283 s.
 
 Development builds never register for login startup. Launch the installed release to reconcile the login setting and repair stale paths. Release login launches run quietly in the tray after onboarding.
 

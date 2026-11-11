@@ -6,6 +6,7 @@
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 use llama_cpp_2::context::params::LlamaContextParams;
 use llama_cpp_2::context::LlamaContext;
@@ -15,6 +16,7 @@ use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::model::{AddBos, LlamaModel};
 use llama_cpp_2::sampling::LlamaSampler;
 use quill_core::text::directive::Directive;
+use quill_core::pipeline::TIMED_OUT;
 use quill_core::text::finish::tidy_s1;
 
 use super::TextCleaner;
@@ -22,6 +24,16 @@ use super::TextCleaner;
 const N_CTX: u32 = 4096;
 const N_BATCH: u32 = 2048;
 const MAX_OUTPUT: usize = 1024;
+
+/// How long one cleanup may take, from its prompt and output budget in
+/// tokens. See "Cleanup and model evaluation" in docs/DEVELOPMENT.md for
+/// the measurements behind these.
+fn time_limit(prompt: usize, budget: usize) -> Duration {
+    CALL_BASE + PROMPT_TOKEN * prompt as u32 + OUTPUT_TOKEN * budget as u32
+}
+const CALL_BASE: Duration = Duration::from_secs(5);
+const PROMPT_TOKEN: Duration = Duration::from_millis(10);
+const OUTPUT_TOKEN: Duration = Duration::from_millis(80);
 
 const SYSTEM: &str = "<|im_start|>system\nYou are a text normalizer for speech-to-text transcripts. The input begins with a control line specifying the styling, structure, and context settings; clean the transcript to match those settings and output only the cleaned text.<|im_end|>\n";
 
@@ -129,6 +141,11 @@ impl TextCleaner for S1Mini {
     }
 
     fn clean(&mut self, text: &str, directive: Directive) -> Result<String, String> {
+        self.clean_by(text, directive, Instant::now() + Duration::from_secs(24 * 3600))
+    }
+
+    fn clean_by(&mut self, text: &str, directive: Directive, deadline: Instant) -> Result<String, String> {
+        let start = Instant::now();
         let l = self.loaded.as_mut().ok_or("S1-mini is not loaded.")?;
         let model: &LlamaModel = &l.model;
         l.ctx.clear_kv_cache_seq(Some(0), Some(l.prefix_len as u32), None).map_err(|e| e.to_string())?;
@@ -141,6 +158,7 @@ impl TextCleaner for S1Mini {
         if l.prefix_len + user.len() + budget > N_CTX as usize {
             return Err("The text is too long for S1-mini.".into());
         }
+        let deadline = deadline.min(start + time_limit(user.len(), budget));
         decode_tokens(&mut l.ctx, &user, l.prefix_len)?;
 
         let mut sampler = LlamaSampler::greedy();
@@ -151,6 +169,9 @@ impl TextCleaner for S1Mini {
         // Logits of the prompt's last token, in the last decoded batch.
         let mut logits_index = ((user.len() - 1) % N_BATCH as usize) as i32;
         for _ in 0..budget {
+            if Instant::now() >= deadline {
+                return Err(TIMED_OUT.into());
+            }
             let token = sampler.sample(&l.ctx, logits_index);
             sampler.accept(token);
             if model.is_eog_token(token) {

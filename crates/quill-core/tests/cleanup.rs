@@ -5,7 +5,7 @@ use quill_core::{
     text::{
         directive::Directive,
         finish::{join, join_segment},
-        guard::{figures, reason, GuardReason},
+        guard::{dropped_sentence, figures, reason, GuardReason},
         numbers::default_itn,
         vocabulary::{EntryKind, VocabEntry},
     },
@@ -190,9 +190,14 @@ fn sentence_loss_and_word_rules() {
         reason("cats dogs birds trees flowers", "Cats", None),
         Some(GuardReason::DroppedSentence("cats dogs birds trees flowers".into()))
     );
-    assert_eq!(reason("cats dogs birds trees", "Cats", None), None);
+    assert_eq!(dropped_sentence("cats dogs birds trees", "Cats"), None);
+    assert_eq!(reason("cats dogs birds trees", "Cats", None), Some(GuardReason::DroppedWords("cats dogs birds trees".into())));
     assert_eq!(reason("they're we're it's like really actually sixteen should", "", None), None);
-    assert_eq!(reason("Kubernetes deployment metrics interviews customer", "Kubernetes deployments", None), None);
+    assert_eq!(dropped_sentence("Kubernetes deployment metrics interviews customer", "Kubernetes deployments"), None);
+    assert!(matches!(
+        reason("Kubernetes deployment metrics interviews customer", "Kubernetes deployments", None),
+        Some(GuardReason::DroppedWords(_))
+    ));
 }
 
 #[test]

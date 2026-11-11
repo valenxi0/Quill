@@ -48,6 +48,11 @@ pub trait TextCleaner: Send {
     fn load(&mut self) -> Result<(), String>;
     fn is_loaded(&self) -> bool;
     fn clean(&mut self, text: &str, directive: Directive) -> Result<String, String>;
+    /// `clean`, returning `Err(quill_core::pipeline::TIMED_OUT)` once `deadline` passes.
+    fn clean_by(&mut self, text: &str, directive: Directive, deadline: Instant) -> Result<String, String> {
+        let _ = deadline;
+        self.clean(text, directive)
+    }
     fn unload(&mut self);
 }
 

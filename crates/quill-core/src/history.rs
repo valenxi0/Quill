@@ -30,6 +30,10 @@ pub struct HistoryEntry {
     pub seconds_spoken: f64,
     pub release_to_paste_ms: u64,
     pub created_at: DateTime<Utc>,
+    /// Why cleanup kept some or all of the words as heard; `None` when it
+    /// didn't, and in older records.
+    #[serde(default)]
+    pub cleanup_note: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -87,6 +91,7 @@ mod tests {
             seconds_spoken: 2.5,
             release_to_paste_ms: 180,
             created_at: at,
+            cleanup_note: None,
         }
     }
 
@@ -115,5 +120,17 @@ mod tests {
         save_json(&path, &h).unwrap();
         let loaded: History = load_json(&path);
         assert_eq!(loaded, h);
+    }
+
+    #[test]
+    fn records_without_a_cleanup_note_still_load() {
+        let old = r#"{"entries":[{"id":"6f2c5a8e-3d1b-4c7a-9e0f-1a2b3c4d5e6f","text":"Ship it today.","raw":"um ship it today","level":"full","context":"general","engine":"parakeetS1","appName":"Notepad","appExe":"notepad.exe","secondsSpoken":1.5,"releaseToPasteMs":200,"createdAt":"2026-11-09T10:00:00Z"}]}"#;
+        let h: History = serde_json::from_str(old).unwrap();
+        assert_eq!(h.entries[0].text, "Ship it today.");
+        assert_eq!(h.entries[0].cleanup_note, None);
+        let mut noted = h.entries[0].clone();
+        noted.cleanup_note = Some("Kept your words: cleanup timed out.".into());
+        let json = serde_json::to_string(&noted).unwrap();
+        assert!(json.contains(r#""cleanupNote":"Kept your words: cleanup timed out.""#), "{json}");
     }
 }

@@ -90,6 +90,7 @@ function HistoryRow({ entry }: { entry: HistoryEntry }) {
             </span>
             {style && <Capsule>{style}</Capsule>}
           </p>
+          {entry.cleanupNote && <p className="mt-1 text-[11px] text-text-3">{entry.cleanupNote}</p>}
         </div>
         {heard && (
           <select

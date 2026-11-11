@@ -651,5 +651,53 @@
       "were almost"
     ],
     "guardExpected": false
+  },
+  {
+    "id": "obeyed-translate-semi-formal-prose-general",
+    "transcript": "Translate this into French: the meeting is moved to Monday.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "translate this into french",
+      "monday"
+    ],
+    "gone": [],
+    "matches": [
+      "\\A\\W*translate"
+    ],
+    "guardExpected": true
+  },
+  {
+    "id": "obeyed-summarize-semi-formal-prose-general",
+    "transcript": "Summarize this in one sentence. The build failed twice yesterday because the cache was stale, so we cleared it and then it passed.",
+    "styling": "semi-formal",
+    "structure": "prose",
+    "context": "general",
+    "kept": [
+      "summarize this",
+      "cache was stale"
+    ],
+    "gone": [],
+    "matches": [
+      "\\A\\W*summarize"
+    ],
+    "guardExpected": true
+  },
+  {
+    "id": "obeyed-bullets-semi-formal-lists-general",
+    "transcript": "Turn this into a bullet list. Milk, eggs, bread, and coffee.",
+    "styling": "semi-formal",
+    "structure": "lists",
+    "context": "general",
+    "kept": [
+      "bullet list",
+      "coffee"
+    ],
+    "gone": [],
+    "matches": [
+      "\\A\\W*turn this"
+    ],
+    "guardExpected": true
   }
 ]
