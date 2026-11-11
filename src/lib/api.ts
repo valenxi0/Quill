@@ -236,6 +236,8 @@ export interface HistoryEntry {
   secondsSpoken: number;
   releaseToPasteMs: number;
   createdAt: string;
+  /** Why cleanup kept some words as heard. Absent in older entries. */
+  cleanupNote?: string | null;
 }
 
 export interface Insights {

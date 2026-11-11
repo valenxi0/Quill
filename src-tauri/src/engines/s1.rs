@@ -6,6 +6,7 @@
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 use llama_cpp_2::context::params::LlamaContextParams;
 use llama_cpp_2::context::LlamaContext;
@@ -15,6 +16,7 @@ use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::model::{AddBos, LlamaModel};
 use llama_cpp_2::sampling::LlamaSampler;
 use quill_core::text::directive::Directive;
+use quill_core::pipeline::{cleanup_budget, CleanError};
 use quill_core::text::finish::tidy_s1;
 
 use super::{gpu, TextCleaner};
@@ -22,6 +24,16 @@ use super::{gpu, TextCleaner};
 const N_CTX: u32 = 4096;
 const N_BATCH: u32 = 2048;
 const MAX_OUTPUT: usize = 1024;
+
+/// How long one cleanup may take, from its prompt and output budget in
+/// tokens. See "Cleanup and model evaluation" in docs/DEVELOPMENT.md for
+/// the measurements behind these.
+fn time_limit(prompt: usize, budget: usize) -> Duration {
+    CALL_BASE + PROMPT_TOKEN * prompt as u32 + OUTPUT_TOKEN * budget as u32
+}
+const CALL_BASE: Duration = Duration::from_secs(5);
+const PROMPT_TOKEN: Duration = Duration::from_millis(10);
+const OUTPUT_TOKEN: Duration = Duration::from_millis(80);
 
 const SYSTEM: &str = "<|im_start|>system\nYou are a text normalizer for speech-to-text transcripts. The input begins with a control line specifying the styling, structure, and context settings; clean the transcript to match those settings and output only the cleaned text.<|im_end|>\n";
 
@@ -74,6 +86,10 @@ impl S1Mini {
     }
 }
 
+fn failed(e: impl ToString) -> CleanError {
+    CleanError::Failed(e.to_string())
+}
+
 fn decode_tokens(ctx: &mut LlamaContext, tokens: &[llama_cpp_2::token::LlamaToken], start: usize) -> Result<(), String> {
     let mut batch = LlamaBatch::new(N_BATCH as usize, 1);
     for chunk_start in (0..tokens.len()).step_by(N_BATCH as usize) {
@@ -122,7 +138,7 @@ impl TextCleaner for S1Mini {
         decode_tokens(&mut ctx, &prefix, 0)?;
         self.loaded = Some(Loaded { ctx, model, prefix_len: prefix.len() });
         // Warm the generation path once.
-        let _ = self.clean("okay so this is a test", Directive::default());
+        let _ = self.clean("okay so this is a test", Directive::default(), Instant::now() + cleanup_budget(6));
         Ok(())
     }
 
@@ -130,20 +146,25 @@ impl TextCleaner for S1Mini {
         self.loaded.is_some()
     }
 
-    fn clean(&mut self, text: &str, directive: Directive) -> Result<String, String> {
-        let l = self.loaded.as_mut().ok_or("S1-mini is not loaded.")?;
+    fn clean(&mut self, text: &str, directive: Directive, deadline: Instant) -> Result<String, CleanError> {
+        let start = Instant::now();
+        let l = self.loaded.as_mut().ok_or_else(|| failed("S1-mini is not loaded."))?;
         let model: &LlamaModel = &l.model;
-        l.ctx.clear_kv_cache_seq(Some(0), Some(l.prefix_len as u32), None).map_err(|e| e.to_string())?;
+        l.ctx.clear_kv_cache_seq(Some(0), Some(l.prefix_len as u32), None).map_err(failed)?;
 
         let budget = {
-            let n = model.str_to_token(text, AddBos::Never).map_err(|e| e.to_string())?.len();
+            let n = model.str_to_token(text, AddBos::Never).map_err(failed)?.len();
             ((n as f64 * 1.3 + 32.0) as usize).min(MAX_OUTPUT)
         };
-        let user = model.str_to_token(&user_turn(directive, text), AddBos::Never).map_err(|e| e.to_string())?;
+        let user = model.str_to_token(&user_turn(directive, text), AddBos::Never).map_err(failed)?;
         if l.prefix_len + user.len() + budget > N_CTX as usize {
-            return Err("The text is too long for S1-mini.".into());
+            return Err(failed("The text is too long for S1-mini."));
         }
-        decode_tokens(&mut l.ctx, &user, l.prefix_len)?;
+        let deadline = deadline.min(start + time_limit(user.len(), budget));
+        if Instant::now() >= deadline {
+            return Err(CleanError::TimedOut);
+        }
+        decode_tokens(&mut l.ctx, &user, l.prefix_len).map_err(CleanError::Failed)?;
 
         let mut sampler = LlamaSampler::greedy();
         let mut decoder = encoding_rs::UTF_8.new_decoder();
@@ -153,18 +174,21 @@ impl TextCleaner for S1Mini {
         // Logits of the prompt's last token, in the last decoded batch.
         let mut logits_index = ((user.len() - 1) % N_BATCH as usize) as i32;
         for _ in 0..budget {
+            if Instant::now() >= deadline {
+                return Err(CleanError::TimedOut);
+            }
             let token = sampler.sample(&l.ctx, logits_index);
             sampler.accept(token);
             if model.is_eog_token(token) {
                 break;
             }
-            out.push_str(&model.token_to_piece(token, &mut decoder, true, None).map_err(|e| e.to_string())?);
+            out.push_str(&model.token_to_piece(token, &mut decoder, true, None).map_err(failed)?);
             if out.contains("<|im_end|>") {
                 break;
             }
             batch.clear();
-            batch.add(token, pos as i32, &[0], true).map_err(|e| e.to_string())?;
-            l.ctx.decode(&mut batch).map_err(|e| e.to_string())?;
+            batch.add(token, pos as i32, &[0], true).map_err(failed)?;
+            l.ctx.decode(&mut batch).map_err(failed)?;
             pos += 1;
             logits_index = 0;
         }
@@ -205,7 +229,8 @@ mod tests {
         let devices: Vec<String> =
             llama_cpp_2::list_llama_ggml_backend_devices().into_iter().map(|d| format!("{} ({})", d.name, d.description)).collect();
         println!("ggml devices: {devices:?}");
-        let (out, _) = host.with_cleaner(|c| c.clean("so um I wanted to say uh hello", Directive::default())).unwrap();
+        let deadline = std::time::Instant::now() + cleanup_budget(8);
+        let (out, _) = host.with_cleaner(|c| c.clean("so um I wanted to say uh hello", Directive::default(), deadline)).unwrap();
         println!("clean: {:?}", out.unwrap());
         if std::env::var_os("QUILL_GPU_PROBE_RETRY").is_some() {
             gpu::retry().unwrap();

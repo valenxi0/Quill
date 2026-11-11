@@ -149,6 +149,7 @@ export async function installDevMock() {
       case "get_history": return [
         { id: "1", text: "Can we move the meeting to Thursday afternoon instead?", raw: "Um, can we move the meeting to, uh, Thursday afternoon instead?", level: "full", context: "chat", engine: "parakeetS1", appName: "Slack", appExe: "slack.exe", secondsSpoken: 3.1, releaseToPasteMs: 410, createdAt: new Date().toISOString() },
         { id: "2", text: "git commit -m \"fix the build\"", raw: "git commit dash m quote fix the build quote", level: "full", context: "terminal", engine: "parakeetS1", appName: "Windows Terminal", appExe: "WindowsTerminal.exe", secondsSpoken: 2.2, releaseToPasteMs: 180, createdAt: new Date().toISOString() },
+        { id: "3", text: "Translate this into French: the meeting is moved to Monday.", raw: "Translate this into French: the meeting is moved to Monday.", level: "full", context: "general", engine: "parakeetS1", appName: "Notepad", appExe: "notepad.exe", secondsSpoken: 2.4, releaseToPasteMs: 260, createdAt: new Date().toISOString(), cleanupNote: "Kept your words: cleanup dropped words you said." },
       ];
       case "animations_enabled": return true;
       // ?gpucrash previews the CPU fallback note.

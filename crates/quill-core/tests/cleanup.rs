@@ -1,11 +1,11 @@
 use quill_core::{
     context::{classify, AppContext},
-    pipeline::{process_segment, Cleaner, Recipe},
+    pipeline::{process_segment, CleanError, Cleaner, Recipe},
     settings::{CleanupLevel, VoiceDictation},
     text::{
         directive::Directive,
         finish::{join, join_segment},
-        guard::{figures, reason, GuardReason},
+        guard::{dropped_sentence, figures, reason, GuardReason},
         numbers::default_itn,
         vocabulary::{EntryKind, VocabEntry},
     },
@@ -110,7 +110,7 @@ fn joins_and_segment_edges() {
 fn cues_and_snippets_bypass_cleaner() {
     struct Echo(Vec<String>);
     impl Cleaner for Echo {
-        fn clean(&mut self, text: &str, _: Directive) -> Result<String, String> {
+        fn clean(&mut self, text: &str, _: Directive, _: std::time::Instant) -> Result<String, CleanError> {
             self.0.push(text.into());
             Ok(text.into())
         }
@@ -190,9 +190,14 @@ fn sentence_loss_and_word_rules() {
         reason("cats dogs birds trees flowers", "Cats", None),
         Some(GuardReason::DroppedSentence("cats dogs birds trees flowers".into()))
     );
-    assert_eq!(reason("cats dogs birds trees", "Cats", None), None);
+    assert_eq!(dropped_sentence("cats dogs birds trees", "Cats"), None);
+    assert_eq!(reason("cats dogs birds trees", "Cats", None), Some(GuardReason::DroppedWords("cats dogs birds trees".into())));
     assert_eq!(reason("they're we're it's like really actually sixteen should", "", None), None);
-    assert_eq!(reason("Kubernetes deployment metrics interviews customer", "Kubernetes deployments", None), None);
+    assert_eq!(dropped_sentence("Kubernetes deployment metrics interviews customer", "Kubernetes deployments"), None);
+    assert!(matches!(
+        reason("Kubernetes deployment metrics interviews customer", "Kubernetes deployments", None),
+        Some(GuardReason::DroppedWords(_))
+    ));
 }
 
 #[test]
@@ -213,7 +218,7 @@ fn settings_migration_and_email_context() {
 fn casual_cleanup_cannot_lowercase_a_cue_boundary() {
     struct Lower;
     impl Cleaner for Lower {
-        fn clean(&mut self, text: &str, _: Directive) -> Result<String, String> {
+        fn clean(&mut self, text: &str, _: Directive, _: std::time::Instant) -> Result<String, CleanError> {
             Ok(text.to_lowercase())
         }
     }

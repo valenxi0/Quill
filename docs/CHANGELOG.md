@@ -12,6 +12,11 @@
 ### Changed
 
 - If the graphics driver crashes Quill while an engine starts on the GPU, Quill uses the CPU from then on instead of crashing at every launch. Settings says so under Engine, with a button to try the GPU again. A new version of Quill tries the GPU again on its own.
+- Dictating an instruction such as "Translate this into French:" pastes it as you said it. S1-mini used to delete the instruction. Quill also keeps your words if cleanup answers a question or writes much more than you said.
+- Cleanup has a time limit. If S1-mini takes too long, Quill pastes what it heard instead of waiting.
+- Dictating only numbers, such as "twenty five", skips S1-mini and goes straight to number formatting.
+- Text Quill puts on the clipboard stays out of clipboard history (Win+V) and isn't synced to your other devices.
+- Transcript history says why an entry kept your words, such as "Kept your words: cleanup took too long."
 
 ## [0.3.1] - 2026-11-09
 

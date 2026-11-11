@@ -1,8 +1,9 @@
 //! Opt in with QUILL_CLEANUP_EVAL=1 and --ignored. Uses installed S1-mini weights.
 use super::{s1::S1Mini, TextCleaner};
+use quill_core::context::AppContext;
+use quill_core::pipeline::{cleanup_budget, process_segment, CleanError, Cleaner, Recipe};
 use quill_core::text::{
     directive::{Context, Directive, Structure, Styling},
-    finish::strip_hesitations,
     guard,
     numbers::default_itn,
 };
@@ -24,6 +25,16 @@ struct Fixture {
     #[serde(default)]
     absent: Vec<String>,
     guard_expected: bool,
+}
+
+/// The real model behind the pipeline, so rubrics grade what Quill would
+/// deliver, guard retries on halves included.
+struct Real<'a>(&'a mut S1Mini);
+
+impl Cleaner for Real<'_> {
+    fn clean(&mut self, text: &str, directive: Directive, deadline: Instant) -> Result<String, CleanError> {
+        self.0.clean(text, directive, deadline)
+    }
 }
 
 #[test]
@@ -63,11 +74,9 @@ fn real_model_cleanup_eval() {
                 _ => panic!("untrained context"),
             },
         };
-        let start = Instant::now();
-        let result = cleaner.clean(&f.transcript, directive);
-        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        let deadline = Instant::now() + cleanup_budget(f.transcript.split_whitespace().count());
         let mut misses = Vec::new();
-        let output = match result {
+        let output = match cleaner.clean(&f.transcript, directive, deadline) {
             Ok(s) => s,
             Err(e) => {
                 misses.push(format!("cleaner: {e}"));
@@ -75,9 +84,19 @@ fn real_model_cleanup_eval() {
             }
         };
         let reason = guard::reason(&f.transcript, &output, itn.as_deref());
-        let (kept, restored) = guard::guard_with_itn(&f.transcript, &output, itn.as_deref());
-        let delivered = if restored { kept.to_string() } else { strip_hesitations(kept) };
-        let delivered = delivered.as_str();
+        let restored = reason.is_some();
+        let recipe = Recipe {
+            directive: Some(directive),
+            layout_cues: true,
+            context: if f.context == "email" { AppContext::Email } else { AppContext::General },
+            writes_numbers: true,
+            has_cleanup: true,
+            vocabulary: vec![],
+        };
+        let start = Instant::now();
+        let segment = process_segment(&f.transcript, Some("en"), &recipe, Some(&mut Real(&mut cleaner)), itn.as_deref());
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        let delivered = segment.text.as_str();
         let lower = delivered.to_lowercase();
         for kept in f.kept {
             if !lower.contains(&kept.to_lowercase()) {
@@ -115,7 +134,7 @@ fn real_model_cleanup_eval() {
             output,
             misses
         );
-        reports.push(serde_json::json!({ "id": f.id, "transcript": f.transcript, "directive": directive.control_line(), "output": output, "delivered": delivered, "elapsedMs": elapsed_ms, "guardFired": restored, "guardReason": reason.map(|r| format!("{r:?}")), "misses": misses }));
+        reports.push(serde_json::json!({ "id": f.id, "transcript": f.transcript, "directive": directive.control_line(), "output": output, "delivered": delivered, "elapsedMs": elapsed_ms, "guardFired": restored, "guardReason": reason.map(|r| format!("{r:?}")), "kept": segment.kept.iter().map(|k| format!("{k:?}")).collect::<Vec<_>>(), "misses": misses }));
     }
     let report = std::env::var_os("QUILL_CLEANUP_REPORT")
         .map(std::path::PathBuf::from)

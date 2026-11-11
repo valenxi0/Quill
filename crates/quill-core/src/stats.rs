@@ -9,7 +9,6 @@ use uuid::Uuid;
 
 use crate::text::tokens::word_count;
 
-const FILLERS: &[&str] = &["um", "umm", "uh", "uhh", "uhm", "er", "erm", "hmm", "mm", "ah"];
 pub const TYPING_WPM: f64 = 40.0;
 const MAX_LATENCIES: usize = 200;
 
@@ -17,7 +16,7 @@ pub fn filler_count(text: &str) -> u64 {
     text.split_whitespace()
         .filter(|w| {
             let w = w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
-            FILLERS.contains(&w.as_str())
+            crate::text::fillers::is_hesitation(&w)
         })
         .count() as u64
 }

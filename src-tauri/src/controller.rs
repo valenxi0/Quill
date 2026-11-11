@@ -15,7 +15,7 @@ use quill_core::corrections::{diff, Anchor, CorrectionPair};
 use quill_core::engines::{recognition_language, EngineId, Recognizer};
 use quill_core::errors::DictationError;
 use quill_core::history::HistoryEntry;
-use quill_core::pipeline::{prepare, process_segment, protected_terms, Cleaner, DeliveryOptions, Recipe, SegmentResult};
+use quill_core::pipeline::{cleanup_note, prepare, process_segment, protected_terms, CleanError, Cleaner, DeliveryOptions, Recipe, SegmentResult};
 use quill_core::segments::{pad, split, EarlySegmenter, SAMPLE_RATE};
 use quill_core::text::directive::Directive;
 use quill_core::settings::{level_for_app, CleanupLevel};
@@ -747,6 +747,13 @@ impl Controller {
         let mut languages = heard.iter().map(|h| h.language.as_deref());
         let first = languages.next().flatten();
         let language = first.filter(|l| languages.all(|o| o == Some(*l)));
+        // Loaded before the cleanup clock starts, so a cold load doesn't use up the dictation's time.
+        if info.has_cleanup && cfg.recipe.directive.is_some() && quill_core::langid::is_english(&raw, language) {
+            if let Ok(((), Some(load))) = self.engines.with_cleaner(|_| ()) {
+                metrics.cold_start = true;
+                metrics.model_load_ms = Some(metrics.model_load_ms.unwrap_or(0) + load.as_millis() as u64);
+            }
+        }
         let post_start = Instant::now();
         let mut cleaner = HostCleaner { controller: self, generation: cfg.generation, time: Duration::ZERO, cold: None };
         let result = process_segment(
@@ -763,8 +770,8 @@ impl Controller {
         }
         metrics.cleanup_ms += cleanup.as_millis() as u64;
         metrics.post_processing_ms += post_start.elapsed().saturating_sub(cleanup).as_millis() as u64;
-        metrics.cleanup_fallbacks += result.fallbacks;
-        metrics.guard_restores += result.restored;
+        metrics.cleanup_fallbacks += result.fallbacks();
+        metrics.guard_restores += result.restored();
         result
     }
 
@@ -1058,6 +1065,9 @@ impl Controller {
             has_cleanup,
             vocabulary: for_app(&vd.vocabulary, app_exe),
         };
+        if has_cleanup && recipe.directive.is_some() && quill_core::langid::is_english(raw, None) {
+            let _ = self.engines.with_cleaner(|_| ());
+        }
         let mut cleaner = EngineCleaner { engines: &self.engines };
         let cleaner = has_cleanup.then_some(&mut cleaner as &mut dyn Cleaner);
         let result = process_segment(raw, None, &recipe, cleaner, self.itn.as_deref());
@@ -1142,6 +1152,7 @@ impl Controller {
                     seconds_spoken: metrics.audio_seconds,
                     release_to_paste_ms: release_to_paste.as_millis() as u64,
                     created_at: chrono::Utc::now(),
+                    cleanup_note: cleanup_note(results),
                 })
             });
             self.shell.history_changed();
@@ -1273,8 +1284,8 @@ struct EngineCleaner<'a> {
 }
 
 impl Cleaner for EngineCleaner<'_> {
-    fn clean(&mut self, text: &str, directive: Directive) -> Result<String, String> {
-        self.engines.with_cleaner(|c| c.clean(text, directive)).and_then(|(r, _)| r)
+    fn clean(&mut self, text: &str, directive: Directive, deadline: Instant) -> Result<String, CleanError> {
+        self.engines.with_cleaner(|c| c.clean(text, directive, deadline)).map_err(CleanError::Failed).and_then(|(r, _)| r)
     }
 }
 
@@ -1287,13 +1298,13 @@ struct HostCleaner<'a> {
 }
 
 impl Cleaner for HostCleaner<'_> {
-    fn clean(&mut self, text: &str, directive: Directive) -> Result<String, String> {
+    fn clean(&mut self, text: &str, directive: Directive, deadline: Instant) -> Result<String, CleanError> {
         if !self.controller.is_current(self.generation) {
-            return Err("cancelled".into());
+            return Err(CleanError::Failed("cancelled".into()));
         }
         self.controller.advance(self.generation, Phase::Transcribing, Phase::Cleaning);
         let start = Instant::now();
-        let result = self.controller.engines.with_cleaner(|c| c.clean(text, directive));
+        let result = self.controller.engines.with_cleaner(|c| c.clean(text, directive, deadline));
         let elapsed = start.elapsed();
         match result {
             Ok((r, cold)) => {
@@ -1307,7 +1318,7 @@ impl Cleaner for HostCleaner<'_> {
             }
             Err(e) => {
                 self.time += elapsed;
-                Err(e)
+                Err(CleanError::Failed(e))
             }
         }
     }

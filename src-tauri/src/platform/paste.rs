@@ -34,36 +34,32 @@ fn open_clipboard() -> bool {
 }
 
 pub fn set_clipboard_text(text: &str) -> bool {
-    let wide: Vec<u16> = text.encode_utf16().chain([0]).collect();
+    let bytes: Vec<u8> = text.encode_utf16().chain([0]).flat_map(u16::to_le_bytes).collect();
     if !open_clipboard() {
         return false;
     }
     let ok = unsafe {
         let _ = EmptyClipboard();
-        match GlobalAlloc(GMEM_MOVEABLE, wide.len() * 2) {
-            Ok(mem) => {
-                let ptr = GlobalLock(mem) as *mut u16;
-                if ptr.is_null() {
-                    let _ = GlobalFree(Some(mem));
-                    false
-                } else {
-                    std::ptr::copy_nonoverlapping(wide.as_ptr(), ptr, wide.len());
-                    let _ = GlobalUnlock(mem);
-                    if SetClipboardData(CF_UNICODETEXT.0 as u32, Some(HANDLE(mem.0))).is_ok() {
-                        true
-                    } else {
-                        let _ = GlobalFree(Some(mem));
-                        false
-                    }
-                }
-            }
-            Err(_) => false,
-        }
+        mark_private();
+        put(CF_UNICODETEXT.0 as u32, &bytes)
     };
     unsafe {
         let _ = CloseClipboard();
     }
     ok
+}
+
+/// Keep what Quill puts on the clipboard out of Win+V history and cloud
+/// clipboard sync. The clipboard must be open.
+unsafe fn mark_private() {
+    unsafe {
+        for name in [w!("CanIncludeInClipboardHistory"), w!("CanUploadToCloudClipboard")] {
+            let format = RegisterClipboardFormatW(name);
+            if format != 0 {
+                put(format, &0u32.to_le_bytes());
+            }
+        }
+    }
 }
 
 /// Copy `bytes` into a movable global block and hand it to the clipboard,
@@ -110,6 +106,7 @@ pub fn set_clipboard_image(png: &[u8], width: u32, height: u32, rgba: &[u8]) -> 
     }
     let ok = unsafe {
         let _ = EmptyClipboard();
+        mark_private();
         let png_format = RegisterClipboardFormatW(w!("PNG"));
         let a = png_format != 0 && put(png_format, png);
         let b = put(CF_DIB.0 as u32, &dib);
@@ -220,4 +217,60 @@ pub fn press_enter() -> bool {
     let inputs = [key(VK_RETURN, false), key(VK_RETURN, true)];
     let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
     sent as usize == inputs.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use windows::Win32::System::DataExchange::{EnumClipboardFormats, GetClipboardData, GetClipboardFormatNameW};
+
+    /// Each registered format on the clipboard, with its DWORD value.
+    fn registered_formats() -> Vec<(String, Option<u32>)> {
+        assert!(open_clipboard(), "clipboard opened");
+        let mut out = Vec::new();
+        let mut format = 0;
+        loop {
+            format = unsafe { EnumClipboardFormats(format) };
+            if format == 0 {
+                break;
+            }
+            let mut name = [0u16; 256];
+            let len = unsafe { GetClipboardFormatNameW(format, &mut name) };
+            if len <= 0 {
+                continue;
+            }
+            let value = unsafe {
+                GetClipboardData(format).ok().and_then(|h| {
+                    let mem = windows::Win32::Foundation::HGLOBAL(h.0);
+                    let ptr = GlobalLock(mem) as *const u32;
+                    let v = (!ptr.is_null()).then(|| ptr.read_unaligned());
+                    let _ = GlobalUnlock(mem);
+                    v
+                })
+            };
+            out.push((String::from_utf16_lossy(&name[..len as usize]), value));
+        }
+        unsafe {
+            let _ = CloseClipboard();
+        }
+        out
+    }
+
+    fn assert_private(formats: &[(String, Option<u32>)]) {
+        println!("{formats:?}");
+        for name in ["CanIncludeInClipboardHistory", "CanUploadToCloudClipboard"] {
+            assert!(formats.iter().any(|(n, v)| n == name && *v == Some(0)), "{name} = 0 in {formats:?}");
+        }
+        assert!(!formats.iter().any(|(n, _)| n == "ExcludeClipboardContentFromMonitorProcessing"), "{formats:?}");
+    }
+
+    #[test]
+    #[ignore = "replaces the clipboard's contents"]
+    fn clipboard_writes_stay_out_of_history() {
+        assert!(set_clipboard_text("Quill clipboard privacy check"), "text written");
+        assert_private(&registered_formats());
+        let rgba = [255u8, 0, 0, 255];
+        assert!(set_clipboard_image(&[], 1, 1, &rgba), "image written");
+        assert_private(&registered_formats());
+    }
 }
