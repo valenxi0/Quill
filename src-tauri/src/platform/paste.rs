@@ -102,7 +102,9 @@ struct Snapshot {
 /// A snapshot bigger than this isn't taken; the transcript then stays.
 const MAX_SNAPSHOT_BYTES: usize = 64 << 20;
 /// Reading the clipboard can wait on the app that copied (delayed
-/// rendering). Past this, no snapshot is taken, so the paste isn't held up.
+/// rendering). No format is read once this has passed, and the snapshot is
+/// dropped, so the transcript stays. One slow format still blocks for as
+/// long as the app takes to render it.
 const SNAPSHOT_BUDGET: Duration = Duration::from_millis(150);
 /// Another app took the clipboard while it was being read.
 const ERROR_CLIPBOARD_NOT_OPEN: WIN32_ERROR = WIN32_ERROR(1418);
@@ -111,7 +113,17 @@ const ERROR_CLIPBOARD_NOT_OPEN: WIN32_ERROR = WIN32_ERROR(1418);
 /// can't be copied. Windows makes CF_BITMAP and the metafile formats again
 /// from the DIB and text formats that are copied.
 fn handle_format(format: u32) -> bool {
-    matches!(format, 2 | 3 | 9 | 14 | 0x80 | 0x82 | 0x83 | 0x8E) || (0x200..=0x3FF).contains(&format)
+    const BITMAP: u32 = 2;
+    const METAFILE_PICT: u32 = 3;
+    const PALETTE: u32 = 9;
+    const ENH_METAFILE: u32 = 14;
+    const OWNER_DISPLAY: u32 = 0x80;
+    const DSP_BITMAP: u32 = 0x82;
+    const DSP_METAFILE_PICT: u32 = 0x83;
+    const DSP_ENH_METAFILE: u32 = 0x8E;
+    const PRIVATE_AND_GDI_OBJECTS: std::ops::RangeInclusive<u32> = 0x200..=0x3FF;
+    matches!(format, BITMAP | METAFILE_PICT | PALETTE | ENH_METAFILE | OWNER_DISPLAY | DSP_BITMAP | DSP_METAFILE_PICT | DSP_ENH_METAFILE)
+        || PRIVATE_AND_GDI_OBJECTS.contains(&format)
 }
 
 /// OLE embedding formats: large, slow to render, and useless without the
@@ -142,8 +154,9 @@ fn choose_formats(listed: &[(u32, Option<String>)]) -> Vec<u32> {
             match *f {
                 TEXT | OEM_TEXT | UNICODE_TEXT => text == Some(*f),
                 DIB | DIB_V5 => image == Some(*f),
-                // Only 8-bit text needs its code page.
-                LOCALE => text.is_some_and(|t| t != UNICODE_TEXT),
+                // Windows turns the kept text back into 8-bit text with the
+                // locale on the clipboard; without it, Quill's own is used.
+                LOCALE => true,
                 _ => true,
             }
         })
@@ -578,9 +591,12 @@ mod tests {
             named(0xC001, "HTML Format"), named(0xC002, "Embed Source"), named(0xC003, "Object Descriptor"), named(0xC004, "Native"),
             (0x200, None), (14, None),
         ];
-        assert_eq!(choose_formats(&listed), vec![13, 8, 0xC001]);
-        let ansi = vec![(1, None), (16, None), (7, None), (17, None), (8, None)];
-        assert_eq!(choose_formats(&ansi), vec![1, 16, 17], "8-bit text keeps its code page; the first DIB is kept");
+        assert_eq!(choose_formats(&listed), vec![13, 16, 8, 0xC001]);
+        // An app that copies 8-bit text: Windows lists its locale and the
+        // other encodings beside it.
+        let ansi = vec![(1, None), (16, None), (7, None), (13, None), (17, None), (8, None)];
+        assert_eq!(choose_formats(&ansi), vec![16, 13, 17], "the locale stays with the text; the first DIB is kept");
+        assert_eq!(choose_formats(&[(1, None), (7, None)]), vec![1], "8-bit text alone");
         assert!(choose_formats(&[]).is_empty());
     }
 

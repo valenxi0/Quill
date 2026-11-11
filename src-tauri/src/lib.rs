@@ -80,7 +80,12 @@ pub fn run() {
                 }
                 Err(e) => (None, Some(format!("The global shortcut is unavailable: {e}"))),
             };
-            // Clicks count as input between dictations, like typing.
+            // Clicks count as input between dictations, like typing. Order
+            // matters: a process has one Raw Input target per device type, so
+            // this takes the mouse from tao's device events, which Quill
+            // doesn't use. Anything that registers the mouse later (tao's
+            // set_device_event_filter) takes it back, and clicks() then
+            // reports None, which turns continuation off.
             platform::clicks::start();
 
             let preferred_languages = platform::system::preferred_languages();

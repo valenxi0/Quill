@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -68,14 +69,7 @@ impl Controller {
 
         // The clipboard is authoritative: write it first.
         let text = delivery.text.trim().to_string();
-        *self.last_paste.lock() = Some(LastPaste {
-            text: text.clone(),
-            target: cfg.target.clone(),
-            at: Instant::now(),
-            input: None,
-            pasted: false,
-            entered: false,
-        });
+        *self.last_paste.lock() = Some(LastPaste::delivered(text.clone(), cfg.target.clone()));
         let restore = self.stores.settings.read(|s| s.voice_dictation.restore_clipboard);
         let saved = if restore { paste::SavedClipboard::take() } else { None };
         let Some(mut written) = paste::write_clipboard_text(&delivery.text) else {
@@ -89,14 +83,21 @@ impl Controller {
             vec![delivery.text.clone()]
         };
         // Checked again right before each keystroke: Esc can land while the
-        // paste waits for the shortcut's modifiers to come up.
+        // paste waits for the shortcut's modifiers to come up. The user's
+        // input count is read there too, so input during the waits after the
+        // paste (Enter, the next piece) counts as input since.
+        let input_at_paste = Cell::new(None);
+        let before_keys = || {
+            input_at_paste.set(input_count());
+            still_current()
+        };
         let pasted = if chunks.len() > 1 {
-            let sent = paste_in_pieces(&cfg.target, &own, &chunks, still_current);
+            let sent = paste_in_pieces(&cfg.target, &own, &chunks, before_keys);
             // Leave the whole text on the clipboard, not the last piece.
             written = paste::write_clipboard_text(&delivery.text).unwrap_or(written);
             sent
         } else {
-            paste::paste(&cfg.target, &own, still_current)
+            paste::paste(&cfg.target, &own, before_keys)
         };
         let entered = pasted && delivery.press_enter && still_current() && {
             std::thread::sleep(Duration::from_millis(120));
@@ -105,7 +106,7 @@ impl Controller {
         let release_to_paste = stopped.elapsed();
         if pasted {
             if let Some(last) = self.last_paste.lock().as_mut() {
-                *last = LastPaste { at: Instant::now(), input: input_count(), pasted: true, entered, ..last.clone() };
+                *last = LastPaste { at: Instant::now(), input: input_at_paste.get(), pasted: true, entered, ..last.clone() };
             }
         }
         // A failed paste leaves the transcript, so it can be pasted by hand.
@@ -147,7 +148,11 @@ impl Controller {
         std::thread::spawn(move || {
             let saved = if restore { paste::SavedClipboard::take() } else { None };
             let Some(written) = paste::write_clipboard_text(&last.text) else { return };
-            if !paste::paste(&last.target, &own, || true) {
+            let input_at_paste = Cell::new(None);
+            if !paste::paste(&last.target, &own, || {
+                input_at_paste.set(input_count());
+                true
+            }) {
                 return;
             }
             if let Some(saved) = saved {
@@ -156,7 +161,7 @@ impl Controller {
             let mut stored = me.last_paste.lock();
             // Only if no newer dictation replaced it meanwhile.
             if let Some(current) = stored.as_mut().filter(|c| c.at == last.at) {
-                *current = LastPaste { at: Instant::now(), input: input_count(), pasted: true, entered: false, ..last };
+                *current = LastPaste { at: Instant::now(), input: input_at_paste.get(), pasted: true, entered: false, ..last };
             }
         });
     }

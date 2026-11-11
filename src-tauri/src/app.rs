@@ -283,6 +283,10 @@ impl Quill {
         if p.history_enabled && !n.history_enabled {
             self.stores.history.update(|h| h.clear());
         }
+        if p.history_retention != n.history_retention {
+            // Settings asked before shortening; the notify below updates the count.
+            purge_history(self);
+        }
         if !next.enabled && self.controller.phase().is_busy() {
             self.controller.cancel();
         }

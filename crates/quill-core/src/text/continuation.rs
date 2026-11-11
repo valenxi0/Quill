@@ -38,6 +38,13 @@ pub struct LastPaste<T> {
     pub entered: bool,
 }
 
+impl<T> LastPaste<T> {
+    /// A transcript delivered to `target` now, not yet pasted.
+    pub fn delivered(text: String, target: T) -> Self {
+        Self { text, target, at: Instant::now(), input: None, pasted: false, entered: false }
+    }
+}
+
 /// The text before the caret, taken from the last paste, when a recording
 /// starting now into `target` continues it. Only used when fitting is on
 /// and the app gave no text of its own (`read`).
