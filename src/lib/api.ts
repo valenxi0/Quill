@@ -5,7 +5,6 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 export type EngineId = "parakeetS1" | "cohereTranscribe" | "whisperTurbo" | "whisperBase" | "whisperTiny";
 export type AssetId =
   | "parakeetTdt06bV3"
-  | "parakeetVocabularyBooster"
   | "s1Mini"
   | "cohereTranscribe"
   | "whisperLargeV3Turbo"
@@ -86,6 +85,7 @@ export interface VoiceDictation {
   avoidBluetoothMic: boolean;
   otherAudio: OtherAudio;
   lowerToPercent: number;
+  vocabularyBoost: boolean;
 }
 
 export type DrawKey = "shift" | "ctrl" | "alt";
@@ -164,6 +164,7 @@ export interface Status {
   engineLoaded: boolean;
   engineLoading: boolean;
   warmError: string | null;
+  hotwordsUnavailable: boolean;
 }
 
 export interface KnownApp {

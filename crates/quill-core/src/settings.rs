@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::engines::EngineId;
-use crate::text::vocabulary::VocabEntry;
+use crate::text::vocabulary::{EntryKind, VocabEntry};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -189,6 +189,18 @@ pub struct VoiceDictation {
     pub other_audio: OtherAudio,
     /// Volume other apps drop to, as a percent of their own, for `Lower`.
     pub lower_to_percent: u8,
+    /// Parakeet listens for vocabulary terms while it recognizes. Experimental:
+    /// the beam search it needs can drop words after long pauses.
+    pub vocabulary_boost: bool,
+}
+
+impl VoiceDictation {
+    /// Parakeet hotwords are on: the Vocabulary switch is on and a vocabulary
+    /// term is active in any app. One answer for every app, so moving between
+    /// apps never rebuilds the recognizer.
+    pub fn wants_hotwords(&self) -> bool {
+        self.vocabulary_boost && self.vocabulary.iter().any(|e| e.is_active() && e.kind == EntryKind::Vocabulary)
+    }
 }
 
 /// A microphone picked in Settings. The name is kept to say which one is
@@ -251,6 +263,7 @@ impl Default for VoiceDictation {
             avoid_bluetooth_mic: true,
             other_audio: OtherAudio::Nothing,
             lower_to_percent: DEFAULT_LOWER_TO_PERCENT,
+            vocabulary_boost: false,
         }
     }
 }
@@ -369,6 +382,31 @@ mod tests {
         let s: Settings = serde_json::from_str(r#"{"voiceDictation":{"appStyles":[{"appExe":"slack.exe","level":"verbatim"}]}}"#).unwrap();
         assert_eq!(s.voice_dictation.app_styles[0].level, CleanupLevel::Verbatim);
         assert!(s.voice_dictation.fits_to_cursor && !s.voice_dictation.live_preview && !s.voice_dictation.spoken_enter);
+    }
+
+    #[test]
+    fn settings_without_vocabulary_boost_keep_it_off() {
+        let s: Settings = serde_json::from_str(r#"{"voiceDictation":{"engine":"parakeetS1","livePreview":true}}"#).unwrap();
+        assert!(!s.voice_dictation.vocabulary_boost);
+        let on: Settings = serde_json::from_str(r#"{"voiceDictation":{"vocabularyBoost":true}}"#).unwrap();
+        assert!(on.voice_dictation.vocabulary_boost);
+    }
+
+    #[test]
+    fn hotwords_need_the_switch_and_an_active_vocabulary_term() {
+        let mut vd = VoiceDictation { vocabulary_boost: true, ..Default::default() };
+        assert!(!vd.wants_hotwords());
+        vd.vocabulary.push(VocabEntry::new(EntryKind::Snippet, "sig", "Best, Jo"));
+        let mut off = VocabEntry::new(EntryKind::Vocabulary, "graph ana", "Grafana");
+        off.is_enabled = false;
+        vd.vocabulary.push(off);
+        assert!(!vd.wants_hotwords());
+        let mut scoped = VocabEntry::new(EntryKind::Vocabulary, "zus", "Zustand");
+        scoped.app_exe = Some("code.exe".into());
+        vd.vocabulary.push(scoped);
+        assert!(vd.wants_hotwords());
+        vd.vocabulary_boost = false;
+        assert!(!vd.wants_hotwords());
     }
 
     #[test]

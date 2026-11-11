@@ -3,7 +3,7 @@ import { api, type EntryKind, type Insights, type VocabEntry } from "../lib/api"
 import { AppPicker, AppScope, scopeName, useKnownApps } from "./AppScope";
 import { compact } from "../lib/format";
 import type { Ctx } from "./App";
-import { BookOpenText, PencilSimpleLine } from "@phosphor-icons/react";
+import { BookOpenText, Ear, PencilSimpleLine } from "@phosphor-icons/react";
 import { Button, Capsule, Card, CardHeader, Divider, Icon, IconButton, Segmented, Sheet, Switch, TextField } from "./ui";
 
 export function useInsights(dep: unknown): Insights | null {
@@ -114,7 +114,6 @@ function VocabularyCard({ ctx }: { ctx: Ctx }) {
   const [editing, setEditing] = useState<VocabEntry | null>(null);
   const [pasting, setPasting] = useState(false);
   const engine = ctx.state.engines.find((e) => e.id === vd.engine);
-  const booster = engine?.assets.find((a) => a.id === "parakeetVocabularyBooster");
 
   const setEntries = (vocabulary: VocabEntry[]) => ctx.saveVd({ vocabulary });
   const upsert = (entry: VocabEntry) => {
@@ -175,18 +174,23 @@ function VocabularyCard({ ctx }: { ctx: Ctx }) {
       )}
       <Divider />
       {engine?.recognizer === "parakeet" && (
-        <p className="ml-8 text-[12px] text-text-3">
-          Quill writes these terms into Parakeet's transcript right after it recognizes.
-          {booster && booster.available && booster.state.state !== "downloaded" && (
-            <>
-              {" "}
-              <button className="text-accent" onClick={() => api.downloadAsset(booster.id)}>
-                Download the vocabulary booster
-              </button>{" "}
-              to catch them more often.
-            </>
-          )}
-        </p>
+        <>
+          <p className="ml-8 text-[12px] text-text-3">Quill writes these terms into Parakeet's transcript right after it recognizes.</p>
+          <Divider />
+          <CardHeader
+            icon={<Ear size={19} />}
+            title="Listen for these terms (experimental)"
+            detail="Parakeet recognizes up to 26 of your terms more often. It can miss words after long pauses."
+            right={
+              <div className="flex items-center gap-2">
+                {vd.vocabularyBoost && ctx.state.status.hotwordsUnavailable && (
+                  <span className="text-[12px] text-text-3">Not available on this PC</span>
+                )}
+                <Switch label="Listen for these terms" checked={vd.vocabularyBoost} onChange={(v) => ctx.saveVd({ vocabularyBoost: v })} />
+              </div>
+            }
+          />
+        </>
       )}
       {engine?.recognizer === "whisper" && (
         <p className="ml-8 text-[12px] text-text-3">Whisper is primed with these terms before it listens.</p>

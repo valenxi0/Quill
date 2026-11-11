@@ -98,7 +98,7 @@ impl SpeechEngine for Whisper {
         } else {
             request.language.clone()
         };
-        Ok(Transcript { text: tidy_whisper(&text), language: detected, boosted_terms: vec![] })
+        Ok(Transcript { text: tidy_whisper(&text), language: detected })
     }
 
     fn unload(&mut self) {

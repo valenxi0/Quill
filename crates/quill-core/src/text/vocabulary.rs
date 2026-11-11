@@ -82,6 +82,38 @@ pub fn vocabulary_terms(entries: &[VocabEntry]) -> Vec<String> {
         .collect()
 }
 
+/// `vocabulary_terms` with one app's entries first, so a capped hotword list
+/// keeps them. Whisper keeps the original order: it drops the start of a
+/// long prompt.
+pub fn app_terms_first(entries: &[VocabEntry]) -> Vec<String> {
+    let (scoped, global): (Vec<VocabEntry>, Vec<VocabEntry>) = entries.iter().cloned().partition(|e| e.app_exe.is_some());
+    vocabulary_terms(&[scoped, global].concat())
+}
+
+/// Most terms passed to a recognizer as hotwords in one dictation: the
+/// largest list measured (docs/DEVELOPMENT.md). Every entry still applies to
+/// the transcript afterwards.
+pub const MAX_HOTWORDS: usize = 26;
+
+/// Terms ready for sherpa-onnx's hotword list, in order: cleaned, kept only
+/// if `spellable`, then capped at `max`. That list splits phrases on `/` and
+/// line breaks and reads a word starting with `:` as a score, so those are
+/// dropped instead of passed through.
+pub fn hotword_terms(terms: &[String], spellable: impl Fn(&str) -> bool, max: usize) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    terms
+        .iter()
+        .map(|t| {
+            t.split(|c: char| c == '/' || c.is_whitespace() || c.is_control())
+                .filter(|w| !w.is_empty() && !w.starts_with(':'))
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .filter(|t| !t.is_empty() && spellable(t) && seen.insert(t.to_lowercase()))
+        .take(max)
+        .collect()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Match {
     start: usize,
@@ -316,6 +348,49 @@ mod tests {
         assert_eq!(vocabulary_terms(&code), vec!["Rust", "Oruk"]);
         assert_eq!(apply("rust and or rook", &for_app(&entries, "Discord.exe"), None).text, "rust and or rook");
         assert_eq!(apply("rust", &for_app(&entries, ""), None).text, "rust");
+    }
+
+    #[test]
+    fn hotword_terms_are_safe_for_the_hotword_list_and_capped() {
+        let terms: Vec<String> = ["Siobhan", " Grafana  Cloud ", "A/B test", "line\nbreak", r"C:\temp", "x :3.5", "siobhan", "", " / "]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let any = |_: &str| true;
+        assert_eq!(hotword_terms(&terms, any, 100), vec!["Siobhan", "Grafana Cloud", "A B test", "line break", r"C:\temp", "x"]);
+        assert_eq!(hotword_terms(&terms, any, 2), vec!["Siobhan", "Grafana Cloud"]);
+        assert!(hotword_terms(&[], any, MAX_HOTWORDS).is_empty());
+    }
+
+    #[test]
+    fn unspellable_terms_do_not_use_up_the_cap() {
+        let terms: Vec<String> = ["AT&T", "C++", "Grafana", "Vitest"].iter().map(|s| s.to_string()).collect();
+        let ascii_letters = |t: &str| t.chars().all(|c| c.is_ascii_alphabetic() || c == ' ');
+        assert_eq!(hotword_terms(&terms, ascii_letters, 2), vec!["Grafana", "Vitest"]);
+    }
+
+    #[test]
+    fn hotword_terms_come_from_enabled_vocabulary_for_the_app() {
+        let mut off = vocab("tauri", "Tauri");
+        off.is_enabled = false;
+        let snippet = VocabEntry::new(EntryKind::Snippet, "my sign off", "Best, Jo");
+        let mut other_app = vocab("zus", "Zustand");
+        other_app.app_exe = Some("code.exe".into());
+        let entries = vec![vocab("graph ana", "Grafana"), off, snippet, other_app];
+        let any = |_: &str| true;
+        let terms = hotword_terms(&vocabulary_terms(&for_app(&entries, "slack.exe")), any, MAX_HOTWORDS);
+        assert_eq!(terms, vec!["Grafana"]);
+        let code = hotword_terms(&app_terms_first(&for_app(&entries, "Code.exe")), any, 1);
+        assert_eq!(code, vec!["Zustand"]);
+    }
+
+    #[test]
+    fn whisper_terms_keep_entry_order_and_hotwords_put_app_terms_first() {
+        let mut scoped = vocab("zus", "Zustand");
+        scoped.app_exe = Some("code.exe".into());
+        let entries = for_app(&[vocab("graph ana", "Grafana"), scoped, vocab("tail scale", "Tailscale")], "Code.exe");
+        assert_eq!(vocabulary_terms(&entries), vec!["Grafana", "Zustand", "Tailscale"]);
+        assert_eq!(app_terms_first(&entries), vec!["Zustand", "Grafana", "Tailscale"]);
     }
 
     #[test]
