@@ -37,7 +37,7 @@ impl Controller {
             };
             (vd.activation_mode, key.is_some_and(|k| k.is_lone_modifier()))
         });
-        let (act, deadline, started_by) = {
+        let (act, deadline) = {
             let mut shortcut = self.shortcut.lock();
             let phase = self.phase();
             // While a session runs, only the shortcut that started it drives it.
@@ -46,14 +46,14 @@ impl Controller {
                     return shortcut.machine.deadline();
                 }
             }
-            let (act, deadline) = shortcut.machine.on(mode, lone, binding, input, at, phase);
-            (act, deadline, shortcut.machine.started_by())
+            // Escape and ticks carry no binding, and the machine doesn't read one for them.
+            shortcut.machine.on(mode, lone, binding.unwrap_or(Binding::Dictate), input, at, phase)
         };
         match act {
-            Action::Start => {
-                self.start_as(started_by == Some(Binding::Raw));
-                if let Some(b) = started_by.filter(|_| self.phase() == Phase::Recording) {
-                    self.shortcut.lock().owner = Some((b, self.generation.load(SeqCst)));
+            Action::Start(by) => {
+                self.start_as(by == Binding::Raw);
+                if self.phase() == Phase::Recording {
+                    self.shortcut.lock().owner = Some((by, self.generation.load(SeqCst)));
                 }
             }
             Action::Stop => self.stop(),

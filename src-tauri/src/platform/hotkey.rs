@@ -295,7 +295,7 @@ pub fn mouse_chord() {
 }
 
 fn mouse_chord_on(s: &Shared) {
-    if !s.suspended.load(SeqCst) {
+    if !s.suspended.load(SeqCst) && !s.sketching.load(SeqCst) {
         for (t, binding) in [(&s.dictate, Binding::Dictate), (&s.raw, Binding::Raw)] {
             chord(s, t, binding);
         }
@@ -375,10 +375,9 @@ fn handle(s: &Shared, vk: u32, msg: u32) -> bool {
 
     let triggers = [(&s.dictate, Binding::Dictate), (&s.raw, Binding::Raw)];
     // A lone modifier sees every key first, so a chord that Sketch or
-    // another shortcut swallows still ends its press. During a Sketch the
-    // same modifier may be the draw key, so it is left alone.
+    // another shortcut swallows still ends its press.
     for (t, binding) in triggers {
-        if t.is_lone() && !s.sketching.load(SeqCst) {
+        if t.is_lone() {
             lone_modifier_key(s, t, binding, vk, is_down, is_up);
         }
     }
@@ -458,8 +457,12 @@ fn other_modifiers_held(s: &Shared, vk: u32) -> bool {
 /// reaches the app, so Ctrl and Alt shortcuts keep working: another key
 /// going down while it is held makes the press a chord.
 fn lone_modifier_key(s: &Shared, t: &Trigger, binding: Binding, vk: u32, is_down: bool, is_up: bool) {
+    // During a Sketch the same modifier may be the draw key. The key is still
+    // tracked, so a release or auto-repeat around the Sketch's edges can't
+    // leave it latched or read as a fresh press; it just starts nothing.
+    let sketching = s.sketching.load(SeqCst);
     if vk == t.vk.load(SeqCst) {
-        if is_down && !t.latched.swap(true, SeqCst) && !other_modifiers_held(s, vk) {
+        if is_down && !t.latched.swap(true, SeqCst) && !sketching && !other_modifiers_held(s, vk) {
             t.chorded.store(false, SeqCst);
             t.down.store(true, SeqCst);
             if vk == VK_RMENU.0 as u32 {
@@ -473,7 +476,7 @@ fn lone_modifier_key(s: &Shared, t: &Trigger, binding: Binding, vk: u32, is_down
                 shortcut(s, binding, Input::Released);
             }
         }
-    } else if is_down && vk != VK_MASK as u32 {
+    } else if is_down && vk != VK_MASK as u32 && !sketching {
         chord(s, t, binding);
     }
 }
@@ -710,6 +713,37 @@ mod tests {
         assert!(!handle(&s, RCTRL, WM_KEYUP));
         assert!(drain(&rx).is_empty());
         s.sketching.store(false, SeqCst);
+        handle(&s, RCTRL, WM_KEYDOWN);
+        assert_eq!(drain(&rx), [ev(Binding::Dictate, Input::Pressed)]);
+    }
+
+    #[test]
+    fn a_lone_key_released_during_a_sketch_works_after_it() {
+        let (s, rx) = shared();
+        s.dictate.set(Some(Hotkey { vk: RCTRL, modifiers: 0 }));
+        handle(&s, RCTRL, WM_KEYDOWN);
+        handle(&s, 0xA4, WM_SYSKEYDOWN);
+        assert_eq!(drain(&rx), [ev(Binding::Dictate, Input::Pressed), ev(Binding::Dictate, Input::Chord)]);
+        handle(&s, 0xA4, WM_SYSKEYUP);
+        s.sketching.store(true, SeqCst);
+        handle(&s, RCTRL, WM_KEYUP);
+        assert_eq!(drain(&rx), [ev(Binding::Dictate, Input::Released)], "the press before the Sketch still ends");
+        s.sketching.store(false, SeqCst);
+        handle(&s, RCTRL, WM_KEYDOWN);
+        assert_eq!(drain(&rx), [ev(Binding::Dictate, Input::Pressed)], "the first press after the Sketch counts");
+    }
+
+    #[test]
+    fn a_lone_key_held_through_the_end_of_a_sketch_is_not_a_fresh_press() {
+        let (s, rx) = shared();
+        s.dictate.set(Some(Hotkey { vk: RCTRL, modifiers: 0 }));
+        s.sketching.store(true, SeqCst);
+        handle(&s, RCTRL, WM_KEYDOWN);
+        handle(&s, 0x41, WM_KEYDOWN);
+        s.sketching.store(false, SeqCst);
+        handle(&s, RCTRL, WM_KEYDOWN);
+        handle(&s, RCTRL, WM_KEYUP);
+        assert!(drain(&rx).is_empty(), "repeats after the Sketch and the release start nothing");
         handle(&s, RCTRL, WM_KEYDOWN);
         assert_eq!(drain(&rx), [ev(Binding::Dictate, Input::Pressed)]);
     }
