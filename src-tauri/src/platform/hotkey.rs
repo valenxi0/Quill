@@ -658,7 +658,7 @@ mod tests {
     }
 
     #[test]
-    fn a_lone_press_sees_the_sketch_shortcut_and_undo_as_chords() {
+    fn a_lone_press_sees_the_sketch_shortcut_as_a_chord() {
         let (s, rx) = shared();
         s.dictate.set(Some(Hotkey { vk: RCTRL, modifiers: 0 }));
         s.sketch_mods.store(modifiers::CTRL, SeqCst);
@@ -671,7 +671,7 @@ mod tests {
         s.sketching.store(true, SeqCst);
         handle(&s, RCTRL, WM_KEYDOWN);
         assert!(handle(&s, 0x5A, WM_KEYDOWN));
-        assert_eq!(drain(&rx), [ev(Binding::Dictate, Input::Pressed), ev(Binding::Dictate, Input::Chord), HookEvent::SketchUndo]);
+        assert_eq!(drain(&rx), [HookEvent::SketchUndo], "the lone shortcut sits out a Sketch");
     }
 
     #[test]
