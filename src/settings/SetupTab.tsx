@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, LINKS, type AppStyle, type AssetView, type CleanupLevel, type EngineView } from "../lib/api";
 import { bytes } from "../lib/format";
 import type { Ctx } from "./App";
+import { AudioCard } from "./AudioCard";
 import { AppIcon, AppScope, scopeName, useKnownApps } from "./AppScope";
 import {
   AppWindow,
@@ -85,6 +86,9 @@ export function DictationTab({ ctx }: { ctx: Ctx }) {
       <StatusCard ctx={ctx} />
       <Section title="Shortcut">
         <ActivationCard ctx={ctx} />
+      </Section>
+      <Section title="Audio">
+        <AudioCard ctx={ctx} />
       </Section>
       <Section title="Engine">
         <EngineCard ctx={ctx} />

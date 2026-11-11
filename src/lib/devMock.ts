@@ -2,7 +2,7 @@
 // http://localhost:1420). Never loaded inside the Tauri app.
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { emit } from "@tauri-apps/api/event";
-import type { Insights, KnownApp, Settings, UiState } from "./api";
+import type { InputDevice, Insights, KnownApp, Microphones, SavedDevice, Settings, UiState } from "./api";
 import pkg from "../../package.json";
 
 const settings: Settings = {
@@ -32,6 +32,11 @@ const settings: Settings = {
     spokenEnter: false,
     splitsTerminalPastes: true,
     livePreview: false,
+    // ?missingmic previews a saved mic that isn't plugged in.
+    inputDevice: new URLSearchParams(location.search).has("missingmic") ? { id: "{0.0.1.00000000}.{gone}", name: "Yeti Nano" } : null,
+    avoidBluetoothMic: true,
+    otherAudio: "nothing",
+    lowerToPercent: 20,
   },
   sketch: { enabled: true, hotkey: { vk: 0x53, modifiers: 3 }, drawKey: "shift" },
 };
@@ -78,6 +83,22 @@ const state: UiState = {
   updateError: null,
 };
 
+// ?btdefault previews a Bluetooth headset as the Windows default.
+const mics: InputDevice[] = [
+  { id: "{0.0.1.00000000}.{457aaca4}", name: "Microphone (Scarlett Solo USB)", bluetooth: false, isMic: true },
+  { id: "{0.0.1.00000000}.{9c1e22b0}", name: "Headset (WH-1000XM5 Hands-Free)", bluetooth: true, isMic: true },
+];
+const defaultMic = new URLSearchParams(location.search).has("btdefault") ? mics[1]! : mics[0]!;
+
+function microphones(saved: SavedDevice | null, avoid: boolean): Microphones {
+  const found = saved && mics.find((m) => m.id === saved.id);
+  if (found) return { devices: mics, using: found.name, missing: null, avoided: null };
+  const missing = saved?.name ?? null;
+  const other = mics.find((m) => m.isMic && !m.bluetooth);
+  if (avoid && defaultMic.bluetooth && other) return { devices: mics, using: other.name, missing, avoided: defaultMic.name };
+  return { devices: mics, using: defaultMic.name, missing, avoided: null };
+}
+
 const today = new Date();
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const monday = new Date(today);
@@ -115,8 +136,12 @@ export async function installDevMock() {
   };
   apps = apps.filter((a) => !/\.|runtime|settings|host/i.test(a.name)).sort((a, b) => rank(a.exe) - rank(b.exe));
   insights.apps = apps.map((app, index) => ({ ...app, words: [5200, 3100, 1400, 960, 300, 156][index] ?? 78 }));
-  mockIPC((cmd) => {
+  mockIPC((cmd, args) => {
     switch (cmd) {
+      case "get_microphones": {
+        const a = args as { inputDevice: SavedDevice | null; avoidBluetooth: boolean };
+        return microphones(a.inputDevice, a.avoidBluetooth);
+      }
       case "get_state": return state;
       case "get_insights": return insights;
       case "get_known_apps": return insights.apps;

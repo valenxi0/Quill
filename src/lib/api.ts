@@ -36,6 +36,32 @@ export interface AppStyle {
   level: CleanupLevel;
 }
 
+export type OtherAudio = "nothing" | "lower" | "mute" | "pause";
+
+/** A microphone picked in Settings, by WASAPI endpoint id. */
+export interface SavedDevice {
+  id: string;
+  name: string;
+}
+
+export interface InputDevice {
+  id: string;
+  name: string;
+  bluetooth: boolean;
+  /** A microphone or headset, not a line input or virtual cable. */
+  isMic: boolean;
+}
+
+export interface Microphones {
+  devices: InputDevice[];
+  /** The mic a recording opens now. */
+  using: string | null;
+  /** The saved mic, when it isn't connected. */
+  missing: string | null;
+  /** The Bluetooth default Quill skips. */
+  avoided: string | null;
+}
+
 export interface VoiceDictation {
   engine: EngineId;
   activationMode: ActivationMode;
@@ -55,6 +81,11 @@ export interface VoiceDictation {
   spokenEnter: boolean;
   splitsTerminalPastes: boolean;
   livePreview: boolean;
+  /** `null` follows the Windows default. */
+  inputDevice: SavedDevice | null;
+  avoidBluetoothMic: boolean;
+  otherAudio: OtherAudio;
+  lowerToPercent: number;
 }
 
 export type DrawKey = "shift" | "ctrl" | "alt";
@@ -244,6 +275,8 @@ export const api = {
   sketchState: () => invoke<SketchView | null>("sketch_state"),
   dictationCommand: (command: string) => invoke<void>("dictation_command", { command }),
   openMicrophoneSettings: () => invoke<void>("open_microphone_settings"),
+  getMicrophones: (inputDevice: SavedDevice | null, avoidBluetooth: boolean) =>
+    invoke<Microphones>("get_microphones", { inputDevice, avoidBluetooth }),
   copyText: (text: string) => invoke<boolean>("copy_text", { text }),
   pasteLast: () => invoke<void>("paste_last"),
   redoHistory: (id: string, level: CleanupLevel) => invoke<string>("redo_history", { id, level }),

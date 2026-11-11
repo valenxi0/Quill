@@ -180,7 +180,38 @@ pub struct VoiceDictation {
     pub splits_terminal_pastes: bool,
     /// Show a provisional transcript while recording.
     pub live_preview: bool,
+    /// The microphone to record from; `None` follows the Windows default.
+    pub input_device: Option<SavedDevice>,
+    /// Skip a Bluetooth headset mic when another mic exists: recording from
+    /// one switches the headset to low-quality call audio.
+    pub avoid_bluetooth_mic: bool,
+    /// What happens to other apps' audio while recording.
+    pub other_audio: OtherAudio,
+    /// Volume other apps drop to, as a percent of their own, for `Lower`.
+    pub lower_to_percent: u8,
 }
+
+/// A microphone picked in Settings. The name is kept to say which one is
+/// missing when it isn't connected.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedDevice {
+    /// The WASAPI endpoint id.
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum OtherAudio {
+    #[default]
+    Nothing,
+    Lower,
+    Mute,
+    Pause,
+}
+
+pub const DEFAULT_LOWER_TO_PERCENT: u8 = 20;
 
 /// A cleanup style for one app, by executable name.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -216,6 +247,10 @@ impl Default for VoiceDictation {
             spoken_enter: false,
             splits_terminal_pastes: true,
             live_preview: false,
+            input_device: None,
+            avoid_bluetooth_mic: true,
+            other_audio: OtherAudio::Nothing,
+            lower_to_percent: DEFAULT_LOWER_TO_PERCENT,
         }
     }
 }
@@ -356,6 +391,26 @@ mod tests {
         // Settings saved before Sketch existed still load.
         let old: Settings = serde_json::from_str(r#"{"enabled":true}"#).unwrap();
         assert_eq!(old.sketch, SketchSettings::default());
+    }
+
+    #[test]
+    fn audio_fields_default_for_old_files() {
+        let old: Settings = serde_json::from_str(r#"{"voiceDictation":{"engine":"whisperTiny","livePreview":true}}"#).unwrap();
+        let vd = &old.voice_dictation;
+        assert_eq!(vd.input_device, None, "follows the system default");
+        assert_eq!(vd.other_audio, OtherAudio::Nothing);
+        assert!(vd.avoid_bluetooth_mic);
+        assert_eq!(vd.lower_to_percent, 20);
+        let json = serde_json::to_value(Settings::default()).unwrap();
+        assert_eq!(json["voiceDictation"]["otherAudio"], "nothing");
+        assert_eq!(json["voiceDictation"]["inputDevice"], serde_json::Value::Null);
+        let picked: Settings = serde_json::from_str(
+            r#"{"voiceDictation":{"inputDevice":{"id":"{0.0.1.00000000}.{abc}","name":"Mic"},"otherAudio":"lower","lowerToPercent":35}}"#,
+        )
+        .unwrap();
+        assert_eq!(picked.voice_dictation.input_device.unwrap().id, "{0.0.1.00000000}.{abc}");
+        assert_eq!(picked.voice_dictation.other_audio, OtherAudio::Lower);
+        assert_eq!(picked.voice_dictation.lower_to_percent, 35);
     }
 
     #[test]

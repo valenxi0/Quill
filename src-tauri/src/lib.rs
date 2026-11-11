@@ -57,6 +57,7 @@ pub fn run() {
         .setup(move |tauri_app| {
             let handle = tauri_app.handle().clone();
             app::remember_app(&handle);
+            platform::other_audio::restore_pending();
 
             let stores = Arc::new(Stores::open());
             if first_run {
@@ -173,6 +174,7 @@ pub fn run() {
             commands::sketch_state,
             commands::open_microphone_settings,
             commands::open_sound_settings,
+            commands::get_microphones,
             commands::copy_text,
             commands::copy_last,
             commands::paste_last,
@@ -215,7 +217,10 @@ pub fn run() {
         .run(|_app, event| match event {
             // Keep running in the tray when the last window closes.
             RunEvent::ExitRequested { api, code: None, .. } => api.prevent_exit(),
-            RunEvent::Exit => engines::gpu::release_on_exit(),
+            RunEvent::Exit => {
+                platform::other_audio::restore_all();
+                engines::gpu::release_on_exit();
+            }
             _ => {}
         });
 }
