@@ -48,10 +48,11 @@ impl SpeechEngine for Whisper {
         let (ctx, accelerator) = match self.context(gpu) {
             Ok(c) if gpu => (c, "Vulkan"),
             Ok(c) => (c, "CPU"),
-            Err(e) => {
+            Err(e) if gpu => {
                 log::warn!("whisper GPU load failed ({e}); using the CPU");
                 (self.context(false)?, "CPU")
             }
+            Err(e) => return Err(e),
         };
         let state = ctx.create_state().map_err(|e| e.to_string())?;
         self.ctx = Some(ctx);

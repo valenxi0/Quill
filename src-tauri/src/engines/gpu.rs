@@ -7,38 +7,51 @@
 
 use std::io::{self, Write};
 use std::path::PathBuf;
-use std::sync::{LazyLock, Mutex, OnceLock};
+use std::sync::{LazyLock, Mutex, MutexGuard, OnceLock};
+use std::time::{Duration, Instant};
 
-use quill_core::gpu::{gpu_plan, GpuChoice, GpuMarker};
+use quill_core::gpu::{gpu_crashed, GpuChoice, GpuMarker};
 
 use crate::paths;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// The marker file, and how many GPU starts are in flight. The file exists
-/// while the count is above zero, or after a start never returned.
+/// A start older than this when Quill quits counts as hung, and its marker
+/// stays so the next launch uses the CPU.
+const HUNG_AFTER: Duration = Duration::from_secs(60);
+
+#[derive(Default)]
+struct Starts {
+    count: usize,
+    /// When the count last went from 0 to 1.
+    since: Option<Instant>,
+    exiting: bool,
+}
+
+/// The marker file, and the GPU starts in flight. The file exists while a
+/// start is in flight, or after a start never returned.
 struct Marker {
     path: PathBuf,
-    starting: Mutex<usize>,
+    starts: Mutex<Starts>,
 }
 
 impl Marker {
     fn new(path: PathBuf) -> Self {
-        Self { path, starting: Mutex::new(0) }
+        Self { path, starts: Mutex::default() }
     }
 
-    fn count(&self) -> std::sync::MutexGuard<'_, usize> {
-        self.starting.lock().unwrap_or_else(|e| e.into_inner())
+    fn starts(&self) -> MutexGuard<'_, Starts> {
+        self.starts.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// Reads the marker left by an earlier run, deleting it if it is stale.
     fn decide(&self, version: &str) -> GpuChoice {
         let text = std::fs::read_to_string(&self.path).ok();
-        let plan = gpu_plan(text.as_deref(), version);
-        if plan.remove_marker {
-            let _ = self.remove();
+        if gpu_crashed(text.as_deref(), version) {
+            return GpuChoice::CpuAfterCrash;
         }
-        plan.choice
+        let _ = self.remove();
+        GpuChoice::Gpu
     }
 
     /// Flushed before the GPU starts: a driver crash can take the whole
@@ -60,26 +73,33 @@ impl Marker {
     }
 
     fn begin(&self, version: &str) {
-        let mut n = self.count();
-        if *n == 0 {
-            if let Err(e) = self.write(version) {
-                log::warn!("could not write the GPU start marker: {e}");
+        let mut s = self.starts();
+        if s.count == 0 {
+            s.since = Some(Instant::now());
+            // A start after the exit event would outlive the exit cleanup.
+            if !s.exiting {
+                if let Err(e) = self.write(version) {
+                    log::warn!("could not write the GPU start marker: {e}");
+                }
             }
         }
-        *n += 1;
+        s.count += 1;
     }
 
     fn end(&self) {
-        let mut n = self.count();
-        *n = n.saturating_sub(1);
-        if *n == 0 {
+        let mut s = self.starts();
+        s.count = s.count.saturating_sub(1);
+        if s.count == 0 {
+            s.since = None;
             let _ = self.remove();
         }
     }
 
-    /// Quitting mid-start is not a driver crash.
-    fn release_on_exit(&self) {
-        if *self.count() > 0 {
+    /// Quitting mid-start is not a driver crash, unless the start had hung.
+    fn release_on_exit(&self, now: Instant) {
+        let mut s = self.starts();
+        s.exiting = true;
+        if s.since.is_some_and(|t| now.saturating_duration_since(t) < HUNG_AFTER) {
             let _ = self.remove();
         }
     }
@@ -110,7 +130,7 @@ fn disable_vulkan() -> bool {
 }
 
 /// Decided once per process, on first use.
-pub fn choice() -> GpuChoice {
+fn choice() -> GpuChoice {
     *CHOICE.get_or_init(|| match MARKER.decide(VERSION) {
         GpuChoice::CpuAfterCrash if disable_vulkan() => {
             log::warn!("a GPU start crashed Quill {VERSION}; using the CPU");
@@ -142,7 +162,7 @@ pub fn retry() -> io::Result<()> {
 
 /// Call from the app's exit event.
 pub fn release_on_exit() {
-    MARKER.release_on_exit();
+    MARKER.release_on_exit(Instant::now());
 }
 
 /// Hold for the whole GPU start; the marker is removed when the last one
@@ -239,10 +259,27 @@ mod tests {
     #[test]
     fn quitting_mid_start_is_not_a_crash() {
         let m = marker("quit");
-        m.release_on_exit();
         m.begin("1.0.0");
-        m.release_on_exit();
+        m.release_on_exit(Instant::now());
         assert_eq!(Marker::new(m.path.clone()).decide("1.0.0"), GpuChoice::Gpu);
+    }
+
+    #[test]
+    fn quitting_after_a_hung_start_keeps_the_marker() {
+        let m = marker("hung");
+        m.begin("1.0.0");
+        m.release_on_exit(Instant::now() + HUNG_AFTER + Duration::from_secs(1));
+        assert_eq!(Marker::new(m.path.clone()).decide("1.0.0"), GpuChoice::CpuAfterCrash);
+    }
+
+    #[test]
+    fn a_start_after_the_exit_event_writes_nothing() {
+        let m = marker("late");
+        m.release_on_exit(Instant::now());
+        m.begin("1.0.0");
+        assert!(!m.path.exists());
+        m.end();
+        assert!(!m.path.exists());
     }
 
     #[test]
@@ -251,7 +288,7 @@ mod tests {
         m.write("1.0.0").unwrap();
         let cpu_run = Marker::new(m.path.clone());
         assert_eq!(cpu_run.decide("1.0.0"), GpuChoice::CpuAfterCrash);
-        cpu_run.release_on_exit();
+        cpu_run.release_on_exit(Instant::now());
         assert!(m.path.exists());
     }
 }

@@ -31,21 +31,11 @@ pub enum GpuChoice {
     CpuAfterCrash,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct GpuPlan {
-    pub choice: GpuChoice,
-    /// The marker is stale (another version) or unreadable: delete it.
-    pub remove_marker: bool,
-}
-
-/// `marker`: the marker file's text, if the file exists. An unreadable marker
-/// can only come from a write cut short, which happens before the GPU starts.
-pub fn gpu_plan(marker: Option<&str>, version: &str) -> GpuPlan {
-    match marker.map(serde_json::from_str::<GpuMarker>) {
-        None => GpuPlan { choice: GpuChoice::Gpu, remove_marker: false },
-        Some(Ok(m)) if m.version == version => GpuPlan { choice: GpuChoice::CpuAfterCrash, remove_marker: false },
-        Some(_) => GpuPlan { choice: GpuChoice::Gpu, remove_marker: true },
-    }
+/// Whether the marker file's text (if the file exists) shows that a GPU
+/// start in `version` never returned. Anything else, a marker from another
+/// version or one cut short while being written, is stale.
+pub fn gpu_crashed(marker: Option<&str>, version: &str) -> bool {
+    marker.and_then(|t| serde_json::from_str::<GpuMarker>(t).ok()).is_some_and(|m| m.version == version)
 }
 
 #[cfg(test)]
@@ -55,26 +45,24 @@ mod tests {
     const V: &str = "0.3.2";
 
     #[test]
-    fn no_marker_uses_the_gpu() {
-        assert_eq!(gpu_plan(None, V), GpuPlan { choice: GpuChoice::Gpu, remove_marker: false });
+    fn no_marker_is_no_crash() {
+        assert!(!gpu_crashed(None, V));
     }
 
     #[test]
-    fn marker_from_this_version_keeps_the_cpu_and_stays() {
-        let text = GpuMarker::new(V).to_json();
-        assert_eq!(gpu_plan(Some(&text), V), GpuPlan { choice: GpuChoice::CpuAfterCrash, remove_marker: false });
+    fn marker_from_this_version_is_a_crash() {
+        assert!(gpu_crashed(Some(&GpuMarker::new(V).to_json()), V));
     }
 
     #[test]
-    fn a_new_version_clears_the_marker_and_tries_the_gpu() {
-        let text = GpuMarker::new("0.3.1").to_json();
-        assert_eq!(gpu_plan(Some(&text), V), GpuPlan { choice: GpuChoice::Gpu, remove_marker: true });
+    fn marker_from_another_version_is_stale() {
+        assert!(!gpu_crashed(Some(&GpuMarker::new("0.3.1").to_json()), V));
     }
 
     #[test]
-    fn unreadable_marker_is_cleared() {
+    fn unreadable_marker_is_stale() {
         for text in ["", "{\"vers", "null", "{}"] {
-            assert_eq!(gpu_plan(Some(text), V), GpuPlan { choice: GpuChoice::Gpu, remove_marker: true }, "{text:?}");
+            assert!(!gpu_crashed(Some(text), V), "{text:?}");
         }
     }
 
