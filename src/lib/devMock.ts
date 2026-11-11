@@ -176,7 +176,8 @@ export async function installDevMock() {
         const days = { day: 1, week: 7, month: 30 }[(args as { keep: "day" | "week" | "month" }).keep];
         return history.filter((e) => Date.now() - Date.parse(e.createdAt) >= days * 86_400_000).length;
       }
-      case "animations_enabled": return true;
+      // ?reduced previews Windows' "Animation effects" turned off.
+      case "animations_enabled": return !new URLSearchParams(location.search).has("reduced");
       case "pill_style": return settings.voiceDictation.pillStyle;
       case "gpu_fallback": return new URLSearchParams(location.search).has("gpucrash");
       case "parse_vocabulary_list": return [];

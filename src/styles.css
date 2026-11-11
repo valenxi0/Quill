@@ -19,6 +19,19 @@
   --yellow: #ffd60a;
   --orange: #ff9f0a;
   --red: #ff453a;
+
+  /* dithercn tokens, mapped to Quill's colours. Quill is dark only. */
+  --dither-ink: var(--text);
+  --dither-paper: var(--card);
+  --dither-cell: 2px;
+  --dither-color-blue: var(--accent);
+  --dither-color-purple: #bf5af2;
+  --dither-color-green: var(--green);
+  --dither-color-pink: #ff375f;
+  --dither-color-orange: var(--orange);
+  --dither-color-red: var(--red);
+  --dither-color-grey: #8e8e93;
+  --dither-bloom: 1;
 }
 
 @theme {
@@ -41,6 +54,15 @@
   --color-warn: var(--yellow);
   --color-alert: var(--orange);
   --color-danger: var(--red);
+  --color-dither-ink: var(--dither-ink);
+  --color-dither-paper: var(--dither-paper);
+  --color-dither-blue: var(--dither-color-blue);
+  --color-dither-purple: var(--dither-color-purple);
+  --color-dither-green: var(--dither-color-green);
+  --color-dither-pink: var(--dither-color-pink);
+  --color-dither-orange: var(--dither-color-orange);
+  --color-dither-red: var(--dither-color-red);
+  --color-dither-grey: var(--dither-color-grey);
 }
 
 html,

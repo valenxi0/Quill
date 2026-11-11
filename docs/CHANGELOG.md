@@ -13,6 +13,7 @@
 - Back-to-back dictations join up in apps that don't report their cursor. If you dictate into the same window within two minutes of Quill's last paste, without typing or clicking in between, the new text continues it: lowercase after a sentence that hasn't ended, a capital after one that has, and a space between.
 - "Put back what you copied" under Settings → Cleanup → Pasting: after a paste, Quill puts back what was on the clipboard before, text and images included, unless you copied something new meanwhile. Off by default, so the transcript stays on the clipboard as before.
 - Transcript history can keep entries for a day, a week, or a month (a day by default), up to 10,000 entries. Choosing a shorter time asks before it deletes older entries. Search history by text, the words heard, or the app, and use Show more to see up to 200 entries.
+- Choose how the recording pill shows your voice under Settings → General → Appearance: Bars (as before), Waveform, Dither (a sound wave drawn in dots), or Glow (a soft multicolour wave). Each card previews its style live. A new choice applies from the next recording. With Windows animation effects off, the new styles hold a still picture.
 - Vocabulary has an experimental "Listen for these terms" switch, off by default. With it on, Parakeet listens for up to 26 of your vocabulary terms while it recognizes, so names and jargon come out spelled your way more often. It can miss words after long pauses.
 
 ### Changed

@@ -277,7 +277,6 @@ pub enum PillStyle {
     Waveform,
     Dither,
     Glow,
-    Orb,
 }
 
 /// A cleanup style for one app, by executable name.
@@ -573,7 +572,6 @@ mod tests {
             ("waveform", PillStyle::Waveform),
             ("dither", PillStyle::Dither),
             ("glow", PillStyle::Glow),
-            ("orb", PillStyle::Orb),
         ] {
             let set: Settings = serde_json::from_str(&format!(r#"{{"voiceDictation":{{"pillStyle":"{name}"}}}}"#)).unwrap();
             assert_eq!(set.voice_dictation.pill_style, style, "{name}");

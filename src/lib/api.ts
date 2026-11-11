@@ -97,7 +97,7 @@ export interface VoiceDictation {
   pillStyle: PillStyle;
 }
 
-export type PillStyle = "bars" | "waveform" | "dither" | "glow" | "orb";
+export type PillStyle = "bars" | "waveform" | "dither" | "glow";
 
 export type HistoryRetention = "day" | "week" | "month";
 

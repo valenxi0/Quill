@@ -3,6 +3,7 @@ import { api, LINKS, type AppStyle, type AssetView, type CleanupLevel, type Engi
 import { bytes } from "../lib/format";
 import type { Ctx } from "./App";
 import { AudioCard } from "./AudioCard";
+import { PillPicker } from "./PillPicker";
 import { AppIcon, AppScope, scopeName, useKnownApps } from "./AppScope";
 import {
   AppWindow,
@@ -120,7 +121,7 @@ export function CleanupTab({ ctx }: { ctx: Ctx }) {
   );
 }
 
-/** The General page: startup, updates, launchers, and licenses. */
+/** The General page: startup, updates, appearance, launchers, and licenses. */
 export function GeneralTab({ ctx }: { ctx: Ctx }) {
   return (
     <>
@@ -133,6 +134,9 @@ export function GeneralTab({ ctx }: { ctx: Ctx }) {
         />
       </Card>
       <UpdatesCard ctx={ctx} />
+      <Section title="Appearance">
+        <PillPicker ctx={ctx} />
+      </Section>
       <Section title="Launchers">
         <LaunchersCard />
       </Section>
@@ -827,6 +831,7 @@ const LICENSES: [string, string, string][] = [
   ["Whisper tiny.en, base.en, large-v3-turbo", "MIT", "By OpenAI. Notice kept."],
   ["Cohere Transcribe 03-2026", "Apache 2.0", "By Cohere Labs. README kept with the weights."],
   ["Silero VAD", "MIT", "By Silero. Built into Quill to skip silence."],
+  ["dithercn", "MIT", "By OpenCore. Draws the Dither recording pill."],
 ];
 
 function LicensesCard() {
