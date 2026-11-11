@@ -1,19 +1,19 @@
-//! A low-level mouse hook for Sketch, installed only while one runs. Like
-//! the keyboard hook, the callback only reads key state and posts to a
-//! channel: Windows silently removes slow hooks.
+//! Low-level mouse hooks: one for Sketch, installed only while one runs, and
+//! one for a side-button shortcut. Like the keyboard hook, the callbacks only
+//! read state and post to a channel: Windows silently removes slow hooks.
 
 use std::sync::mpsc::Sender;
 
 use parking_lot::Mutex;
-use quill_core::settings::modifiers;
+use quill_core::settings::{modifiers, VK_XBUTTON1, VK_XBUTTON2};
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VIRTUAL_KEY, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT};
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetMessageW, PostThreadMessageW, SetWindowsHookExW, TranslateMessage,
-    UnhookWindowsHookEx, MSG, MSLLHOOKSTRUCT, WH_MOUSE_LL, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MOUSEHWHEEL,
-    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN,
+    UnhookWindowsHookEx, LLMHF_INJECTED, MSG, MSLLHOOKSTRUCT, WH_MOUSE_LL, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
+    WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN, WM_XBUTTONDOWN, WM_XBUTTONUP, XBUTTON1, XBUTTON2,
 };
 
 /// Positions are physical screen pixels.
@@ -114,6 +114,63 @@ impl MouseHook {
 impl Drop for MouseHook {
     fn drop(&mut self) {
         *HOOK.lock() = None;
+        unsafe {
+            let _ = PostThreadMessageW(self.thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
+        }
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+    }
+}
+
+/// A second low-level mouse hook, installed only while a mouse side button
+/// is a dictation shortcut (or Settings is capturing one). It swallows only
+/// that button, so the browser doesn't also go back.
+pub struct ButtonHook {
+    thread_id: u32,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+unsafe extern "system" fn button_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    let msg = wparam.0 as u32;
+    if code >= 0 && (msg == WM_XBUTTONDOWN || msg == WM_XBUTTONUP) {
+        let info = unsafe { &*(lparam.0 as *const MSLLHOOKSTRUCT) };
+        let vk = match (info.mouseData >> 16) as u16 {
+            XBUTTON1 => VK_XBUTTON1,
+            XBUTTON2 => VK_XBUTTON2,
+            _ => 0,
+        };
+        if vk != 0 && info.flags & LLMHF_INJECTED == 0 && super::hotkey::mouse_button(vk, msg == WM_XBUTTONDOWN) {
+            return LRESULT(1);
+        }
+    }
+    unsafe { CallNextHookEx(None, code, wparam, lparam) }
+}
+
+impl ButtonHook {
+    pub fn install() -> anyhow::Result<ButtonHook> {
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let thread = std::thread::Builder::new().name("quill-mouse-shortcut".into()).spawn(move || unsafe {
+            let module = GetModuleHandleW(None).ok();
+            let hook = SetWindowsHookExW(WH_MOUSE_LL, Some(button_proc), module.map(Into::into), 0);
+            let _ = ready_tx.send(hook.as_ref().ok().map(|_| GetCurrentThreadId()));
+            let Ok(hook) = hook else { return };
+            let mut msg = MSG::default();
+            while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+            let _ = UnhookWindowsHookEx(hook);
+        })?;
+        match ready_rx.recv().ok().flatten() {
+            Some(thread_id) => Ok(ButtonHook { thread_id, thread: Some(thread) }),
+            None => anyhow::bail!("Windows refused the mouse hook"),
+        }
+    }
+}
+
+impl Drop for ButtonHook {
+    fn drop(&mut self) {
         unsafe {
             let _ = PostThreadMessageW(self.thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
         }

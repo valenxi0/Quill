@@ -14,7 +14,9 @@ The installer supports 64-bit Windows and installs without an admin prompt. Mode
 
 ## How to use Quill
 
-Hold **Ctrl+Alt+M** to record, then release to paste. Toggle mode lets you press once to start and again to finish. Press Esc twice within one second to cancel.
+Hold **Ctrl+Alt+M** to record, then release to paste. Toggle mode lets you press once to start and again to finish. Hold or lock does both: hold to talk, or tap twice quickly to keep recording until you press it again; a single quick tap does nothing. Press Esc twice within one second to cancel.
+
+The shortcut can also be a mouse side button, or Right Ctrl or Right Alt pressed alone. A second shortcut, "Dictate without cleanup", pastes your words as spoken while keeping your vocabulary, snippets, and numbers.
 
 Quill runs in the system tray. Settings has seven pages: Home for your week and transcript history, Dictation for the shortcut and engine, Cleanup for the style and how text lands in each app, Vocabulary, Sketch, Privacy, and General for startup, updates, and launchers.
 

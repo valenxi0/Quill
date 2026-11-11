@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, LINKS, type AppStyle, type AssetView, type CleanupLevel, type EngineView } from "../lib/api";
+import { api, LINKS, type AppStyle, type AssetView, type CleanupLevel, type EngineView, type ShortcutSlot } from "../lib/api";
 import { bytes } from "../lib/format";
 import type { Ctx } from "./App";
 import { AudioCard } from "./AudioCard";
@@ -13,6 +13,7 @@ import {
   CursorText,
   HandTap,
   Hash,
+  Keyboard,
   KeyReturn,
   Link,
   MagicWand,
@@ -46,7 +47,12 @@ import {
 const ACTIVATION_DETAIL = {
   pushToTalk: "Hold the shortcut while you speak. Release to finish.",
   toggle: "Press the shortcut once to start and again to finish.",
+  holdOrLock: "Hold the shortcut while you speak, or tap it twice to keep recording until you press it again.",
 };
+
+/** What to press while Settings captures a dictation shortcut. */
+export const CAPTURE_HINT =
+  "Hold Ctrl, Alt, Shift or Win, then press another key. A mouse side button, or Right Ctrl or Right Alt tapped alone, also works. Esc cancels.";
 
 export const CLEANUP: { value: CleanupLevel; label: string; detail: string }[] = [
   {
@@ -175,7 +181,7 @@ export function StatusCard({ ctx }: { ctx: Ctx }) {
 
 function ActivationCard({ ctx }: { ctx: Ctx }) {
   const vd = ctx.state.settings.voiceDictation;
-  const { capturingHotkey, captureError } = ctx.state;
+  const { capturingHotkey, capturingRawHotkey, captureError, hotkeyNote, rawHotkeyNote, rawHotkeyProblem } = ctx.state;
   return (
     <Card>
       <CardHeader
@@ -184,12 +190,13 @@ function ActivationCard({ ctx }: { ctx: Ctx }) {
         detail={ACTIVATION_DETAIL[vd.activationMode]}
         right={
           <Segmented
-            width={240}
+            width={330}
             value={vd.activationMode}
             onChange={(v) => ctx.saveVd({ activationMode: v })}
             options={[
               { value: "pushToTalk", label: "Push to talk" },
               { value: "toggle", label: "Toggle" },
+              { value: "holdOrLock", label: "Hold or lock" },
             ]}
           />
         }
@@ -198,10 +205,29 @@ function ActivationCard({ ctx }: { ctx: Ctx }) {
       <CardHeader
         icon={<Command size={19} />}
         title="Shortcut"
-        detail={capturingHotkey ? "Hold Ctrl, Alt, Shift or Win, then press another key. Esc cancels." : "Use Ctrl, Alt, Shift or Win plus another key, such as Ctrl+Shift+Space."}
+        detail={
+          capturingHotkey
+            ? CAPTURE_HINT
+            : "Use Ctrl, Alt, Shift or Win plus another key, such as Ctrl+Shift+Space. A mouse side button, Right Ctrl or Right Alt also works alone."
+        }
         right={<ShortcutButton ctx={ctx} />}
       />
-      {captureError && <Warning>{captureError}</Warning>}
+      {capturingHotkey && captureError && <Warning>{captureError}</Warning>}
+      {hotkeyNote && <Warning>{hotkeyNote}</Warning>}
+      <Divider />
+      <CardHeader
+        icon={<Keyboard size={19} />}
+        title="Dictate without cleanup"
+        detail={
+          capturingRawHotkey
+            ? CAPTURE_HINT
+            : "A second shortcut that pastes your words as spoken, with no cleanup. Vocabulary, snippets, and numbers still apply."
+        }
+        right={<ShortcutButton ctx={ctx} raw />}
+      />
+      {capturingRawHotkey && captureError && <Warning>{captureError}</Warning>}
+      {rawHotkeyProblem && <Warning>{rawHotkeyProblem}</Warning>}
+      {rawHotkeyNote && <Warning>{rawHotkeyNote}</Warning>}
       <Divider />
       <CardHeader
         icon={<Subtitles size={19} />}
@@ -214,21 +240,32 @@ function ActivationCard({ ctx }: { ctx: Ctx }) {
 }
 
 /// The shortcut capture button, with Reset when it isn't the default.
-/// `sketch` picks the Sketch shortcut instead of dictation's.
-export function ShortcutButton({ ctx, sketch = false }: { ctx: Ctx; sketch?: boolean }) {
-  const capturingHotkey = sketch ? ctx.state.capturingSketchHotkey : ctx.state.capturingHotkey;
-  const hotkeyDisplay = sketch ? ctx.state.sketchHotkeyDisplay : ctx.state.hotkeyDisplay;
-  const hotkeyIsDefault = sketch ? ctx.state.sketchHotkeyIsDefault : ctx.state.hotkeyIsDefault;
+/// `sketch` picks the Sketch shortcut instead of dictation's, and `raw` the
+/// one without cleanup, which has Clear instead of Reset.
+export function ShortcutButton({ ctx, sketch = false, raw = false }: { ctx: Ctx; sketch?: boolean; raw?: boolean }) {
+  const s = ctx.state;
+  const slot: ShortcutSlot = sketch ? "sketch" : raw ? "raw" : "dictate";
+  const { capturingHotkey, hotkeyDisplay, hotkeyIsDefault } = {
+    dictate: { capturingHotkey: s.capturingHotkey, hotkeyDisplay: s.hotkeyDisplay, hotkeyIsDefault: s.hotkeyIsDefault },
+    raw: { capturingHotkey: s.capturingRawHotkey, hotkeyDisplay: s.rawHotkeyDisplay, hotkeyIsDefault: s.rawHotkeyDisplay === null },
+    sketch: { capturingHotkey: s.capturingSketchHotkey, hotkeyDisplay: s.sketchHotkeyDisplay, hotkeyIsDefault: s.sketchHotkeyIsDefault },
+  }[slot];
   return (
     <>
       {!hotkeyIsDefault && !capturingHotkey && (
-        <Button kind="plain" onClick={() => api.resetHotkey(sketch)}>
-          Reset
+        <Button kind="plain" onClick={() => api.resetHotkey(slot)}>
+          {raw ? "Clear" : "Reset"}
         </Button>
       )}
       <button
-        aria-label={capturingHotkey ? "Recording a shortcut. Press Esc to cancel." : `Shortcut ${hotkeyDisplay}. Change shortcut`}
-        onClick={() => (capturingHotkey ? api.cancelHotkeyCapture() : api.beginHotkeyCapture(sketch))}
+        aria-label={
+          capturingHotkey
+            ? "Recording a shortcut. Press Esc to cancel."
+            : hotkeyDisplay
+              ? `Shortcut ${hotkeyDisplay}. Change shortcut`
+              : "No shortcut. Set shortcut"
+        }
+        onClick={() => (capturingHotkey ? api.cancelHotkeyCapture() : api.beginHotkeyCapture(slot))}
         className={cx(
           "flex h-[30px] min-w-[120px] items-center justify-center gap-1 rounded-[7px] px-1 transition-[background-color] duration-100",
           capturingHotkey ? "bg-accent-soft px-3 text-[12.5px] text-accent shadow-[0_0_0_1px_var(--accent)]" : "hover:bg-fill",
@@ -236,7 +273,9 @@ export function ShortcutButton({ ctx, sketch = false }: { ctx: Ctx; sketch?: boo
       >
         {capturingHotkey
           ? "Press a shortcut…"
-          : hotkeyDisplay.split("+").map((key) => (
+          : hotkeyDisplay === null
+            ? <span className="px-2 text-[12.5px] text-text-2">Set shortcut</span>
+            : hotkeyDisplay.split("+").map((key) => (
               <kbd
                 key={key}
                 className="inline-flex h-[26px] min-w-[26px] items-center justify-center rounded-[6px] bg-fill-strong px-2 font-sans text-[12.5px] font-semibold shadow-[inset_0_-2px_0_rgb(0_0_0/0.35),0_0_0_1px_var(--card-border)]"

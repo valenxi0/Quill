@@ -75,6 +75,7 @@ pub fn run() {
                 Ok((hook, rx)) => {
                     hook.set_suspended(!settings.enabled);
                     hook.set_sketch_hotkey(app::sketch_hotkey(&settings));
+                    hook.set_raw_hotkey(settings.usable_raw_hotkey());
                     app::spawn_hook_consumer(handle.clone(), rx);
                     (Some(hook), None)
                 }
@@ -100,11 +101,14 @@ pub fn run() {
                 hook_error,
                 capturing: AtomicBool::new(false),
                 capturing_sketch: AtomicBool::new(false),
+                capturing_raw: AtomicBool::new(false),
                 capture_error: Mutex::new(None),
+                buttons: Mutex::new(None),
                 preferred_languages,
                 updates: updates::Updates::default(),
             });
             tauri_app.manage(quill.clone());
+            quill.sync_buttons();
 
             // Warm once right after a download, so any first-run compile
             // happens while the user is still in Settings.

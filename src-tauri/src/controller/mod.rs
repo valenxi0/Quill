@@ -24,7 +24,7 @@ use quill_core::errors::DictationError;
 use quill_core::pipeline::Recipe;
 use quill_core::segments::{EarlySegmenter, SAMPLE_RATE};
 use quill_core::settings::CleanupLevel;
-use quill_core::state::Phase;
+use quill_core::state::{Activation, Binding, Phase};
 use quill_core::text::numbers::Itn;
 use serde::Serialize;
 
@@ -127,6 +127,18 @@ struct SessionConfig {
     preview_committed: Option<Arc<Mutex<Vec<String>>>>,
 }
 
+/// Turns shortcut presses into actions, and remembers which shortcut
+/// started the session it is driving.
+#[derive(Default)]
+struct Shortcut {
+    machine: Activation,
+    /// The binding and generation of the session the shortcut started.
+    owner: Option<(Binding, u64)>,
+    /// A lone-modifier press found Quill not ready. The problem shows on
+    /// release, so Ctrl+C never flashes it.
+    unready: bool,
+}
+
 pub struct Controller {
     pub stores: Arc<Stores>,
     pub engines: Arc<EngineHost>,
@@ -144,6 +156,9 @@ pub struct Controller {
     outcome_seq: AtomicU64,
     watch_generation: AtomicU64,
     starting: std::sync::atomic::AtomicBool,
+    shortcut: Mutex<Shortcut>,
+    /// The time base for the shortcut's tap timing.
+    clock: Instant,
     pub last_transcript: Mutex<Option<String>>,
     /// Where the last transcript went, for "Paste last transcript".
     last_target: Mutex<Option<target::Target>>,
@@ -176,6 +191,8 @@ impl Controller {
             outcome_seq: AtomicU64::new(0),
             watch_generation: AtomicU64::new(0),
             starting: std::sync::atomic::AtomicBool::new(false),
+            shortcut: Mutex::new(Shortcut::default()),
+            clock: Instant::now(),
             last_transcript: Mutex::new(None),
             last_target: Mutex::new(None),
             last_metrics: Mutex::new(None),

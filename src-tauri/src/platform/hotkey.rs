@@ -11,6 +11,7 @@ use std::sync::OnceLock;
 use super::escape::EscapeSequence;
 
 use quill_core::settings::{is_modifier_vk, modifiers, Hotkey};
+pub use quill_core::state::Binding;
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::SystemInformation::GetTickCount;
@@ -27,8 +28,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HookEvent {
-    Pressed,
-    Released,
+    Pressed(Binding),
+    Released(Binding),
+    /// Another key went down while a lone-modifier shortcut was held.
+    Chord(Binding),
     Escape,
     Captured(Hotkey),
     CaptureCancelled,
@@ -38,20 +41,54 @@ pub enum HookEvent {
     SketchUndo,
 }
 
-struct Shared {
+/// One dictation shortcut's state.
+struct Trigger {
+    /// 0 when unset.
     vk: AtomicU32,
     mods: AtomicU32,
     /// The chord is currently held down.
     down: AtomicBool,
     /// The main key went down as part of the chord and hasn't come up yet.
     /// Its repeats and key-up are swallowed even if a modifier came up first.
+    /// For a lone modifier: the key is physically down.
     latched: AtomicBool,
+}
+
+impl Trigger {
+    fn new(hotkey: Option<Hotkey>) -> Self {
+        Self {
+            vk: AtomicU32::new(hotkey.map_or(0, |h| h.vk)),
+            mods: AtomicU32::new(hotkey.map_or(0, |h| h.modifiers)),
+            down: AtomicBool::new(false),
+            latched: AtomicBool::new(false),
+        }
+    }
+
+    fn is_lone(&self) -> bool {
+        Hotkey { vk: self.vk.load(SeqCst), modifiers: self.mods.load(SeqCst) }.is_lone_modifier()
+    }
+
+    fn set(&self, hotkey: Option<Hotkey>) {
+        self.vk.store(hotkey.map_or(0, |h| h.vk), SeqCst);
+        self.mods.store(hotkey.map_or(0, |h| h.modifiers), SeqCst);
+        self.down.store(false, SeqCst);
+        self.latched.store(false, SeqCst);
+    }
+}
+
+struct Shared {
+    dictate: Trigger,
+    /// Dictate without cleanup.
+    raw: Trigger,
     /// Global hook paused (hotkey capture in Settings, or Quill off).
     suspended: AtomicBool,
     /// Settings is capturing a new shortcut.
     capturing: AtomicBool,
     modifier_keys: AtomicU32,
     capture_key: AtomicU32,
+    /// Right Ctrl or Right Alt went down alone during capture; its release
+    /// captures it.
+    capture_lone: AtomicU32,
     /// Escape is intercepted only while dictation is busy.
     escape: EscapeSequence,
     /// The Sketch shortcut; vk 0 when Sketch is off.
@@ -74,14 +111,13 @@ impl HotkeyHook {
     pub fn install(hotkey: Hotkey) -> anyhow::Result<(HotkeyHook, Receiver<HookEvent>)> {
         let (tx, rx) = channel();
         let shared = Shared {
-            vk: AtomicU32::new(hotkey.vk),
-            mods: AtomicU32::new(hotkey.modifiers),
-            down: AtomicBool::new(false),
-            latched: AtomicBool::new(false),
+            dictate: Trigger::new(Some(hotkey)),
+            raw: Trigger::new(None),
             suspended: AtomicBool::new(false),
             capturing: AtomicBool::new(false),
             modifier_keys: AtomicU32::new(initial_modifier_keys()),
             capture_key: AtomicU32::new(0),
+            capture_lone: AtomicU32::new(0),
             escape: EscapeSequence::default(),
             sketch_vk: AtomicU32::new(0),
             sketch_mods: AtomicU32::new(0),
@@ -115,23 +151,27 @@ impl HotkeyHook {
     }
 
     pub fn set_hotkey(&self, hotkey: Hotkey) {
-        let s = Self::shared();
-        s.vk.store(hotkey.vk, SeqCst);
-        s.mods.store(hotkey.modifiers, SeqCst);
-        s.down.store(false, SeqCst);
-        s.latched.store(false, SeqCst);
+        Self::shared().dictate.set(Some(hotkey));
+    }
+
+    /// The no-cleanup shortcut, or `None` when it isn't set.
+    pub fn set_raw_hotkey(&self, hotkey: Option<Hotkey>) {
+        Self::shared().raw.set(hotkey);
     }
 
     pub fn set_suspended(&self, suspended: bool) {
         let s = Self::shared();
         s.suspended.store(suspended, SeqCst);
         if suspended {
-            s.down.store(false, SeqCst);
+            s.dictate.down.store(false, SeqCst);
+            s.raw.down.store(false, SeqCst);
         }
     }
 
     pub fn set_capturing(&self, capturing: bool) {
-        Self::shared().capturing.store(capturing, SeqCst);
+        let s = Self::shared();
+        s.capture_lone.store(0, SeqCst);
+        s.capturing.store(capturing, SeqCst);
     }
 
     pub fn set_escape_active(&self, active: bool) {
@@ -226,6 +266,11 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
     CallNextHookEx(None, code, wparam, lparam)
 }
 
+/// A mouse side button from the mouse hook. Returns true to swallow it.
+pub fn mouse_button(vk: u32, is_down: bool) -> bool {
+    SHARED.get().is_some_and(|s| handle(s, vk, if is_down { WM_KEYDOWN } else { WM_KEYUP }))
+}
+
 /// Returns true to swallow the key.
 fn handle(s: &Shared, vk: u32, msg: u32) -> bool {
     let is_down = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
@@ -244,6 +289,7 @@ fn handle(s: &Shared, vk: u32, msg: u32) -> bool {
     if s.capturing.load(SeqCst) {
         if is_down && !is_modifier_vk(vk) {
             // Keep repeats and key-up out of both capture and dictation.
+            s.capture_lone.store(0, SeqCst);
             s.capture_key.store(vk, SeqCst);
             let event = if vk == VK_ESCAPE.0 as u32 {
                 HookEvent::CaptureCancelled
@@ -253,6 +299,7 @@ fn handle(s: &Shared, vk: u32, msg: u32) -> bool {
             let _ = s.tx.send(event);
             return true;
         }
+        capture_lone_modifier(s, vk, is_down, is_up);
         return false;
     }
 
@@ -294,37 +341,93 @@ fn handle(s: &Shared, vk: u32, msg: u32) -> bool {
         return true;
     }
 
-    let want_vk = s.vk.load(SeqCst);
-    let want_mods = s.mods.load(SeqCst);
+    let triggers = [(&s.dictate, Binding::Dictate), (&s.raw, Binding::Raw)];
+    // A lone modifier sees every key first, so a chord that another
+    // shortcut swallows still ends its press.
+    for (t, binding) in triggers {
+        if t.is_lone() {
+            lone_modifier_key(s, t, binding, vk, is_down, is_up);
+        }
+    }
+    triggers.into_iter().fold(false, |swallow, (t, binding)| trigger_key(s, t, binding, vk, is_down, is_up, mods) || swallow)
+}
+
+/// One shortcut's part in a key event. Returns true to swallow the key.
+fn trigger_key(s: &Shared, t: &Trigger, binding: Binding, vk: u32, is_down: bool, is_up: bool, mods: u32) -> bool {
+    let want_vk = t.vk.load(SeqCst);
+    let want_mods = t.mods.load(SeqCst);
+    if want_vk == 0 || t.is_lone() {
+        return false;
+    }
     if vk == want_vk {
-        if s.latched.load(SeqCst) {
+        if t.latched.load(SeqCst) {
             // Auto-repeat, or the key-up that ends the latch.
             if is_up {
-                s.latched.store(false, SeqCst);
-                if s.down.swap(false, SeqCst) {
-                    let _ = s.tx.send(HookEvent::Released);
+                t.latched.store(false, SeqCst);
+                if t.down.swap(false, SeqCst) {
+                    let _ = s.tx.send(HookEvent::Released(binding));
                 }
             }
             return true;
         }
         if is_down && mods == want_mods {
-            s.latched.store(true, SeqCst);
-            s.down.store(true, SeqCst);
+            t.latched.store(true, SeqCst);
+            t.down.store(true, SeqCst);
             if want_mods & (modifiers::ALT | modifiers::WIN) != 0 {
                 tap_mask_key();
             }
-            let _ = s.tx.send(HookEvent::Pressed);
+            let _ = s.tx.send(HookEvent::Pressed(binding));
             return true;
         }
         return false;
     }
 
     // A required modifier going up also ends the chord; let it through.
-    if is_up && s.down.load(SeqCst) && modifier_bit(vk) & want_mods != 0 && mods & want_mods != want_mods {
-        s.down.store(false, SeqCst);
-        let _ = s.tx.send(HookEvent::Released);
+    if is_up && t.down.load(SeqCst) && modifier_bit(vk) & want_mods != 0 && mods & want_mods != want_mods {
+        t.down.store(false, SeqCst);
+        let _ = s.tx.send(HookEvent::Released(binding));
     }
     false
+}
+
+/// Whether a modifier other than `vk` is held.
+fn other_modifiers_held(s: &Shared, vk: u32) -> bool {
+    let own = MODIFIER_KEYS.iter().position(|&k| k == vk).map_or(0, |i| 1 << i);
+    s.modifier_keys.load(SeqCst) & !own != 0
+}
+
+/// Right Ctrl or Right Alt as the whole shortcut. The key itself always
+/// reaches the app, so Ctrl and Alt shortcuts keep working: another key
+/// going down while it is held turns the press into a chord.
+fn lone_modifier_key(s: &Shared, t: &Trigger, binding: Binding, vk: u32, is_down: bool, is_up: bool) {
+    if vk == t.vk.load(SeqCst) {
+        if is_down && !t.latched.swap(true, SeqCst) && !other_modifiers_held(s, vk) {
+            t.down.store(true, SeqCst);
+            if vk == VK_RMENU.0 as u32 {
+                // Keeps the release from opening the app's menu bar.
+                tap_mask_key();
+            }
+            let _ = s.tx.send(HookEvent::Pressed(binding));
+        } else if is_up {
+            t.latched.store(false, SeqCst);
+            if t.down.swap(false, SeqCst) {
+                let _ = s.tx.send(HookEvent::Released(binding));
+            }
+        }
+    } else if is_down && vk != VK_MASK as u32 && t.down.swap(false, SeqCst) {
+        let _ = s.tx.send(HookEvent::Chord(binding));
+    }
+}
+
+/// Settings captures Right Ctrl or Right Alt when one is pressed and
+/// released with nothing else.
+fn capture_lone_modifier(s: &Shared, vk: u32, is_down: bool, is_up: bool) {
+    let lone = vk == VK_RCONTROL.0 as u32 || vk == VK_RMENU.0 as u32;
+    if is_down && s.capture_lone.load(SeqCst) != vk {
+        s.capture_lone.store(if lone && !other_modifiers_held(s, vk) { vk } else { 0 }, SeqCst);
+    } else if is_up && lone && s.capture_lone.swap(0, SeqCst) == vk {
+        let _ = s.tx.send(HookEvent::Captured(Hotkey { vk, modifiers: 0 }));
+    }
 }
 
 #[cfg(test)]
@@ -334,14 +437,13 @@ mod tests {
     fn shared() -> (Shared, Receiver<HookEvent>) {
         let (tx, rx) = channel();
         (Shared {
-            vk: AtomicU32::new(0x4D),
-            mods: AtomicU32::new(modifiers::CTRL | modifiers::SHIFT),
-            down: AtomicBool::new(false),
-            latched: AtomicBool::new(false),
+            dictate: Trigger::new(Some(Hotkey { vk: 0x4D, modifiers: modifiers::CTRL | modifiers::SHIFT })),
+            raw: Trigger::new(None),
             suspended: AtomicBool::new(false),
             capturing: AtomicBool::new(false),
             modifier_keys: AtomicU32::new(0),
             capture_key: AtomicU32::new(0),
+            capture_lone: AtomicU32::new(0),
             escape: EscapeSequence::default(),
             sketch_vk: AtomicU32::new(0x53),
             sketch_mods: AtomicU32::new(modifiers::CTRL | modifiers::SHIFT),
@@ -395,7 +497,7 @@ mod tests {
         assert!(handle(&s, 0x4D, WM_KEYUP));
         assert!(rx.try_recv().is_err());
         assert!(handle(&s, 0x4D, WM_KEYDOWN));
-        assert_eq!(rx.try_recv().unwrap(), HookEvent::Pressed);
+        assert_eq!(rx.try_recv().unwrap(), HookEvent::Pressed(Binding::Dictate));
     }
 
     #[test]
@@ -405,11 +507,11 @@ mod tests {
         handle(&s, 0xA3, WM_KEYDOWN);
         handle(&s, 0xA0, WM_KEYDOWN);
         handle(&s, 0x4D, WM_KEYDOWN);
-        assert_eq!(rx.try_recv().unwrap(), HookEvent::Pressed);
+        assert_eq!(rx.try_recv().unwrap(), HookEvent::Pressed(Binding::Dictate));
         handle(&s, 0xA2, WM_KEYUP);
         assert!(rx.try_recv().is_err());
         handle(&s, 0xA3, WM_KEYUP);
-        assert_eq!(rx.try_recv().unwrap(), HookEvent::Released);
+        assert_eq!(rx.try_recv().unwrap(), HookEvent::Released(Binding::Dictate));
         assert!(handle(&s, 0x4D, WM_KEYUP));
         assert!(rx.try_recv().is_err());
     }
@@ -426,6 +528,120 @@ mod tests {
         handle(&s, 0x4B, WM_KEYDOWN);
         let HookEvent::Captured(key) = rx.try_recv().unwrap() else { panic!("capture expected") };
         assert!(key.problem().is_none());
+    }
+
+    const RCTRL: u32 = 0xA3;
+    const RALT: u32 = 0xA5;
+    const LCTRL: u32 = 0xA2;
+
+    fn drain(rx: &Receiver<HookEvent>) -> Vec<HookEvent> {
+        rx.try_iter().collect()
+    }
+
+    #[test]
+    fn raw_shortcut_fires_as_its_own_binding() {
+        let (s, rx) = shared();
+        s.raw.set(Some(Hotkey { vk: 0x4B, modifiers: modifiers::CTRL | modifiers::SHIFT }));
+        handle(&s, 0xA2, WM_KEYDOWN);
+        handle(&s, 0xA0, WM_KEYDOWN);
+        assert!(handle(&s, 0x4B, WM_KEYDOWN));
+        assert!(handle(&s, 0x4B, WM_KEYDOWN), "repeat");
+        assert!(handle(&s, 0x4B, WM_KEYUP));
+        assert_eq!(drain(&rx), [HookEvent::Pressed(Binding::Raw), HookEvent::Released(Binding::Raw)]);
+        assert!(handle(&s, 0x4D, WM_KEYDOWN));
+        assert_eq!(drain(&rx), [HookEvent::Pressed(Binding::Dictate)]);
+    }
+
+    #[test]
+    fn a_chord_another_shortcut_swallows_still_ends_a_lone_press() {
+        let (s, rx) = shared();
+        s.raw.set(Some(Hotkey { vk: RCTRL, modifiers: 0 }));
+        handle(&s, RCTRL, WM_KEYDOWN);
+        handle(&s, 0xA0, WM_KEYDOWN);
+        assert!(handle(&s, 0x4D, WM_KEYDOWN));
+        assert_eq!(drain(&rx), [
+            HookEvent::Pressed(Binding::Raw),
+            HookEvent::Chord(Binding::Raw),
+            HookEvent::Pressed(Binding::Dictate),
+        ]);
+    }
+
+    #[test]
+    fn lone_right_ctrl_starts_on_press_and_never_swallows() {
+        let (s, rx) = shared();
+        s.dictate.set(Some(Hotkey { vk: RCTRL, modifiers: 0 }));
+        assert!(!handle(&s, RCTRL, WM_KEYDOWN));
+        assert!(!handle(&s, RCTRL, WM_KEYDOWN), "repeat");
+        assert!(!handle(&s, RCTRL, WM_KEYUP));
+        assert_eq!(drain(&rx), [HookEvent::Pressed(Binding::Dictate), HookEvent::Released(Binding::Dictate)]);
+    }
+
+    #[test]
+    fn right_ctrl_plus_c_is_a_chord_and_passes_through() {
+        let (s, rx) = shared();
+        s.dictate.set(Some(Hotkey { vk: RCTRL, modifiers: 0 }));
+        assert!(!handle(&s, RCTRL, WM_KEYDOWN));
+        assert!(!handle(&s, 0x43, WM_KEYDOWN));
+        assert!(!handle(&s, 0x43, WM_KEYUP));
+        assert!(!handle(&s, RCTRL, WM_KEYDOWN), "repeat after the chord");
+        assert!(!handle(&s, RCTRL, WM_KEYUP));
+        assert_eq!(drain(&rx), [HookEvent::Pressed(Binding::Dictate), HookEvent::Chord(Binding::Dictate)]);
+    }
+
+    #[test]
+    fn right_ctrl_with_another_modifier_held_is_not_the_shortcut() {
+        let (s, rx) = shared();
+        s.dictate.set(Some(Hotkey { vk: RCTRL, modifiers: 0 }));
+        handle(&s, 0xA0, WM_KEYDOWN);
+        handle(&s, RCTRL, WM_KEYDOWN);
+        handle(&s, 0xA0, WM_KEYUP);
+        handle(&s, RCTRL, WM_KEYDOWN);
+        handle(&s, RCTRL, WM_KEYUP);
+        assert!(drain(&rx).is_empty());
+        // AltGr arrives as Left Ctrl, then Right Alt.
+        s.dictate.set(Some(Hotkey { vk: RALT, modifiers: 0 }));
+        handle(&s, LCTRL, WM_KEYDOWN);
+        handle(&s, RALT, WM_SYSKEYDOWN);
+        handle(&s, RALT, WM_SYSKEYUP);
+        handle(&s, LCTRL, WM_KEYUP);
+        assert!(drain(&rx).is_empty());
+    }
+
+    #[test]
+    fn mouse_side_button_is_swallowed_only_when_it_is_the_shortcut() {
+        let (s, rx) = shared();
+        assert!(!handle(&s, 0x05, WM_KEYDOWN));
+        assert!(!handle(&s, 0x05, WM_KEYUP));
+        s.raw.set(Some(Hotkey { vk: 0x05, modifiers: 0 }));
+        assert!(handle(&s, 0x05, WM_KEYDOWN));
+        assert!(handle(&s, 0x05, WM_KEYUP));
+        assert!(!handle(&s, 0x06, WM_KEYDOWN), "the other side button");
+        assert_eq!(drain(&rx), [HookEvent::Pressed(Binding::Raw), HookEvent::Released(Binding::Raw)]);
+        handle(&s, LCTRL, WM_KEYDOWN);
+        assert!(!handle(&s, 0x05, WM_KEYDOWN), "Ctrl+button is another shortcut");
+        assert!(drain(&rx).is_empty());
+    }
+
+    #[test]
+    fn capture_takes_lone_right_modifiers_and_side_buttons() {
+        let (s, rx) = shared();
+        s.capturing.store(true, SeqCst);
+        assert!(!handle(&s, RCTRL, WM_KEYDOWN));
+        assert!(!handle(&s, RCTRL, WM_KEYDOWN));
+        assert!(drain(&rx).is_empty(), "nothing until release");
+        assert!(!handle(&s, RCTRL, WM_KEYUP));
+        assert_eq!(drain(&rx), [HookEvent::Captured(Hotkey { vk: RCTRL, modifiers: 0 })]);
+        handle(&s, RALT, WM_SYSKEYDOWN);
+        handle(&s, 0x4B, WM_SYSKEYDOWN);
+        handle(&s, 0x4B, WM_SYSKEYUP);
+        handle(&s, RALT, WM_SYSKEYUP);
+        assert_eq!(drain(&rx), [HookEvent::Captured(Hotkey { vk: 0x4B, modifiers: modifiers::ALT })]);
+        handle(&s, LCTRL, WM_KEYDOWN);
+        handle(&s, LCTRL, WM_KEYUP);
+        assert!(drain(&rx).is_empty(), "left Ctrl alone");
+        assert!(handle(&s, 0x06, WM_KEYDOWN));
+        assert!(handle(&s, 0x06, WM_KEYUP));
+        assert_eq!(drain(&rx), [HookEvent::Captured(Hotkey { vk: 0x06, modifiers: 0 })]);
     }
 
     #[test]

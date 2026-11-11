@@ -7,6 +7,9 @@
 - Pick your microphone under Settings → Dictation → Audio. System default follows Windows as it changes. If the mic you picked isn't connected, Quill uses the default and says so.
 - Quill skips a Bluetooth headset's mic when another mic exists, because recording from it drops the headset to call quality. It moves to another mic you set as a Windows default, or else to a microphone or headset rather than a line input or virtual cable. On by default; a mic you pick is always used.
 - Other audio while dictating: lower other apps to a percent of their volume, mute them, or pause music and videos while you speak. Audio that starts mid-recording is lowered too. Everything goes back when the recording ends, is cancelled, or fails. An app closed while lowered gets its volume back the next time it opens, and after a crash Quill puts things back on its next launch. Off by default.
+- A third activation mode, Hold or lock: hold the shortcut to talk, or tap it twice quickly to keep recording until you press it again. A single quick tap is ignored. Push to talk stays the default.
+- "Dictate without cleanup": an optional second shortcut that pastes your words as spoken, with vocabulary, snippets, and numbers still applied. Set it under Settings → Dictation.
+- The dictation shortcut can be a mouse side button, or Right Ctrl or Right Alt pressed alone. A side button used as the shortcut no longer makes the browser go back. Right Ctrl in a shortcut such as Ctrl+C still works as usual and never leaves a recording running.
 - Vocabulary has an experimental "Listen for these terms" switch, off by default. With it on, Parakeet listens for up to 26 of your vocabulary terms while it recognizes, so names and jargon come out spelled your way more often. It can miss words after long pauses.
 
 ### Changed
