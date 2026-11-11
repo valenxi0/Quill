@@ -18,7 +18,6 @@ use crate::engines::{EngineHost, TranscribeRequest};
 use super::{Controller, Heard, Job, Metrics, SessionConfig};
 
 impl Controller {
-    /// One worker per session processes segments one at a time, in order.
     pub(super) fn spawn_worker(self: &Arc<Self>, cfg: SessionConfig) -> Sender<Job> {
         let (tx, rx) = channel::<Job>();
         let me = self.clone();
@@ -68,8 +67,6 @@ impl Controller {
         tx
     }
 
-    /// Recognize one stretch of audio. Long dictations are recognized in
-    /// pieces while they are spoken, cut at pauses.
     pub(super) fn recognize(self: &Arc<Self>, cfg: &SessionConfig, samples: &[f32], metrics: &mut Metrics) -> Result<Heard, DictationError> {
         let info = cfg.engine.info();
         let request = TranscribeRequest { vocabulary_terms: cfg.vocabulary_terms.clone(), language: cfg.language.clone() };
@@ -80,7 +77,6 @@ impl Controller {
             .engines
             .with_recognizer(cfg.engine, |e| {
                 if info.recognizer == Recognizer::Cohere {
-                    // The decoder cache runs out mid-word past ~25 s.
                     let mut texts = Vec::new();
                     let mut language = None;
                     for range in split(samples, 20.0) {
@@ -110,17 +106,12 @@ impl Controller {
         Ok(Heard { text: transcript.text, language: transcript.language })
     }
 
-    /// Clean what was heard as one text, so a pause the audio was cut at
-    /// never ends a sentence the speaker meant to continue.
     pub(super) fn clean(self: &Arc<Self>, cfg: &SessionConfig, heard: &[Heard], metrics: &mut Metrics) -> SegmentResult {
         let info = cfg.engine.info();
         let raw = join_seams(&heard.iter().map(|h| h.text.clone()).collect::<Vec<_>>());
-        // One language for the whole text only when every piece agrees;
-        // otherwise the text itself decides.
         let mut languages = heard.iter().map(|h| h.language.as_deref());
         let first = languages.next().flatten();
         let language = first.filter(|l| languages.all(|o| o == Some(*l)));
-        // Loaded before the cleanup clock starts, so a cold load doesn't use up the dictation's time.
         if info.has_cleanup && cfg.recipe.directive.is_some() && quill_core::langid::is_english(&raw, language) {
             if let Ok(((), Some(load))) = self.engines.with_cleaner(|_| ()) {
                 metrics.cold_start = true;
@@ -148,9 +139,6 @@ impl Controller {
         result
     }
 
-    /// Run a history entry's raw transcript through cleanup again at
-    /// `level`. Uses S1-mini when it is installed, whatever the engine.
-    /// Returns the text and why cleanup kept any words as heard.
     pub fn redo(self: &Arc<Self>, raw: &str, level: CleanupLevel, app_exe: &str, context: AppContext) -> Result<(String, Option<String>), String> {
         if raw.trim().is_empty() {
             return Err("This entry has no raw transcript to redo.".into());
@@ -181,7 +169,6 @@ impl Controller {
     }
 }
 
-/// S1-mini for a redo, outside any dictation.
 struct EngineCleaner<'a> {
     engines: &'a EngineHost,
 }
@@ -192,7 +179,6 @@ impl Cleaner for EngineCleaner<'_> {
     }
 }
 
-/// Adapts the engine host's S1-mini to the pipeline's `Cleaner`.
 struct HostCleaner<'a> {
     controller: &'a Arc<Controller>,
     generation: u64,

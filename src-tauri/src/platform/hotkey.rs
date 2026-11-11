@@ -29,9 +29,6 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HookEvent {
-    /// A dictation shortcut went down or up, or a lone-modifier one became a
-    /// chord. `at` is `now_ms()` when the hook saw it, so a slow consumer
-    /// can't stretch a tap.
     Shortcut { binding: Binding, input: Input, at: u64 },
     Escape,
     Captured(Hotkey),
@@ -42,18 +39,14 @@ pub enum HookEvent {
     SketchUndo,
 }
 
-/// One dictation shortcut's state.
 struct Trigger {
-    /// 0 when unset.
     vk: AtomicU32,
     mods: AtomicU32,
     /// The chord is currently held down.
     down: AtomicBool,
     /// The main key went down as part of the chord and hasn't come up yet.
     /// Its repeats and key-up are swallowed even if a modifier came up first.
-    /// For a lone modifier: the key is physically down.
     latched: AtomicBool,
-    /// A lone modifier's press already became a chord.
     chorded: AtomicBool,
 }
 
@@ -82,7 +75,6 @@ impl Trigger {
 
 struct Shared {
     dictate: Trigger,
-    /// Dictate without cleanup.
     raw: Trigger,
     /// Global hook paused (hotkey capture in Settings, or Quill off).
     suspended: AtomicBool,
@@ -90,8 +82,6 @@ struct Shared {
     capturing: AtomicBool,
     modifier_keys: AtomicU32,
     capture_key: AtomicU32,
-    /// Right Ctrl or Right Alt went down alone during capture; its release
-    /// captures it.
     capture_lone: AtomicU32,
     /// Escape is intercepted only while dictation is busy.
     escape: EscapeSequence,
@@ -107,7 +97,6 @@ struct Shared {
 static SHARED: OnceLock<Shared> = OnceLock::new();
 static EPOCH: OnceLock<Instant> = OnceLock::new();
 
-/// Milliseconds on the clock shortcut events and ticks are stamped with.
 pub fn now_ms() -> u64 {
     EPOCH.get_or_init(Instant::now).elapsed().as_millis() as u64
 }
@@ -169,7 +158,6 @@ impl HotkeyHook {
         Self::shared().dictate.set(Some(hotkey));
     }
 
-    /// The no-cleanup shortcut, or `None` when it isn't set.
     pub fn set_raw_hotkey(&self, hotkey: Option<Hotkey>) {
         Self::shared().raw.set(hotkey);
     }
@@ -284,12 +272,10 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
     CallNextHookEx(None, code, wparam, lparam)
 }
 
-/// A mouse side button from the mouse hook. Returns true to swallow it.
 pub fn mouse_button(vk: u32, is_down: bool) -> bool {
     SHARED.get().is_some_and(|s| handle(s, vk, if is_down { WM_KEYDOWN } else { WM_KEYUP }))
 }
 
-/// A click or the wheel: Ctrl+click and Ctrl+wheel are chords too.
 pub fn mouse_chord() {
     if let Some(s) = SHARED.get() {
         mouse_chord_on(s);
@@ -351,8 +337,6 @@ fn handle(s: &Shared, vk: u32, msg: u32) -> bool {
     }
 
     let triggers = [(&s.dictate, Binding::Dictate), (&s.raw, Binding::Raw)];
-    // A lone modifier sees every key first, so a chord that Sketch or
-    // another shortcut swallows still ends its press.
     for (t, binding) in triggers {
         if t.is_lone() {
             lone_modifier_key(s, t, binding, vk, is_down, is_up);
@@ -386,7 +370,6 @@ fn handle(s: &Shared, vk: u32, msg: u32) -> bool {
     triggers.into_iter().fold(false, |swallow, (t, binding)| trigger_key(s, t, binding, vk, is_down, is_up, mods) || swallow)
 }
 
-/// One shortcut's part in a key event. Returns true to swallow the key.
 fn trigger_key(s: &Shared, t: &Trigger, binding: Binding, vk: u32, is_down: bool, is_up: bool, mods: u32) -> bool {
     let want_vk = t.vk.load(SeqCst);
     let want_mods = t.mods.load(SeqCst);
@@ -424,26 +407,18 @@ fn trigger_key(s: &Shared, t: &Trigger, binding: Binding, vk: u32, is_down: bool
     false
 }
 
-/// Whether a modifier other than `vk` is held.
 fn other_modifiers_held(s: &Shared, vk: u32) -> bool {
     let own = MODIFIER_KEYS.iter().position(|&k| k == vk).map_or(0, |i| 1 << i);
     s.modifier_keys.load(SeqCst) & !own != 0
 }
 
-/// Right Ctrl or Right Alt as the whole shortcut. The key itself always
-/// reaches the app, so Ctrl and Alt shortcuts keep working: another key
-/// going down while it is held makes the press a chord.
 fn lone_modifier_key(s: &Shared, t: &Trigger, binding: Binding, vk: u32, is_down: bool, is_up: bool) {
-    // During a Sketch the same modifier may be the draw key. The key is still
-    // tracked, so a release or auto-repeat around the Sketch's edges can't
-    // leave it latched or read as a fresh press; it just starts nothing.
     let sketching = s.sketching.load(SeqCst);
     if vk == t.vk.load(SeqCst) {
         if is_down && !t.latched.swap(true, SeqCst) && !sketching && !other_modifiers_held(s, vk) {
             t.chorded.store(false, SeqCst);
             t.down.store(true, SeqCst);
             if vk == VK_RMENU.0 as u32 {
-                // Keeps the release from opening the app's menu bar.
                 tap_mask_key();
             }
             shortcut(s, binding, Input::Pressed);
@@ -458,16 +433,12 @@ fn lone_modifier_key(s: &Shared, t: &Trigger, binding: Binding, vk: u32, is_down
     }
 }
 
-/// Once per press. The release still follows, to end a recording that
-/// went on past the chord.
 fn chord(s: &Shared, t: &Trigger, binding: Binding) {
     if t.is_lone() && t.down.load(SeqCst) && !t.chorded.swap(true, SeqCst) {
         shortcut(s, binding, Input::Chord);
     }
 }
 
-/// Settings captures Right Ctrl or Right Alt when one is pressed and
-/// released with nothing else.
 fn capture_lone_modifier(s: &Shared, vk: u32, is_down: bool, is_up: bool) {
     let lone = vk == VK_RCONTROL.0 as u32 || vk == VK_RMENU.0 as u32;
     if is_down && s.capture_lone.load(SeqCst) != vk {
@@ -485,7 +456,6 @@ mod tests {
         HookEvent::Shortcut { binding, input, at: 0 }
     }
 
-    /// Events with their time stamps zeroed.
     fn drain(rx: &Receiver<HookEvent>) -> Vec<HookEvent> {
         rx.try_iter()
             .map(|e| match e {

@@ -49,7 +49,6 @@ pub trait SpeechEngine: Send {
 pub trait TextCleaner: Send {
     fn load(&mut self) -> Result<(), String>;
     fn is_loaded(&self) -> bool;
-    /// Gives up with `CleanError::TimedOut` at `deadline`.
     fn clean(&mut self, text: &str, directive: Directive, deadline: Instant) -> Result<String, CleanError>;
     fn unload(&mut self);
 }
@@ -73,8 +72,6 @@ pub struct EngineHost {
     hotwords: Hotwords,
 }
 
-/// Parakeet hotwords, shared by the host and the engine: whether they are
-/// on, and whether they failed to start on this PC.
 #[derive(Clone, Default)]
 pub struct Hotwords {
     pub on: Arc<AtomicBool>,
@@ -95,13 +92,10 @@ impl EngineHost {
         })
     }
 
-    /// Turn vocabulary hotwords on or off. An engine that decodes differently
-    /// for them reloads on its next use.
     pub fn set_hotwords(&self, on: bool) {
         self.hotwords.on.store(on, Relaxed);
     }
 
-    /// Hotwords were turned on but could not start.
     pub fn hotwords_unavailable(&self) -> bool {
         self.hotwords.unavailable.load(Relaxed)
     }
@@ -162,7 +156,6 @@ impl EngineHost {
             let result = e.load();
             self.loading.lock().remove(&engine);
             if result.is_err() {
-                // A reload frees the old recognizer first.
                 self.loaded.lock().remove(&engine);
             }
             result?;

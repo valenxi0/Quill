@@ -25,9 +25,6 @@ const N_CTX: u32 = 4096;
 const N_BATCH: u32 = 2048;
 const MAX_OUTPUT: usize = 1024;
 
-/// How long one cleanup may take, from its prompt and output budget in
-/// tokens. See "Cleanup and model evaluation" in docs/DEVELOPMENT.md for
-/// the measurements behind these.
 fn time_limit(prompt: usize, budget: usize) -> Duration {
     CALL_BASE + PROMPT_TOKEN * prompt as u32 + OUTPUT_TOKEN * budget as u32
 }
@@ -113,7 +110,6 @@ impl TextCleaner for S1Mini {
         if !self.path.exists() {
             return Err(format!("{} is missing. Download the engine again.", self.path.display()));
         }
-        // Covers ggml's Vulkan start in `backend()` as well as the model.
         let _start = gpu::start("S1-mini");
         let gpu_wanted = gpu::use_gpu();
         let model = match self.load_model(gpu_wanted) {
@@ -212,11 +208,6 @@ mod tests {
         assert!(user_turn(Directive::default(), "hello").contains("[Styling: semi-formal] [Structure: prose] [Context: general]"));
     }
 
-    /// Loads the installed S1-mini the way the app does and prints which ggml
-    /// devices this process saw. Set `QUILL_SIMULATE_GPU_CRASH=1` to abort
-    /// during the GPU start. `QUILL_GPU_PROBE_RETRY=1` then does what "Try the
-    /// GPU again" does: forget the crash and start a new process, which
-    /// inherits this one's environment as a restarted Quill would.
     #[test]
     #[ignore = "needs the installed S1-mini weights"]
     fn gpu_start_probe() {

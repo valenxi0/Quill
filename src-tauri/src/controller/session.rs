@@ -24,8 +24,6 @@ use crate::vad::Vad;
 use super::{Controller, DictationView, Job, Preview, Session, SessionConfig};
 
 impl Controller {
-    /// A shortcut event, stamped `at` on the hook's clock. `binding` is
-    /// `None` for Escape and timer ticks. Returns when to send the next tick.
     pub fn on_hotkey(self: &Arc<Self>, input: Input, binding: Option<Binding>, at: u64) -> Option<u64> {
         let (mode, lone) = self.stores.settings.read(|s| {
             let vd = &s.voice_dictation;
@@ -39,13 +37,11 @@ impl Controller {
         let (act, deadline) = {
             let mut shortcut = self.shortcut.lock();
             let phase = self.phase();
-            // While a session runs, only the shortcut that started it drives it.
             if let (Some(b), Some((owner, generation))) = (binding, shortcut.owner) {
                 if b != owner && phase.is_busy() && self.is_current(generation) {
                     return shortcut.machine.deadline();
                 }
             }
-            // Escape and ticks carry no binding, and the machine doesn't read one for them.
             shortcut.machine.on(mode, lone, binding.unwrap_or(Binding::Dictate), input, at, phase)
         };
         match act {
@@ -63,7 +59,6 @@ impl Controller {
         deadline
     }
 
-    /// Launcher commands (`quill://…`, `--toggle`, tray).
     pub fn command(self: &Arc<Self>, cmd: &str) {
         let phase = self.phase();
         match cmd {
@@ -83,7 +78,6 @@ impl Controller {
         }
     }
 
-    /// The first error that stops a dictation from starting, if any.
     pub fn readiness_error(&self) -> Option<DictationError> {
         let settings = self.stores.settings.get();
         if !settings.enabled {
@@ -107,9 +101,7 @@ impl Controller {
         self.start_as(false);
     }
 
-    /// `raw`: dictate without cleanup, whatever the style.
     fn start_as(self: &Arc<Self>, raw: bool) {
-        // One start at a time (the hotkey and a launcher may race).
         if self.phase().is_busy() || self.starting.swap(true, SeqCst) {
             return;
         }
@@ -117,7 +109,6 @@ impl Controller {
         self.starting.store(false, SeqCst);
     }
 
-    /// `raw`: dictate without cleanup.
     pub(super) fn start_inner(self: &Arc<Self>, sketch: Option<crate::platform::screen::Monitor>, raw: bool) {
         if self.phase().is_busy() {
             return;
@@ -126,13 +117,10 @@ impl Controller {
             self.fail(e);
             return;
         }
-        // A new dictation stops the current correction watch.
         self.watch_generation.fetch_add(1, SeqCst);
         let settings = self.stores.settings.get();
         let vd = &settings.voice_dictation;
 
-        // Capture the target while the microphone opens, so a slow UI
-        // Automation lookup doesn't clip the first word.
         let fits_to_cursor = vd.fits_to_cursor;
         let capture = std::thread::spawn(move || target::capture(fits_to_cursor));
         let mic = crate::audio::Microphone { saved: vd.input_device.clone(), avoid_bluetooth: vd.avoid_bluetooth_mic };
@@ -157,7 +145,6 @@ impl Controller {
         let context = classify(&target.exe, &target.focused_name, target.aumid.as_deref(), vd.adapts_to_app);
         let info = vd.engine.info();
         let vocabulary = for_app(&vd.vocabulary, &target.exe);
-        // Parakeet caps its hotwords, so this app's terms go first.
         let terms = if info.recognizer == Recognizer::Parakeet { app_terms_first(&vocabulary) } else { vocabulary_terms(&vocabulary) };
         self.engines.set_hotwords(vd.wants_hotwords());
         let protected = protected_terms(&vocabulary);
@@ -237,8 +224,6 @@ impl Controller {
             }
         }
 
-        // Warm the engine so the load overlaps the speech. A failure is kept
-        // for Settings and never flashed while the user is talking.
         let me = self.clone();
         let engine = vd.engine;
         std::thread::spawn(move || {
@@ -251,13 +236,9 @@ impl Controller {
         self.spawn_monitor(generation);
     }
 
-    /// Publishes the level ~12 times a second, feeds the voice activity
-    /// detector, cuts early segments once a second, runs the live preview,
-    /// and stops at the 10-minute cap.
     fn spawn_monitor(self: &Arc<Self>, generation: u64) {
         let me = self.clone();
         std::thread::spawn(move || {
-            // Loaded here, so a slow load never delays the recording.
             let vad = Vad::new();
             if let Some(s) = me.session.lock().as_mut().filter(|s| s.generation == generation) {
                 s.vad = vad;
@@ -285,7 +266,6 @@ impl Controller {
                         let segmenter = &mut s.segmenter;
                         let piece = rec.with_samples(|samples| segmenter.poll(samples).map(|r| (samples[r.clone()].to_vec(), r)));
                         if let Some((piece, range)) = piece {
-                            // A stretch with no speech is never recognized.
                             if s.vad.as_ref().is_none_or(|v| v.map.has_speech(&range)) {
                                 let _ = s.worker.send(Job::Segment(piece));
                             }
@@ -332,8 +312,6 @@ impl Controller {
         let early = s.segmenter.committed() > 0;
         let whole_tail = s.segmenter.tail(&samples);
         let tail_range = samples.len() - whole_tail.len()..samples.len();
-        // The detector trims silence at both ends of the tail. Without it, a
-        // quiet tail after early segments is dropped.
         let tail = match &speech {
             Some(map) => map.crop(&tail_range).map(|r| &samples[r]),
             None => (whole_tail.len() >= SAMPLE_RATE / 4 && peak(whole_tail) >= MIN_SPEECH_PEAK).then_some(whole_tail),
@@ -350,9 +328,6 @@ impl Controller {
         let _ = s.worker.send(Job::Finish { stopped, audio_seconds, rms_dbfs: rms_dbfs(&samples) });
     }
 
-    /// Drop the recording and go straight back to idle, with no outcome on
-    /// screen: a quick tap in hold-or-lock, or a lone-modifier shortcut that
-    /// turned out to be part of a key chord.
     pub fn discard(self: &Arc<Self>) {
         if self.session.lock().as_ref().is_none_or(|s| s.sketch) {
             return;
@@ -375,8 +350,6 @@ impl Controller {
     }
 
     pub fn cancel(self: &Arc<Self>) {
-        // Invalidate every in-flight step under the phase lock, so no stale
-        // step can move the phase afterwards.
         let view = self.error_view(&DictationError::Cancelled);
         let mut seq = 0;
         let cancelled = self.transition(|v| {
@@ -394,7 +367,6 @@ impl Controller {
         if let Some(sketch) = self.end_sketch() {
             sketch.cancel();
         }
-        // Drop the audio.
         if let Some(s) = self.session.lock().take() {
             drop(s.recording);
         }

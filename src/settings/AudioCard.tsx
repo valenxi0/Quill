@@ -25,7 +25,6 @@ function micDetail(mics: Microphones | null, systemDefault: boolean) {
   return systemDefault ? `Follows Windows. Now using ${mics.using}.` : `Using ${mics.using}.`;
 }
 
-/** The Dictation page's Audio card: microphone and other apps' audio. */
 export function AudioCard({ ctx }: { ctx: Ctx }) {
   const vd = ctx.state.settings.voiceDictation;
   const [mics, setMics] = useState<Microphones | null>(null);
@@ -40,7 +39,6 @@ export function AudioCard({ ctx }: { ctx: Ctx }) {
         .then((m) => live && setMics(m))
         .catch(console.error);
     load();
-    // Plugging in a mic happens outside Settings.
     window.addEventListener("focus", load);
     return () => {
       live = false;

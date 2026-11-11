@@ -26,7 +26,6 @@ export function HistoryCard({ ctx }: { ctx: Ctx }) {
   const [limit, setLimit] = useState(PAGE);
   const [shorten, setShorten] = useState<{ keep: HistoryRetention; count: number } | null>(null);
   const rank = (r: HistoryRetention) => RETENTION.findIndex((o) => o.value === r);
-  // A shorter span deletes older entries at once, so ask first.
   const changeRetention = (keep: HistoryRetention) => {
     if (rank(keep) >= rank(retention)) return ctx.saveVd({ historyRetention: keep });
     api.countExpiringHistory(keep).then((count) => (count > 0 ? setShorten({ keep, count }) : ctx.saveVd({ historyRetention: keep })));

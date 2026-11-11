@@ -1,6 +1,3 @@
-//! Capture endpoints: their friendly names, the Windows defaults, and which
-//! ones are Bluetooth headsets or real microphones.
-
 use quill_core::microphone::{choose, is_bluetooth_instance, InputDevice, MicChoice};
 use quill_core::settings::SavedDevice;
 use windows::core::{HSTRING, PCWSTR, PWSTR};
@@ -36,7 +33,6 @@ fn id_of(device: &IMMDevice) -> Option<String> {
     take_string(unsafe { device.GetId() }.ok()?)
 }
 
-/// Read one property and convert it with `read`.
 fn property<T>(device: &IMMDevice, key: &PROPERTYKEY, read: impl FnOnce(&PROPVARIANT) -> Option<T>) -> Option<T> {
     unsafe {
         let store = device.OpenPropertyStore(STGM_READ).ok()?;
@@ -84,7 +80,6 @@ pub fn is_bluetooth(endpoint_id: &str) -> bool {
     false
 }
 
-/// The default capture endpoints: console, multimedia, communications.
 fn defaults(e: &IMMDeviceEnumerator) -> Vec<String> {
     [eConsole, eMultimedia, eCommunications]
         .into_iter()
@@ -92,7 +87,6 @@ fn defaults(e: &IMMDeviceEnumerator) -> Vec<String> {
         .collect()
 }
 
-/// Active capture endpoints, and the default ones by role.
 pub fn inputs() -> (Vec<InputDevice>, Vec<String>) {
     let Ok(e) = enumerator() else { return (Vec::new(), Vec::new()) };
     let mut devices = Vec::new();
@@ -107,13 +101,10 @@ pub fn inputs() -> (Vec<InputDevice>, Vec<String>) {
     (devices, defaults(&e))
 }
 
-/// Whether `id` is an active capture endpoint, without listing them all.
 fn is_active_input(e: &IMMDeviceEnumerator, id: &str) -> bool {
     unsafe { e.GetDevice(&HSTRING::from(id)) }.and_then(|d| unsafe { d.GetState() }).is_ok_and(|s| s == DEVICE_STATE_ACTIVE)
 }
 
-/// The mic a recording should open. Lists devices only when it must: a saved
-/// mic that isn't connected, or a Bluetooth default to look past.
 pub fn resolve(saved: Option<&SavedDevice>, avoid_bluetooth: bool) -> MicChoice {
     let Ok(e) = enumerator() else { return MicChoice::system_default(None, None) };
     if let Some(s) = saved {

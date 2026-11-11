@@ -40,11 +40,9 @@ impl Controller {
         let own = self.shell.own_windows();
         let still_current = || self.is_current(cfg.generation);
 
-        // Only "press enter" was said: press it and deliver no text.
         if delivery.text.is_empty() {
             let pressed = paste::focus(&cfg.target, &own) && still_current() && paste::press_enter();
             if pressed {
-                // The field moved on: the next dictation doesn't continue the last.
                 if let Some(last) = self.last_paste.lock().as_mut() {
                     last.pasted = false;
                 }
@@ -61,14 +59,11 @@ impl Controller {
             return;
         }
 
-        // The clipboard is authoritative: write it first.
         let text = delivery.text.trim().to_string();
         *self.last_paste.lock() = Some(LastPaste::delivered(text.clone(), cfg.target.clone()));
         let (restore, fits) = self.stores.settings.read(|s| (s.voice_dictation.restore_clipboard, s.voice_dictation.fits_to_cursor));
         let saved = if restore { paste::SavedClipboard::take() } else { None };
         let Some(mut written) = paste::write_clipboard_text(&delivery.text) else {
-            // The saved copy may be the only one left: a snapshot taken over
-            // an earlier transcript replaced that one's pending restore.
             if let Some(saved) = saved {
                 saved.restore_now(None);
             }
@@ -84,10 +79,6 @@ impl Controller {
         } else {
             vec![delivery.text.clone()]
         };
-        // Checked again right before each keystroke: Esc can land while the
-        // paste waits for the shortcut's modifiers to come up. The user's
-        // input count is read there too, so input during the waits after the
-        // paste (Enter, the next piece) counts as input since.
         let input_at_paste = Cell::new(None);
         let before_keys = || {
             input_at_paste.set(input_activity::count());
@@ -95,7 +86,6 @@ impl Controller {
         };
         let pasted = if chunks.len() > 1 {
             let sent = paste_in_pieces(&cfg.target, &own, &chunks, before_keys);
-            // Leave the whole text on the clipboard, not the last piece.
             written = paste::write_clipboard_text(&delivery.text).unwrap_or(written);
             sent
         } else {
@@ -115,11 +105,9 @@ impl Controller {
             (true, Some(saved)) => {
                 saved.restore_after(paste::restore_delay(&cfg.target), written);
             }
-            // Cancelled before the paste: the user's copy comes back now.
             (false, Some(saved)) if !still_current() => {
                 saved.restore_now(Some(written));
             }
-            // A failed paste leaves the transcript, so it can be pasted by hand.
             _ => {}
         }
         if !pasted {
@@ -142,7 +130,6 @@ impl Controller {
             },
         );
         if !shown {
-            // Cancelled during delivery: nothing is recorded or learned.
             return;
         }
         self.record(cfg, std::slice::from_ref(&result), &raw, &text, &metrics, release_to_paste, pasted);
@@ -151,7 +138,6 @@ impl Controller {
         self.schedule_idle_unload();
     }
 
-    /// Paste the last transcript again, into the app it went to.
     pub fn paste_last(self: &Arc<Self>) {
         let Some(last) = self.last_paste.lock().clone() else { return };
         let own = self.shell.own_windows();
@@ -180,7 +166,6 @@ impl Controller {
                 saved.restore_after(paste::restore_delay(&last.target), written);
             }
             let mut stored = me.last_paste.lock();
-            // Only if no newer dictation replaced it meanwhile.
             if let Some(current) = stored.as_mut().filter(|c| c.at == last.at) {
                 *current = LastPaste { at: Instant::now(), input: input_at_paste.get(), pasted: true, entered: false, ..last };
             }
@@ -188,8 +173,6 @@ impl Controller {
     }
 }
 
-/// Pieces of a long terminal paste, one after another. Returns whether all
-/// were sent.
 pub(super) fn paste_in_pieces(target: &target::Target, own: &[isize], chunks: &[String], still_current: impl Fn() -> bool) -> bool {
     for (i, chunk) in chunks.iter().enumerate() {
         if i > 0 {

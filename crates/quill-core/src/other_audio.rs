@@ -47,7 +47,6 @@ pub struct VolumeChange {
 /// How long Quill keeps a change whose app never comes back.
 pub const KEEP_FOR_SECS: u64 = 30 * 24 * 60 * 60;
 
-/// What `restore` decided.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct RestorePlan {
     pub restores: Vec<Restore>,

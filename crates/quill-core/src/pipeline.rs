@@ -42,7 +42,6 @@ pub fn cleanup_budget(words: usize) -> Duration {
     CLEANUP_BASE + CLEANUP_PER_WORD * words as u32
 }
 
-/// Generous next to measured CPU speed; see docs/DEVELOPMENT.md.
 const CLEANUP_BASE: Duration = Duration::from_secs(20);
 const CLEANUP_PER_WORD: Duration = Duration::from_millis(100);
 
@@ -370,7 +369,6 @@ mod tests {
         assert_eq!(cleanup_note(&[out]).as_deref(), Some("Kept your words: cleanup took too long."));
     }
 
-    /// Takes 50 ms per call and always drops "not", so the guard always objects.
     struct Slow(usize);
 
     impl Cleaner for Slow {

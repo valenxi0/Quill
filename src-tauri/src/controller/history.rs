@@ -70,7 +70,6 @@ impl Controller {
         }
     }
 
-    /// Reread the field at 12 s and 45 s and learn misheard-word fixes.
     fn watch_corrections(self: &Arc<Self>, element: u64, pasted: String, app_exe: String) {
         let watch = self.watch_generation.fetch_add(1, SeqCst) + 1;
         let me = self.clone();
@@ -86,7 +85,6 @@ impl Controller {
                 if me.watch_generation.load(SeqCst) != watch {
                     return;
                 }
-                // A cleared field means the message was sent: keep the previous read.
                 match read() {
                     Some(field) if !field.trim().is_empty() => {
                         if let Some(region) = anchor.locate(&field) {

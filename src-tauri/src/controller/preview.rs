@@ -9,7 +9,6 @@ use quill_core::text::finish::join_seams;
 use super::{Controller, PREVIEW_WINDOW, Session};
 
 impl Controller {
-    /// Start a preview decode of the audio not yet committed, if one is due.
     pub(super) fn poll_preview(self: &Arc<Self>, generation: u64, s: &mut Session) {
         let Some(p) = s.preview.as_mut() else { return };
         let Some(rec) = s.recording.as_ref() else { return };
@@ -21,7 +20,6 @@ impl Controller {
             let start = committed.max(samples.len().saturating_sub(PREVIEW_WINDOW));
             (samples[start.min(samples.len())..].to_vec(), samples.len())
         });
-        // Skip when nothing new was said since the last preview.
         let fresh = p.covered.max(committed)..len;
         if fresh.is_empty() || s.vad.as_ref().is_some_and(|v| !v.map.has_speech(&fresh)) {
             p.next_at = Instant::now() + Duration::from_millis(300);
@@ -39,7 +37,6 @@ impl Controller {
                 .ok()
                 .and_then(|(r, _)| r.ok())
                 .map(|t| t.text);
-            // Wait at least as long as this decode took before the next one.
             let spent = started.elapsed();
             if let Some(s) = me.session.lock().as_mut().filter(|s| s.generation == generation) {
                 if let Some(p) = s.preview.as_mut() {

@@ -37,8 +37,6 @@ struct Hook {
 
 static HOOK: Mutex<Option<Hook>> = Mutex::new(None);
 
-/// A `WH_MOUSE_LL` hook on its own thread with a message loop, removed
-/// when dropped.
 struct HookThread {
     thread_id: u32,
     thread: Option<std::thread::JoinHandle<()>>,
@@ -147,10 +145,6 @@ impl Drop for MouseHook {
     }
 }
 
-/// Installed only while a mouse side button is a dictation shortcut, Right
-/// Ctrl or Right Alt alone is one, or Settings is capturing. It swallows only
-/// the side button that is the shortcut, so the browser doesn't also go back,
-/// and reports clicks and the wheel so Ctrl+click is a chord.
 pub struct ButtonHook {
     _thread: HookThread,
 }

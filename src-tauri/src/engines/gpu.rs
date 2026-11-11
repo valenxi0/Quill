@@ -1,5 +1,3 @@
-//! Remembers a GPU start that never returned (see `quill_core::gpu`).
-//!
 //! whisper.cpp and llama.cpp share one ggml. ggml creates the Vulkan instance
 //! the first time anything asks for its backend list (`LlamaBackend::init`,
 //! or whisper's context), and only once per process. So the choice is made
@@ -16,20 +14,15 @@ use crate::paths;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// A start older than this when Quill quits counts as hung, and its marker
-/// stays so the next launch uses the CPU.
 const HUNG_AFTER: Duration = Duration::from_secs(60);
 
 #[derive(Default)]
 struct Starts {
     count: usize,
-    /// When the count last went from 0 to 1.
     since: Option<Instant>,
     exiting: bool,
 }
 
-/// The marker file, and the GPU starts in flight. The file exists while a
-/// start is in flight, or after a start never returned.
 struct Marker {
     path: PathBuf,
     starts: Mutex<Starts>,
@@ -44,7 +37,6 @@ impl Marker {
         self.starts.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Reads the marker left by an earlier run, deleting it if it is stale.
     fn decide(&self, version: &str) -> GpuChoice {
         let text = std::fs::read_to_string(&self.path).ok();
         if gpu_crashed(text.as_deref(), version) {
@@ -76,7 +68,6 @@ impl Marker {
         let mut s = self.starts();
         if s.count == 0 {
             s.since = Some(Instant::now());
-            // A start after the exit event would outlive the exit cleanup.
             if !s.exiting {
                 if let Err(e) = self.write(version) {
                     log::warn!("could not write the GPU start marker: {e}");
@@ -95,7 +86,6 @@ impl Marker {
         }
     }
 
-    /// Quitting mid-start is not a driver crash, unless the start had hung.
     fn release_on_exit(&self, now: Instant) {
         let mut s = self.starts();
         s.exiting = true;
@@ -108,8 +98,6 @@ impl Marker {
 static MARKER: LazyLock<Marker> = LazyLock::new(|| Marker::new(paths::gpu_marker_file()));
 static CHOICE: OnceLock<GpuChoice> = OnceLock::new();
 
-/// Keeps ggml from registering its Vulkan backend, so nothing in this
-/// process loads the graphics driver. Returns whether that worked.
 fn disable_vulkan() -> bool {
     // ggml reads this with the C runtime's getenv, which never sees
     // SetEnvironmentVariable (std::env::set_var). _putenv_s sets both copies.
@@ -120,7 +108,6 @@ fn disable_vulkan() -> bool {
         extern "C" {
             fn _putenv_s(name: *const std::ffi::c_char, value: *const std::ffi::c_char) -> i32;
         }
-        // SAFETY: both arguments are NUL-terminated literals.
         let ok = unsafe { _putenv_s(c"GGML_DISABLE_VULKAN".as_ptr(), c"1".as_ptr()) } == 0;
         std::env::remove_var("GGML_DISABLE_VULKAN");
         ok
@@ -129,7 +116,6 @@ fn disable_vulkan() -> bool {
     false
 }
 
-/// Decided once per process, on first use.
 fn choice() -> GpuChoice {
     *CHOICE.get_or_init(|| match MARKER.decide(VERSION) {
         GpuChoice::CpuAfterCrash if disable_vulkan() => {
@@ -144,29 +130,22 @@ fn choice() -> GpuChoice {
     })
 }
 
-/// Whether engines should start on the GPU.
 pub fn use_gpu() -> bool {
     cfg!(feature = "vulkan") && choice() == GpuChoice::Gpu
 }
 
-/// Whether this run of Quill is on the CPU because a GPU start crashed.
 pub fn fallback() -> bool {
     choice() == GpuChoice::CpuAfterCrash
 }
 
-/// Forget the crash. Takes effect at the next launch, since ggml's backend
-/// list is fixed for the life of the process.
 pub fn retry() -> io::Result<()> {
     MARKER.remove()
 }
 
-/// Call from the app's exit event.
 pub fn release_on_exit() {
     MARKER.release_on_exit(Instant::now());
 }
 
-/// Hold for the whole GPU start; the marker is removed when the last one
-/// drops, on success or error.
 pub struct GpuStart(bool);
 
 pub fn start(_engine: &str) -> GpuStart {

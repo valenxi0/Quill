@@ -22,36 +22,27 @@ const BARE_CONTRACTIONS: &[&str] = &[
     "hasnt", "havent", "hadnt", "mustnt", "neednt", "aint",
 ];
 
-/// Words that say little about whether cleanup kept the meaning: fillers,
-/// self-correction cues, units the number formatter turns into symbols
-/// ("$3.50", "5°C", "20 km/h"), and common short words. Lowercase, with
-/// apostrophes dropped.
 const LIGHT: &[&str] = &[
-    // Fillers and self-corrections.
     "so", "okay", "ok", "well", "like", "basically", "actually", "literally", "honestly", "just", "really", "yeah",
     "right", "maybe", "please", "no", "sorry", "wait", "scratch", "oops", "kinda", "sorta", "know", "mean", "meant",
     "kind", "sort", "think", "thing", "things", "some", "still", "going", "gonna", "wanna", "hey", "look", "alright",
     "anyway", "yep", "yup", "nope", "guess",
-    // Units.
     "dollar", "dollars", "cent", "cents", "percent", "point", "degree", "degrees", "celsius", "fahrenheit",
     "kilometer", "kilometers", "kilometre", "kilometres", "meter", "meters", "metre", "metres", "mile", "miles", "per",
     "hour", "hours", "minute", "minutes", "seconds", "pound", "pounds", "euro", "euros", "kilogram", "kilograms",
     "kilo", "kilos", "gram", "grams", "inch", "inches", "foot", "feet", "oclock", "pm",
-    // Common short words.
     "a", "an", "the", "and", "or", "but", "to", "of", "in", "on", "at", "for", "with", "by", "as", "from", "into",
     "about", "is", "are", "am", "was", "were", "be", "been", "it", "its", "this", "that", "i", "me", "my", "we", "us",
     "our", "you", "your", "he", "she", "they", "them", "their", "there", "here", "do", "not", "have", "has", "will",
     "would", "could", "should", "can", "if", "whether", "then", "when", "what", "which", "because", "also", "very",
 ];
 
-/// Single letters ("p m", "e mail") count as light.
 fn is_light(word: &str) -> bool {
     word.chars().count() == 1 || is_hesitation(word) || LIGHT.contains(&word)
 }
 
 const FILLER_PAIRS: &[(&str, &str)] = &[("you", "know"), ("i", "mean"), ("i", "meant")];
 
-/// Cues that take back what came before: "Friday. I meant Monday."
 const RETRACTIONS: &[&[&str]] = &[
     &["i", "mean"],
     &["i", "meant"],
@@ -62,12 +53,8 @@ const RETRACTIONS: &[&[&str]] = &[
     &["let", "me", "rephrase"],
 ];
 
-/// Cues that open a correction but may only add to what came before:
-/// "Send it today. Actually, also copy Sam."
 const SOFT_CORRECTIONS: &[&[&str]] = &[&["sorry"], &["no"], &["actually"], &["wait"], &["rather"], &["oops"]];
 
-/// How many of `words` open with correction cues, and whether they take
-/// back what came before. Cues chain, so "Sorry, I meant" takes it back.
 fn correction(words: &[String]) -> (usize, bool) {
     let (mut at, mut end, mut retracts) = (0, 0, false);
     loop {
@@ -89,8 +76,6 @@ fn correction(words: &[String]) -> (usize, bool) {
     }
 }
 
-/// Words no sentence ends on, so a clause ending on one, with more after
-/// it, is a false start: "I think we should." "Can you send me the."
 const DANGLING: &[&str] = &["a", "an", "the", "and", "or", "but", "because", "than", "if", "my", "your", "our", "their"];
 
 const NUMBER_WORDS: &[(&str, &str)] = &[
@@ -174,9 +159,6 @@ pub fn negation_count(text: &str) -> usize {
         .count()
 }
 
-/// The words with stutters said once: "I'm not, I'm not going" keeps one
-/// "I'm not", so cleaning the repeat away doesn't read as a lost negation.
-/// A single repeated word stays, since "not not bad" means something.
 fn unstuttered(words: &[String]) -> Vec<&String> {
     let mut out: Vec<&String> = Vec::new();
     let mut i = 0;
@@ -249,8 +231,6 @@ pub fn dropped_sentence(raw: &str, cleaned: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-/// Lowercase words with contractions spelled out and list markers left
-/// out, so "don't" matches "do not" and "1. Update" matches "update".
 fn tokens(text: &str) -> Vec<String> {
     let text = LIST_MARKERS.replace_all(text, "").replace(['\u{2019}', '\u{2018}'], "'");
     let mut out = Vec::new();
@@ -298,8 +278,6 @@ fn tokens(text: &str) -> Vec<String> {
     out
 }
 
-/// The words that carry meaning: no figures, number words, fillers, units,
-/// or common short words.
 fn meaning(tokens: &[String]) -> Vec<&str> {
     let mut out = Vec::new();
     let mut i = 0;
@@ -317,10 +295,8 @@ fn meaning(tokens: &[String]) -> Vec<&str> {
     out
 }
 
-/// A text's words, for asking whether another text's words appear in it.
 struct Pool {
     words: HashSet<String>,
-    /// Lowercase letters and digits only, so "git hub" finds "GitHub".
     squashed: String,
 }
 
@@ -330,8 +306,6 @@ impl Pool {
         Self { words, squashed: text.to_lowercase().chars().filter(|c| c.is_alphanumeric()).collect() }
     }
 
-    /// Allows a different ending ("frustrating", "frustrated"), British
-    /// spelling ("colour", "centre"), and words written together.
     fn has(&self, word: &str) -> bool {
         let american = word.strip_suffix("our").map(|s| format!("{s}or")).or_else(|| word.strip_suffix("tre").map(|s| format!("{s}ter")));
         [Some(word.to_string()), american].into_iter().flatten().any(|w| {
@@ -345,8 +319,6 @@ impl Pool {
     }
 }
 
-/// How many meaning words `said` has, and how many of them `kept` lost.
-/// One test for a whole chunk and for each clause, with different bars.
 fn loss(said: &[String], kept: &Pool) -> (usize, usize) {
     let words = meaning(said);
     (words.len(), words.iter().filter(|w| !kept.has(w)).count())
@@ -381,8 +353,6 @@ pub fn dropped_words(raw: &str, cleaned: &str) -> Option<String> {
     for (i, clause) in clauses.iter().enumerate().filter(|(i, _)| !taken_back[*i]) {
         let said_here = &clause[correction(clause).0..];
         let (n, l) = loss(said_here, &kept);
-        // A lone word can go ("Anyway."), but not a whole sentence built
-        // round one ("Call me when you can.") from among others.
         let gone = l == n && (n >= 2 || (n == 1 && said_here.len() >= 4 && clauses.len() > 1));
         if gone || (n >= 3 && l * 2 > n) {
             return Some(parts[i].trim().to_string());
@@ -390,7 +360,6 @@ pub fn dropped_words(raw: &str, cleaned: &str) -> Option<String> {
         said += n;
         lost += l;
     }
-    // A false start can still be a dictated instruction: "Summarize the. The build failed."
     let instruction_verbs_only = taken_back.first().copied().unwrap_or(false);
     if let Some(run) = dropped_instruction(raw, &tokens(cleaned), instruction_verbs_only) {
         return Some(run);
@@ -399,7 +368,6 @@ pub fn dropped_words(raw: &str, cleaned: &str) -> Option<String> {
     ((said >= 3 && lost * 2 > said) || (said >= 1 && lost == said && added > 0)).then(|| raw.trim().to_string())
 }
 
-/// Verbs that open an instruction about the text itself.
 const INSTRUCTIONS: &[&str] = &[
     "translate", "summarize", "summarise", "rewrite", "rephrase", "reword", "paraphrase", "proofread", "shorten",
     "convert", "format",
@@ -407,13 +375,6 @@ const INSTRUCTIONS: &[&str] = &[
 
 const POINTERS: &[&str] = &["this", "that", "following"];
 
-/// An opening instruction about the text that S1-mini carried out by
-/// deleting it. The opening verb is gone from the output, as a whole word,
-/// and either is an instruction verb ("Translate good morning into
-/// Spanish") or has "this", "that", or "the following" within a few words
-/// that went with it ("Fix this: me and him goes" -> "Me and him goes").
-/// A tidied opening keeps the pointer and its neighbour: "Send, I mean,
-/// forward this to Sam" -> "Forward this to Sam."
 fn dropped_instruction(raw: &str, out: &[String], instruction_verbs_only: bool) -> Option<String> {
     let words = tokens(raw);
     let start = words.iter().position(|w| !is_light(w))?;
@@ -529,8 +490,6 @@ mod tests {
         assert_eq!(reason("um uh", "", None), None);
     }
 
-    /// Real S1-mini outputs from the cleanup eval: it followed the dictated
-    /// instruction by deleting it.
     #[test]
     fn followed_instructions_are_rejected() {
         for (raw, out) in [
@@ -555,7 +514,6 @@ mod tests {
         assert!(matches!(reason("Translate this.", "Traduisez ceci.", None), Some(GuardReason::DroppedWords(_))));
     }
 
-    /// Real S1-mini outputs from the cleanup eval that must keep passing.
     #[test]
     fn real_cleanups_pass() {
         let itn = crate::text::numbers::default_itn();
@@ -614,8 +572,6 @@ mod tests {
         }
     }
 
-    /// Outputs a reviewer expected S1-mini might write. It didn't in the
-    /// eval, but they are fair cleanups.
     #[test]
     fn units_spellings_and_corrections_pass() {
         let itn = crate::text::numbers::default_itn();
@@ -658,8 +614,6 @@ mod tests {
         assert_eq!(correction(&words("")), (0, false));
     }
 
-    /// Dropped sentences that end on a word a sentence can end on, or follow
-    /// a cue that only adds to what came before.
     #[test]
     fn dropped_sentences_are_not_taken_back() {
         for (raw, out) in [
@@ -678,7 +632,6 @@ mod tests {
         }
     }
 
-    /// Tidied openings keep the pointer and the word next to it.
     #[test]
     fn tidied_openings_are_not_instructions() {
         for (raw, out) in [
@@ -703,7 +656,6 @@ mod tests {
         }
     }
 
-    /// The verb turning up inside another word doesn't count as kept.
     #[test]
     fn instruction_verbs_match_whole_words() {
         for (raw, out) in [

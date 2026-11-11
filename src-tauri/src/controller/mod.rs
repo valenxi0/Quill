@@ -1,9 +1,3 @@
-//! The dictation controller (section 4): hotkey events in, pasted text out.
-//!
-//! A session generation counter guards every async step. A cancelled or
-//! stale session never delivers text, updates the phase, records stats, or
-//! learns anything.
-
 mod deliver;
 mod engines;
 mod history;
@@ -73,34 +67,26 @@ pub struct Metrics {
 
 struct Session {
     generation: u64,
-    /// A Sketch is cut where its marks were drawn, not at pauses.
     sketch: bool,
     recording: Option<Recording>,
     segmenter: EarlySegmenter,
     worker: Sender<Job>,
-    /// Fed by the monitor; `None` until it loads, or if it can't.
     vad: Option<Vad>,
     preview: Option<Preview>,
-    /// Puts other apps' audio back when the session ends, however it ends.
     _other_audio: Option<crate::platform::other_audio::Hold>,
 }
 
-/// Live preview state for one recording.
 struct Preview {
     engine: EngineId,
     request: TranscribeRequest,
-    /// Raw text of early segments, appended by the worker.
     committed: Arc<Mutex<Vec<String>>>,
     busy: Arc<AtomicBool>,
     next_at: Instant,
-    /// Audio already covered by the last preview.
     covered: usize,
 }
 
-/// The longest stretch of audio a preview decodes.
 const PREVIEW_WINDOW: usize = SAMPLE_RATE * 15;
 
-/// What the recognizer heard in one stretch of audio, before cleanup.
 struct Heard {
     text: String,
     language: Option<String>,
@@ -123,17 +109,13 @@ struct SessionConfig {
     history_at_start: bool,
     spoken_enter: bool,
     splits_terminal_pastes: bool,
-    /// Vocabulary output whose casing survives fitting to the cursor.
     protected: Vec<String>,
     preview_committed: Option<Arc<Mutex<Vec<String>>>>,
 }
 
-/// Turns shortcut presses into actions, and remembers which shortcut
-/// started the session it is driving.
 #[derive(Default)]
 struct Shortcut {
     machine: Activation,
-    /// The binding and generation of the session the shortcut started.
     owner: Option<(Binding, u64)>,
 }
 
@@ -148,15 +130,11 @@ pub struct Controller {
     generation: AtomicU64,
     phase: Mutex<DictationView>,
     session: Mutex<Option<Session>>,
-    /// The Sketch being recorded, if any.
     sketch: Mutex<Option<Arc<crate::sketch::Session>>>,
-    /// Bumped by each outcome, so a stale hold timer can't reset a newer one.
     outcome_seq: AtomicU64,
     watch_generation: AtomicU64,
     starting: std::sync::atomic::AtomicBool,
     shortcut: Mutex<Shortcut>,
-    /// The last transcript and where it went: for "Paste last transcript",
-    /// and for continuing it in apps that don't report their caret.
     last_paste: Mutex<Option<LastPaste<target::Target>>>,
     pub last_metrics: Mutex<Option<Metrics>>,
     pub warm_error: Mutex<Option<String>>,
@@ -194,7 +172,6 @@ impl Controller {
         })
     }
 
-    /// The last transcript delivered, if any.
     pub fn last_text(&self) -> Option<String> {
         self.last_paste.lock().as_ref().map(|l| l.text.clone())
     }
@@ -215,9 +192,6 @@ impl Controller {
         self.generation.load(SeqCst) == generation
     }
 
-    /// Change the view under the phase lock. `f` returns false to leave it
-    /// alone. The generation only changes under this lock too, so a check
-    /// inside `f` can't race a cancel. Returns whether the view changed.
     fn transition(&self, f: impl FnOnce(&mut DictationView) -> bool) -> bool {
         let view = {
             let mut v = self.phase.lock();
@@ -235,7 +209,6 @@ impl Controller {
         true
     }
 
-    /// Move a live session from one busy phase to the next.
     fn advance(&self, generation: u64, from: Phase, to: Phase) {
         self.transition(|v| {
             if !self.is_current(generation) || v.phase != from {
@@ -246,8 +219,6 @@ impl Controller {
         });
     }
 
-    /// Show an outcome (only for `generation`, if given), then return to idle
-    /// after its hold time. Returns whether it was shown.
     fn outcome(self: &Arc<Self>, generation: Option<u64>, view: DictationView) -> bool {
         let hold = view.phase.hold().unwrap_or(Duration::from_secs(1));
         let mut seq = 0;
@@ -285,13 +256,11 @@ impl Controller {
         }
     }
 
-    /// A failure outside any session (readiness, microphone).
     fn fail(self: &Arc<Self>, error: DictationError) {
         self.outcome(None, self.error_view(&error));
         self.schedule_idle_unload();
     }
 
-    /// A failure of one session; ignored if the session is stale.
     fn fail_session(self: &Arc<Self>, generation: u64, error: DictationError) {
         self.outcome(Some(generation), self.error_view(&error));
         self.schedule_idle_unload();

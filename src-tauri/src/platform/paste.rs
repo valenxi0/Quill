@@ -42,8 +42,6 @@ pub fn set_clipboard_text(text: &str) -> bool {
     write_clipboard_text(text).is_some()
 }
 
-/// Put `text` on the clipboard. Returns the clipboard's sequence number
-/// right after the write, to tell a later copy from this one.
 pub fn write_clipboard_text(text: &str) -> Option<u32> {
     let bytes: Vec<u8> = text.encode_utf16().chain([0]).flat_map(u16::to_le_bytes).collect();
     if !open_clipboard() {
@@ -94,19 +92,16 @@ unsafe fn put(format: u32, bytes: &[u8]) -> bool {
     }
 }
 
-/// The clipboard's contents, format by format.
 struct Snapshot {
     formats: Vec<(u32, Vec<u8>)>,
 }
 
-/// A snapshot bigger than this isn't taken; the transcript then stays.
 const MAX_SNAPSHOT_BYTES: usize = 64 << 20;
 /// Reading the clipboard can wait on the app that copied (delayed
 /// rendering). No format is read once this has passed, and the snapshot is
 /// dropped, so the transcript stays. One slow format still blocks for as
 /// long as the app takes to render it.
 const SNAPSHOT_BUDGET: Duration = Duration::from_millis(150);
-/// Another app took the clipboard while it was being read.
 const ERROR_CLIPBOARD_NOT_OPEN: WIN32_ERROR = WIN32_ERROR(1418);
 
 /// Formats whose data is a GDI or private handle rather than memory, so it
@@ -173,12 +168,9 @@ fn format_name(format: u32) -> Option<String> {
     (len > 0).then(|| String::from_utf16_lossy(&name[..len as usize]))
 }
 
-/// Read the open clipboard. `None` when it can't be read whole, in time.
 unsafe fn read_snapshot() -> Option<Snapshot> {
     unsafe {
         let started = Instant::now();
-        // List first, then read: rendering a format can let another app in,
-        // which ends a listing early.
         SetLastError(WIN32_ERROR(0));
         let mut listed = Vec::new();
         let mut format = 0;
@@ -234,8 +226,6 @@ fn take_snapshot() -> Option<Snapshot> {
     snapshot
 }
 
-/// Put `snapshot` back, unless the clipboard changed since `sequence`.
-/// Waits up to about 2 s for an app holding the clipboard to let go.
 fn put_back(snapshot: &Snapshot, sequence: u32) -> bool {
     for _ in 0..10 {
         if unsafe { GetClipboardSequenceNumber() } != sequence {
@@ -271,18 +261,12 @@ struct Pending {
     id: u64,
 }
 
-/// The restore waiting to run, if any.
 static PENDING: Mutex<Option<Pending>> = Mutex::new(None);
 static NEXT_RESTORE: AtomicU64 = AtomicU64::new(0);
 
-/// What was on the clipboard before Quill wrote a transcript, to put back
-/// after the paste.
 pub struct SavedClipboard(Arc<Snapshot>);
 
 impl SavedClipboard {
-    /// Save the clipboard. Taken while an earlier restore is still waiting,
-    /// the clipboard holds Quill's last transcript: that restore is
-    /// cancelled and its snapshot kept instead.
     pub fn take() -> Option<Self> {
         if let Some(p) = PENDING.lock().take() {
             if p.sequence == unsafe { GetClipboardSequenceNumber() } {
@@ -292,16 +276,10 @@ impl SavedClipboard {
         take_snapshot().map(|s| Self(Arc::new(s)))
     }
 
-    /// Put the saved clipboard back now: after a cancelled paste, unless the
-    /// clipboard changed after Quill's own write (`sequence`); after a failed
-    /// write (`None`), whatever the clipboard holds.
     pub fn restore_now(self, sequence: Option<u32>) -> bool {
         put_back(&self.0, sequence.unwrap_or_else(|| unsafe { GetClipboardSequenceNumber() }))
     }
 
-    /// Put the saved clipboard back after `delay`, unless the clipboard
-    /// changed after Quill's own write (`sequence`, from
-    /// [`write_clipboard_text`]). Returns whether it was put back.
     pub fn restore_after(self, delay: Duration, sequence: u32) -> std::thread::JoinHandle<bool> {
         let id = NEXT_RESTORE.fetch_add(1, SeqCst) + 1;
         *PENDING.lock() = Some(Pending { snapshot: self.0, sequence, id });
@@ -319,8 +297,6 @@ impl SavedClipboard {
     }
 }
 
-/// Put back a restore still waiting, before Quill exits, with the same check
-/// for a newer copy.
 pub fn flush_pending_restore() {
     if let Some(p) = PENDING.lock().take() {
         put_back(&p.snapshot, p.sequence);
@@ -333,7 +309,6 @@ pub fn remote_desktop(exe: &str) -> bool {
     ["mstsc.exe", "msrdc.exe"].iter().any(|e| exe.eq_ignore_ascii_case(e))
 }
 
-/// How long after the paste the clipboard is put back.
 pub fn restore_delay(target: &Target) -> Duration {
     Duration::from_millis(if remote_desktop(&target.exe) { 3000 } else { 500 })
 }
@@ -481,7 +456,6 @@ pub fn press_enter() -> bool {
 mod tests {
     use super::*;
 
-    /// Each registered format on the clipboard, with its DWORD value.
     fn registered_formats() -> Vec<(String, Option<u32>)> {
         assert!(open_clipboard(), "clipboard opened");
         let mut out = Vec::new();
@@ -536,7 +510,6 @@ mod tests {
         assert_eq!(restore_delay(&Target::default()), Duration::from_millis(500));
     }
 
-    /// A 2x1 DIB: a red and a blue pixel.
     fn sample_dib() -> Vec<u8> {
         let mut dib = Vec::new();
         for v in [40u32, 2, 1] {
@@ -551,8 +524,6 @@ mod tests {
         dib
     }
 
-    /// A copy made by the user, as another app would: text and an image,
-    /// no privacy markers.
     fn user_copy(text: &str) {
         let utf16: Vec<u8> = text.encode_utf16().chain([0]).flat_map(u16::to_le_bytes).collect();
         assert!(open_clipboard(), "clipboard opened");
@@ -681,9 +652,6 @@ mod tests {
         }
     }
 
-    /// The time the clipboard step of a dictation takes, which counts toward
-    /// stop_to_clipboard_ms: the write alone (restore off) or the snapshot
-    /// plus the write (restore on), with plain text copied before.
     #[test]
     #[ignore = "replaces the clipboard's contents"]
     fn clipboard_step_timing() {

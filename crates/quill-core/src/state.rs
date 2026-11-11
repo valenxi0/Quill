@@ -77,7 +77,6 @@ pub enum Input {
     Chord,
 }
 
-/// Where a lone-modifier press goes back to if it turns into a chord.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Rest {
     Idle,
@@ -89,15 +88,9 @@ enum Rest {
 enum Stage {
     #[default]
     Idle,
-    /// A lone modifier is down with nothing else. Nothing has happened yet.
-    /// `due`: when holding it takes effect; `None` waits for the release.
     Armed { since: u64, from: Rest, binding: Binding, due: Option<u64> },
-    /// Recording while the shortcut is held, pressed at `since`.
     Held { since: u64 },
-    /// After a tap: a second press before `until` locks. `recording`: the
-    /// tap started a recording that the timer discards.
     Waiting { until: u64, recording: bool },
-    /// Recording hands-free until the next press.
     Locked,
 }
 
@@ -117,7 +110,6 @@ impl From<Rest> for Stage {
 #[derive(Debug, Clone, Default)]
 pub struct Activation {
     stage: Stage,
-    /// When a lone-modifier press last started a recording.
     lone_start: Option<u64>,
 }
 
@@ -191,12 +183,10 @@ impl Activation {
         use Action::*;
         let recording = phase == Phase::Recording;
         match (self.stage, input) {
-            // Started from the tray, a link, or Sketch: a press finishes it.
             (Stage::Idle, Input::Pressed) if recording => Stop,
             (Stage::Idle, Input::Pressed) if !phase.is_busy() => self.started(binding, Stage::Held { since: now }),
             (Stage::Held { since }, Input::Released) => self.release_held(since, now),
             (Stage::Waiting { until, .. }, Input::Pressed) => {
-                // A late press, before the timer ran, holds the same recording.
                 self.stage = if now <= until { Stage::Locked } else { Stage::Held { since: now } };
                 Ignore
             }
@@ -208,7 +198,6 @@ impl Activation {
         }
     }
 
-    /// Hold-or-lock: a hold finishes, a tap waits for a second one.
     fn release_held(&mut self, since: u64, now: u64) -> Action {
         if now.saturating_sub(since) >= TAP_MS {
             self.stage = Stage::Idle;
@@ -232,7 +221,6 @@ impl Activation {
                     Stage::Locked => Rest::Locked,
                     _ => Rest::Idle,
                 };
-                // Toggle, and push to talk finishing a recording, wait for the release.
                 let due = match mode {
                     ActivationMode::Toggle => None,
                     ActivationMode::PushToTalk if recording => None,
@@ -251,7 +239,6 @@ impl Activation {
         }
     }
 
-    /// A lone press takes effect: on a clean release, or once armed.
     #[allow(clippy::too_many_arguments)]
     fn fire(&mut self, mode: ActivationMode, since: u64, from: Rest, binding: Binding, now: u64, phase: Phase, released: bool) -> Action {
         use Action::*;
@@ -267,7 +254,6 @@ impl Activation {
             ActivationMode::Toggle if busy => Ignore,
             ActivationMode::Toggle => start(self, Stage::Idle),
             ActivationMode::PushToTalk if recording => if released { Stop } else { Ignore },
-            // A tap shorter than the arm delay does nothing.
             ActivationMode::PushToTalk if released || busy => Ignore,
             ActivationMode::PushToTalk => start(self, Stage::Held { since }),
             ActivationMode::HoldOrLock => match from {
@@ -297,7 +283,6 @@ impl Activation {
         }
     }
 
-    /// The double-tap window closes: a tap's recording is dropped.
     fn expire(&mut self, until: u64, tap_recording: bool, now: u64, phase: Phase) -> Action {
         if now < until {
             return Action::Ignore;
@@ -374,8 +359,6 @@ mod tests {
         }
     }
 
-    /// Feeds `(input, ms, phase, want, deadline)` steps from `binding`
-    /// through one machine.
     fn run_as(mode: ActivationMode, lone: bool, binding: Binding, steps: &[(Input, u64, Phase, Action, Option<u64>)]) {
         let mut m = Activation::default();
         for (i, &(input, now, phase, want, deadline)) in steps.iter().enumerate() {
@@ -424,7 +407,6 @@ mod tests {
 
     #[test]
     fn hold_or_lock_second_press_just_after_the_window() {
-        // The timer went first: the tap is gone and the press starts afresh.
         run(HoldOrLock, false, &[
             (P, 0, Idle, Action::Start(Binding::Dictate), None),
             (R, 100, Recording, Action::Ignore, Some(400)),
@@ -432,7 +414,6 @@ mod tests {
             (P, 401, Idle, Action::Start(Binding::Dictate), None),
             (R, 1500, Recording, Action::Stop, None),
         ]);
-        // The press beat a late timer: it holds the running recording.
         run(HoldOrLock, false, &[
             (P, 0, Idle, Action::Start(Binding::Dictate), None),
             (R, 100, Recording, Action::Ignore, Some(400)),
@@ -444,8 +425,6 @@ mod tests {
 
     #[test]
     fn tap_timing_uses_event_times_not_when_they_are_handled() {
-        // The start took 600 ms, so the release and second press are handled
-        // late; their stamps still make a double tap.
         run(HoldOrLock, false, &[
             (P, 0, Idle, Action::Start(Binding::Dictate), None),
             (R, 90, Recording, Action::Ignore, Some(390)),
@@ -495,7 +474,6 @@ mod tests {
                 (Tick, 900, phase, Action::Ignore, None),
             ]);
         }
-        // A recording that ended on its own (the cap, an error) resets the machine.
         run(HoldOrLock, false, &[
             (P, 0, Idle, Action::Start(Binding::Dictate), None),
             (R, 100, Recording, Action::Ignore, Some(400)),
@@ -530,7 +508,6 @@ mod tests {
             (Tick, 200, Idle, Action::Start(Binding::Dictate), None),
             (R, 2000, Recording, Action::Stop, None),
         ]);
-        // Released clean before arming: a tap does nothing.
         run(PushToTalk, true, &[
             (P, 0, Idle, Action::Ignore, Some(200)),
             (R, 120, Idle, Action::Ignore, None),
@@ -592,7 +569,6 @@ mod tests {
             (P, 5000, Recording, Action::Ignore, Some(5200)),
             (R, 5080, Recording, Action::Stop, None),
         ]);
-        // A single clean tap leaves nothing behind.
         run(HoldOrLock, true, &[
             (P, 0, Idle, Action::Ignore, Some(200)),
             (R, 90, Idle, Action::Ignore, Some(390)),
@@ -601,7 +577,6 @@ mod tests {
             (Tick, 1200, Idle, Action::Start(Binding::Dictate), None),
             (R, 1500, Recording, Action::Stop, None),
         ]);
-        // Tap, then Ctrl+C: nothing at all.
         run(HoldOrLock, true, &[
             (P, 0, Idle, Action::Ignore, Some(200)),
             (R, 90, Idle, Action::Ignore, Some(390)),
@@ -654,7 +629,6 @@ mod tests {
             (Tick, 500, Recording, Action::Ignore, None),
             (R, 900, Recording, Action::Stop, None),
         ]);
-        // Ctrl+C during it leaves it running.
         run(PushToTalk, true, &[
             (P, 0, Recording, Action::Ignore, None),
             (Chord, 40, Recording, Action::Ignore, None),

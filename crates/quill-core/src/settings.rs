@@ -232,7 +232,6 @@ pub struct VoiceDictation {
     /// Put back what was on the clipboard after a paste. Off: the
     /// transcript stays on the clipboard.
     pub restore_clipboard: bool,
-    /// How long transcript history keeps a record.
     pub history_retention: crate::history::Retention,
 }
 

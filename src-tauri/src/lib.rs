@@ -80,13 +80,6 @@ pub fn run() {
                 }
                 Err(e) => (None, Some(format!("The global shortcut is unavailable: {e}"))),
             };
-            // Clicks count as input between dictations, like typing. Order
-            // matters: a process has one Raw Input target per device type, so
-            // while a continuation is possible the mouse is taken from tao's
-            // device events, which Quill doesn't use. Anything that registers
-            // the mouse later (tao's set_device_event_filter) takes it back,
-            // and input_activity::count() then reports None, which turns
-            // continuation off.
             platform::clicks::start();
 
             let preferred_languages = platform::system::preferred_languages();
@@ -232,10 +225,7 @@ pub fn run() {
         });
 }
 
-/// Put things back before Quill exits, on every way out: a quit, and the
-/// updater's installer, which exits without RunEvent::Exit.
 pub(crate) fn before_exit() {
-    // A paste moments ago may still owe the user their clipboard.
     platform::paste::flush_pending_restore();
     platform::other_audio::restore_all();
     engines::gpu::release_on_exit();

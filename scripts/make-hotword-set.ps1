@@ -1,7 +1,3 @@
-# Builds rare-term clips for the hotword experiment in
-# %LOCALAPPDATA%\Quill\EvalTerms with Windows' speech synthesizer:
-# <name>.wav (16 kHz mono PCM), <name>.txt, and terms.txt (one term per line).
-# Run with `quill-bench --hotwords %LOCALAPPDATA%\Quill\EvalTerms`.
 Add-Type -AssemblyName System.Speech
 $dir = Join-Path $env:LOCALAPPDATA "Quill\EvalTerms"
 New-Item -ItemType Directory -Force $dir | Out-Null

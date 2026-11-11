@@ -51,7 +51,6 @@ const ACTIVATION_DETAIL = {
   holdOrLock: "Hold the shortcut while you speak, or tap it twice to keep recording until you press it again.",
 };
 
-/** What to press while Settings captures a dictation shortcut. */
 export const CAPTURE_HINT =
   "Hold Ctrl, Alt, Shift or Win, then press another key. A mouse side button, or Right Ctrl or Right Alt tapped alone, also works. Esc cancels.";
 
@@ -240,8 +239,6 @@ function ActivationCard({ ctx }: { ctx: Ctx }) {
   );
 }
 
-/// The shortcut capture button, with Reset when it isn't the default. The
-/// no-cleanup shortcut has Clear instead.
 export function ShortcutButton({ ctx, slot = "dictate" }: { ctx: Ctx; slot?: ShortcutSlot }) {
   const s = ctx.state;
   const raw = slot === "raw";
@@ -326,7 +323,6 @@ function EngineCard({ ctx }: { ctx: Ctx }) {
   const [confirm, setConfirm] = useState<{ engine?: EngineView; assets: AssetView[] } | null>(null);
   const selected = ctx.state.engines.find((e) => e.id === vd.engine);
   const run = (p: Promise<unknown>) => p.catch((e) => setError(String(e)));
-  // Fixed for the life of the process, so one read is enough.
   const [gpuCrash, setGpuCrash] = useState(false);
   useEffect(() => {
     api.gpuFallback().then(setGpuCrash).catch(() => {});
