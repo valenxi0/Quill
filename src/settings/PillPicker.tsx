@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Waveform } from "@phosphor-icons/react";
 import { api, type PillStyle } from "../lib/api";
 import { useDocumentVisible } from "@/lib/dither/motion";
-import { fakeLevel, METER_HISTORY, METERS } from "../overlay/meters";
+import { METER_HISTORY, METERS } from "../overlay/meters";
 import type { Ctx } from "./App";
 import { Card, CardHeader, cx } from "./ui";
 
@@ -13,6 +13,13 @@ const STYLES: { value: PillStyle; label: string }[] = [
   { value: "glow", label: "Glow" },
 ];
 
+/** A fake voice for the previews: syllable bursts with pauses between phrases. */
+function fakeLevel(seconds: number): number {
+  const phrase = Math.sin(seconds * 0.9) + Math.sin(seconds * 0.37 + 1) > -0.6 ? 1 : 0.05;
+  const syllable = Math.max(0, Math.sin(seconds * 9.5) * 0.55 + Math.sin(seconds * 5.3 + 2) * 0.35 + 0.25);
+  return Math.min(1, Math.max(0, phrase * syllable * 0.85));
+}
+
 /** Same cadence as the microphone readings while recording. */
 const TICK_MS = 83;
 
@@ -20,7 +27,7 @@ function fakeHistory(seconds: number) {
   return Array.from({ length: METER_HISTORY }, (_, i) => fakeLevel(seconds - (METER_HISTORY - 1 - i) * (TICK_MS / 1000)));
 }
 
-/** A fake voice for the previews. It only ticks while Settings is visible and motion is on. */
+/** Fake readings for the previews. They only tick while Settings is visible. */
 function useFakeLevels(running: boolean) {
   const [levels, setLevels] = useState(() => fakeHistory(4));
   useEffect(() => {
@@ -42,7 +49,7 @@ export function PillPicker({ ctx }: { ctx: Ctx }) {
     api.animationsEnabled().then((on) => setReduced(!on)).catch(() => {});
   }, []);
   const visible = useDocumentVisible();
-  const levels = useFakeLevels(visible && !reduced);
+  const levels = useFakeLevels(visible);
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
 
   const pick = (next: PillStyle) => {

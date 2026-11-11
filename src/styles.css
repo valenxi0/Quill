@@ -19,19 +19,6 @@
   --yellow: #ffd60a;
   --orange: #ff9f0a;
   --red: #ff453a;
-
-  /* dithercn tokens, mapped to Quill's colours. Quill is dark only. */
-  --dither-ink: var(--text);
-  --dither-paper: var(--card);
-  --dither-cell: 2px;
-  --dither-color-blue: var(--accent);
-  --dither-color-purple: #bf5af2;
-  --dither-color-green: var(--green);
-  --dither-color-pink: #ff375f;
-  --dither-color-orange: var(--orange);
-  --dither-color-red: var(--red);
-  --dither-color-grey: #8e8e93;
-  --dither-bloom: 1;
 }
 
 @theme {
@@ -54,15 +41,6 @@
   --color-warn: var(--yellow);
   --color-alert: var(--orange);
   --color-danger: var(--red);
-  --color-dither-ink: var(--dither-ink);
-  --color-dither-paper: var(--dither-paper);
-  --color-dither-blue: var(--dither-color-blue);
-  --color-dither-purple: var(--dither-color-purple);
-  --color-dither-green: var(--dither-color-green);
-  --color-dither-pink: var(--dither-color-pink);
-  --color-dither-orange: var(--dither-color-orange);
-  --color-dither-red: var(--dither-color-red);
-  --color-dither-grey: var(--dither-color-grey);
 }
 
 html,
@@ -95,6 +73,15 @@ body.overlay {
   overflow: hidden;
 }
 
+/* The Dither pill draws its first frame within a few milliseconds of the
+   pill appearing; skip the engine's 700 ms fade from its fallback. */
+body.overlay .pill-dither > canvas {
+  transition: none;
+}
+body.overlay .pill-dither > [data-dither-fallback] {
+  transition-delay: 0s;
+}
+
 .selectable {
   user-select: text;
   cursor: text;
@@ -113,6 +100,9 @@ select option,
 select optgroup {
   background-color: var(--card);
   color: var(--text);
+}
+select option:disabled {
+  color: var(--text-3);
 }
 
 :focus-visible {
@@ -135,6 +125,7 @@ select optgroup {
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
 }
@@ -143,6 +134,7 @@ select optgroup {
 .reduced-motion *::before,
 .reduced-motion *::after {
   animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
   transition-duration: 0.01ms !important;
 }
 

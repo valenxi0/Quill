@@ -11,10 +11,9 @@ import {
   Warning as WarningIcon,
   Waveform,
 } from "@phosphor-icons/react";
+import { cn as cx } from "../lib/utils";
 
-export function cx(...parts: (string | false | null | undefined)[]): string {
-  return parts.filter(Boolean).join(" ");
-}
+export { cx };
 
 export function Card({ children, className, dim }: { children: ReactNode; className?: string; dim?: boolean }) {
   return (

@@ -88,7 +88,9 @@ function Pill({ children, recording }: { children: React.ReactNode; recording?: 
       style={{
         background: "rgba(10, 10, 10, 0.92)",
         border: recording ? "1px solid #ff453a" : "1px solid rgba(255,255,255,0.12)",
-        animation: recording ? "rise-in 0.16s ease-out, rec-breathe 2s ease-in-out infinite" : "rise-in 0.16s ease-out",
+        // Stepped: a smooth box-shadow animation repaints the pill on every
+        // display frame, which cost about a quarter of a core at 240 Hz.
+        animation: recording ? "rise-in 0.16s ease-out, rec-breathe 2s steps(15) infinite" : "rise-in 0.16s ease-out",
       }}
     >
       {children}

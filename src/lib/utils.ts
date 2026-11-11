@@ -1,4 +1,4 @@
-/** Joins class names, skipping empty ones. The dither engine imports it as `@/lib/utils`. */
+/** Joins class names, skipping empty ones. Named `cn` because the dither engine imports it as `@/lib/utils`. */
 export function cn(...parts: (string | false | null | undefined)[]): string {
   return parts.filter(Boolean).join(" ");
 }

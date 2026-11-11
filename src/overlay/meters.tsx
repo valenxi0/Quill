@@ -1,9 +1,10 @@
 // The voice meters the recording pill can show, also previewed in Settings.
 // Each takes recent voice readings (0..1, newest last). Nothing here runs
-// once the meter unmounts, and under reduced motion each draws one still frame.
-import { useEffect, useMemo, useRef, type ReactElement } from "react";
+// once the meter unmounts. Under reduced motion the meters still follow the
+// voice, but the waves stop travelling on their own.
+import { useEffect, useRef, useState, type CSSProperties, type ReactElement } from "react";
 import { DitherShader } from "@/lib/dither/shader";
-import { useFrameLoop } from "@/lib/dither/motion";
+import { useDocumentVisible } from "@/lib/dither/motion";
 import type { DitherPalette } from "@/lib/dither/tokens";
 import type { PillStyle } from "../lib/api";
 
@@ -17,8 +18,7 @@ export const METER_HISTORY = 28;
 
 const WIDTH = 64;
 const HEIGHT = 26;
-// The reduced-motion frame: a voice mid-sentence.
-const STILL_LEVEL = 0.45;
+/** The wave's phase while it isn't travelling. */
 const STILL_TIME = 1.3;
 
 export function BarsMeter({ levels }: MeterProps) {
@@ -50,51 +50,69 @@ function useCanvas() {
     return { g, scale };
   };
   const element = <canvas ref={ref} aria-hidden="true" className="block shrink-0" style={{ width: WIDTH, height: HEIGHT }} />;
-  return { ref, begin, element };
+  return { begin, element };
+}
+
+// One 30 Hz timer shared by every moving meter. A timer, not
+// requestAnimationFrame, so a 240 Hz display doesn't wake the page 240
+// times a second for 30 drawn frames.
+const TICK_MS = 33;
+const tickListeners = new Set<() => void>();
+let tickTimer: number | undefined;
+
+function onTick(listener: () => void) {
+  tickListeners.add(listener);
+  tickTimer ??= window.setInterval(() => tickListeners.forEach((l) => l()), TICK_MS);
+  return () => {
+    tickListeners.delete(listener);
+    if (tickListeners.size === 0) {
+      window.clearInterval(tickTimer);
+      tickTimer = undefined;
+    }
+  };
 }
 
 /**
- * Eases toward the newest reading as frames are drawn: a quarter of the way
- * per 60 Hz frame, whatever the actual frame rate.
+ * The wave's phase in seconds and its level. While `moving` (and the window
+ * is visible) both update on the shared tick, the level easing a quarter of
+ * the way to the newest reading per 60 Hz frame. Otherwise the phase holds
+ * and the level is the newest reading.
  */
-function useEased(target: number) {
-  const state = useRef({ target, value: 0, at: 0 });
+function useWave(target: number, moving: boolean) {
+  const visible = useDocumentVisible();
+  const running = moving && visible;
+  const [wave, setWave] = useState({ t: STILL_TIME, level: target });
+  const targetRef = useRef(target);
   useEffect(() => {
-    state.current.target = target;
+    targetRef.current = target;
   }, [target]);
-  return useMemo(
-    () => () => {
-      const s = state.current;
+  useEffect(() => {
+    if (!running) return;
+    let last = performance.now();
+    return onTick(() => {
       const now = performance.now();
-      const frames = s.at ? Math.min(6, (now - s.at) / (1000 / 60)) : 1;
-      s.at = now;
-      s.value += (s.target - s.value) * (1 - Math.pow(0.75, frames));
-      return s.value;
-    },
-    [],
-  );
+      const frames = Math.min(6, (now - last) / (1000 / 60));
+      last = now;
+      setWave((w) => ({ t: now / 1000, level: w.level + (targetRef.current - w.level) * (1 - Math.pow(0.75, frames)) }));
+    });
+  }, [running]);
+  return running ? wave : { t: STILL_TIME, level: target };
 }
 
-const STILL_WAVE = Array.from({ length: METER_HISTORY }, (_, i) => {
-  const u = i / (METER_HISTORY - 1);
-  return 0.12 + 0.6 * Math.sin(Math.PI * u) * Math.abs(Math.sin(i * 0.9 + 0.4));
-});
-
 /** Thin bars mirrored around the centre line, fading at both ends. Redraws only when a reading arrives. */
-export function WaveformMeter({ levels, reduced }: MeterProps) {
+export function WaveformMeter({ levels }: MeterProps) {
   const canvas = useCanvas();
-  const shown = reduced ? STILL_WAVE : levels;
   useEffect(() => {
     const c = canvas.begin();
     if (!c) return;
     const { g } = c;
-    const n = shown.length;
+    const n = levels.length;
     const step = WIDTH / n;
     const barWidth = Math.max(0.5, step * 0.55);
     g.fillStyle = "#fff";
     for (let i = 0; i < n; i++) {
       const fade = Math.min(1, Math.min(i, n - 1 - i) / (n * 0.3));
-      const height = Math.max(HEIGHT * 0.06, (shown[i] ?? 0) * HEIGHT * 0.92);
+      const height = Math.max(HEIGHT * 0.06, (levels[i] ?? 0) * HEIGHT * 0.92);
       g.globalAlpha = 0.25 + 0.75 * fade;
       g.beginPath();
       g.roundRect(i * step + (step - barWidth) / 2, (HEIGHT - height) / 2, barWidth, height, barWidth / 2);
@@ -124,7 +142,6 @@ float field(vec2 uv, vec2 res, float t) {
 
 const DITHER_PALETTE: DitherPalette = ["transparent", "#ffffff"];
 const DITHER_CELL = 2;
-const STILL_UNIFORMS = { pillLevel: STILL_LEVEL };
 
 /**
  * The engine fills whole cells, so neighbouring cells merge into solid
@@ -133,7 +150,7 @@ const STILL_UNIFORMS = { pillLevel: STILL_LEVEL };
  * At 100% scaling a cell is two device pixels and a gap would halve every
  * dot, so cells stay solid there.
  */
-function dotMask(): React.CSSProperties {
+function dotMask(): CSSProperties {
   const dpr = window.devicePixelRatio || 1;
   const device = Math.max(1, Math.round(DITHER_CELL * dpr));
   if (device < 3) return {};
@@ -150,29 +167,39 @@ function dotMask(): React.CSSProperties {
   };
 }
 
-/** A sound wave drawn as dither dots, on the dithercn engine. */
+let webgl: boolean | undefined;
+
+function hasWebGL() {
+  if (webgl === undefined) {
+    const gl = document.createElement("canvas").getContext("webgl");
+    webgl = gl !== null;
+    gl?.getExtension("WEBGL_lose_context")?.loseContext();
+  }
+  return webgl;
+}
+
+/**
+ * A sound wave drawn as dither dots, on the dithercn engine. The engine's
+ * own loop stays off: the shared tick sets the phase through `stillTime`,
+ * and the engine redraws a still shader whenever its props change. Without
+ * WebGL it shows the Waveform instead.
+ */
 export function DitherMeter({ levels, reduced }: MeterProps) {
-  const eased = useEased(levels.at(-1) ?? 0);
-  // A getter, so the shader reads the eased level on every frame it draws
-  // without re-rendering this component per frame.
-  const live = useMemo(
-    () => ({
-      get pillLevel() {
-        return eased();
-      },
-    }),
-    [eased],
-  );
+  const gl = hasWebGL();
+  const wave = useWave(levels.at(-1) ?? 0, !reduced && gl);
+  const fallback = <WaveformMeter levels={levels} reduced={reduced} />;
+  if (!gl) return fallback;
   return (
     <DitherShader
       field={DITHER_FIELD}
-      uniforms={reduced ? STILL_UNIFORMS : live}
+      uniforms={{ pillLevel: wave.level }}
       palette={DITHER_PALETTE}
       matrix="bayer4"
       cell={DITHER_CELL}
-      animate={!reduced}
-      stillTime={STILL_TIME}
-      className="shrink-0"
+      animate={false}
+      stillTime={wave.t}
+      fallback={fallback}
+      className="pill-dither shrink-0"
       style={{ width: WIDTH, height: HEIGHT, ...dotMask() }}
     />
   );
@@ -213,14 +240,11 @@ function drawGlow(g: CanvasRenderingContext2D, scale: number, level: number, t: 
 /** A soft multicolour wave, Siri style. */
 export function GlowMeter({ levels, reduced }: MeterProps) {
   const canvas = useCanvas();
-  const eased = useEased(levels.at(-1) ?? 0);
-  useFrameLoop(
-    (time) => {
-      const c = canvas.begin();
-      if (c) drawGlow(c.g, c.scale, reduced ? STILL_LEVEL : eased(), time);
-    },
-    { target: canvas.ref, enabled: !reduced, fps: 30, stillTime: STILL_TIME },
-  );
+  const wave = useWave(levels.at(-1) ?? 0, !reduced);
+  useEffect(() => {
+    const c = canvas.begin();
+    if (c) drawGlow(c.g, c.scale, wave.level, wave.t);
+  });
   return canvas.element;
 }
 
@@ -230,10 +254,3 @@ export const METERS: Record<PillStyle, (props: MeterProps) => ReactElement> = {
   dither: DitherMeter,
   glow: GlowMeter,
 };
-
-/** A fake voice for previews: syllable bursts with pauses between phrases. */
-export function fakeLevel(seconds: number): number {
-  const phrase = Math.sin(seconds * 0.9) + Math.sin(seconds * 0.37 + 1) > -0.6 ? 1 : 0.05;
-  const syllable = Math.max(0, Math.sin(seconds * 9.5) * 0.55 + Math.sin(seconds * 5.3 + 2) * 0.35 + 0.25);
-  return Math.min(1, Math.max(0, phrase * syllable * 0.85));
-}
