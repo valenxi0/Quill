@@ -45,9 +45,23 @@ pub fn set_clipboard_text(text: &str) -> bool {
 /// Put `text` on the clipboard. Returns the clipboard's sequence number
 /// right after the write, to tell a later copy from this one.
 pub fn write_clipboard_text(text: &str) -> Option<u32> {
+    try_write_clipboard_text(text).ok()
+}
+
+/// How far a failed clipboard write got.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WriteFailed {
+    /// Another app held the clipboard: it is untouched.
+    NotOpened,
+    /// The clipboard was emptied, then the text didn't go on. `sequence` is
+    /// the clipboard's sequence number right after.
+    Emptied { sequence: u32 },
+}
+
+pub fn try_write_clipboard_text(text: &str) -> Result<u32, WriteFailed> {
     let bytes: Vec<u8> = text.encode_utf16().chain([0]).flat_map(u16::to_le_bytes).collect();
     if !open_clipboard() {
-        return None;
+        return Err(WriteFailed::NotOpened);
     }
     let ok = unsafe {
         let _ = EmptyClipboard();
@@ -57,7 +71,8 @@ pub fn write_clipboard_text(text: &str) -> Option<u32> {
     unsafe {
         let _ = CloseClipboard();
     }
-    ok.then(|| unsafe { GetClipboardSequenceNumber() })
+    let sequence = unsafe { GetClipboardSequenceNumber() };
+    if ok { Ok(sequence) } else { Err(WriteFailed::Emptied { sequence }) }
 }
 
 /// Keep what Quill puts on the clipboard out of Win+V history and cloud
@@ -277,7 +292,12 @@ static NEXT_RESTORE: AtomicU64 = AtomicU64::new(0);
 
 /// What was on the clipboard before Quill wrote a transcript, to put back
 /// after the paste.
-pub struct SavedClipboard(Arc<Snapshot>);
+pub struct SavedClipboard {
+    snapshot: Arc<Snapshot>,
+    /// Taken over from a waiting restore: the clipboard then held Quill's
+    /// earlier transcript, at this sequence number.
+    adopted: Option<u32>,
+}
 
 impl SavedClipboard {
     /// Save the clipboard. Taken while an earlier restore is still waiting,
@@ -286,17 +306,27 @@ impl SavedClipboard {
     pub fn take() -> Option<Self> {
         if let Some(p) = PENDING.lock().take() {
             if p.sequence == unsafe { GetClipboardSequenceNumber() } {
-                return Some(Self(p.snapshot));
+                return Some(Self { snapshot: p.snapshot, adopted: Some(p.sequence) });
             }
         }
-        take_snapshot().map(|s| Self(Arc::new(s)))
+        take_snapshot().map(|s| Self { snapshot: Arc::new(s), adopted: None })
     }
 
-    /// Put the saved clipboard back now: after a cancelled paste, unless the
-    /// clipboard changed after Quill's own write (`sequence`); after a failed
-    /// write (`None`), whatever the clipboard holds.
-    pub fn restore_now(self, sequence: Option<u32>) -> bool {
-        put_back(&self.0, sequence.unwrap_or_else(|| unsafe { GetClipboardSequenceNumber() }))
+    /// Put the saved clipboard back now, after a paste cancelled before
+    /// Ctrl+V, unless the clipboard changed after Quill's own write
+    /// (`sequence`).
+    pub fn restore_now(self, sequence: u32) -> bool {
+        put_back(&self.snapshot, sequence)
+    }
+
+    /// Put the saved clipboard back after the transcript couldn't be
+    /// written, unless something newer was copied meanwhile. A user's copy
+    /// the write never touched stays as it is.
+    pub fn restore_after_failed_write(self, failed: WriteFailed) -> bool {
+        match failed {
+            WriteFailed::Emptied { sequence } => put_back(&self.snapshot, sequence),
+            WriteFailed::NotOpened => self.adopted.is_some_and(|sequence| put_back(&self.snapshot, sequence)),
+        }
     }
 
     /// Put the saved clipboard back after `delay`, unless the clipboard
@@ -304,7 +334,7 @@ impl SavedClipboard {
     /// [`write_clipboard_text`]). Returns whether it was put back.
     pub fn restore_after(self, delay: Duration, sequence: u32) -> std::thread::JoinHandle<bool> {
         let id = NEXT_RESTORE.fetch_add(1, SeqCst) + 1;
-        *PENDING.lock() = Some(Pending { snapshot: self.0, sequence, id });
+        *PENDING.lock() = Some(Pending { snapshot: self.snapshot, sequence, id });
         std::thread::spawn(move || {
             std::thread::sleep(delay);
             let mut pending = PENDING.lock();
@@ -657,7 +687,7 @@ mod tests {
         user_copy("The user's own copy");
         let saved = SavedClipboard::take().expect("snapshot taken");
         let written = write_clipboard_text("Cancelled transcript").expect("transcript written");
-        assert!(saved.restore_now(Some(written)), "given back at once");
+        assert!(saved.restore_now(written), "given back at once");
         println!("cancelled before the paste: text={:?}", text());
         assert_eq!(text(), "The user's own copy");
 
@@ -669,6 +699,44 @@ mod tests {
         println!("quit while a restore waited: text={:?}", text());
         assert_eq!(text(), "The user's own copy");
         assert!(!waiting.join().unwrap(), "the waiting restore found nothing left to do");
+
+        user_copy("The user's own copy");
+        let saved = SavedClipboard::take().expect("snapshot taken");
+        assert!(!saved.restore_after_failed_write(WriteFailed::NotOpened), "an untouched copy isn't rewritten");
+        assert_eq!(text(), "The user's own copy");
+
+        user_copy("The user's own copy");
+        let saved = SavedClipboard::take().expect("snapshot taken");
+        assert!(open_clipboard(), "clipboard opened");
+        unsafe {
+            let _ = EmptyClipboard();
+            let _ = CloseClipboard();
+        }
+        let emptied = WriteFailed::Emptied { sequence: unsafe { GetClipboardSequenceNumber() } };
+        assert!(saved.restore_after_failed_write(emptied), "an emptied clipboard gets the copy back");
+        println!("write failed after emptying: text={:?}", text());
+        assert_eq!(text(), "The user's own copy");
+
+        user_copy("The user's own copy");
+        let first = SavedClipboard::take().expect("snapshot taken");
+        let written = write_clipboard_text("First transcript").expect("first written");
+        let first = first.restore_after(Duration::from_secs(3), written);
+        let adopted = SavedClipboard::take().expect("pending snapshot adopted");
+        user_copy("A newer copy");
+        assert!(!adopted.restore_after_failed_write(WriteFailed::NotOpened), "never over a newer copy");
+        println!("write failed after a newer copy: text={:?}", text());
+        assert_eq!(text(), "A newer copy");
+        assert!(!first.join().unwrap(), "first cancelled");
+
+        user_copy("The user's own copy");
+        let first = SavedClipboard::take().expect("snapshot taken");
+        let written = write_clipboard_text("First transcript").expect("first written");
+        let first = first.restore_after(Duration::from_secs(3), written);
+        let adopted = SavedClipboard::take().expect("pending snapshot adopted");
+        assert!(adopted.restore_after_failed_write(WriteFailed::NotOpened), "the earlier transcript gives way");
+        println!("write failed over an earlier transcript: text={:?}", text());
+        assert_eq!(text(), "The user's own copy");
+        assert!(!first.join().unwrap(), "first cancelled");
     }
 
     fn plain_copy(text: &str) {
